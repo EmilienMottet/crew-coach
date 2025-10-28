@@ -48,11 +48,15 @@ Translation Agent → Translate to French (MANDATORY - audience is French-speaki
 Final JSON output (stdout) → n8n → Update Strava
 ```
 
-### MCP Tools (`tools/`)
-- `intervals_tools.py`: Wrappers for Intervals.icu data
-  - `get_intervals_activity_details`: Full activity metrics
-  - `get_intervals_activity_intervals`: Interval/segment breakdowns
-  - `get_recent_intervals_activities`: Recent activity list
+### MCP Tools (CrewAI DSL)
+- `IntervalsIcu__get_activity_details`: Full activity metrics
+- `IntervalsIcu__get_activity_intervals`: Interval/segment breakdowns
+- `IntervalsIcu__get_activities`: Recent activity list
+
+> These tools are exposed to the description agent via CrewAI's `mcps` field. Configure `MCP_SERVER_URL` (optionally comma-separated) and override `INTERVALS_MCP_TOOL_NAMES` to customise the set loaded at runtime.
+
+### Legacy Wrappers (`tools/`)
+- `intervals_tools.py`: Historical wrappers for Intervals.icu data (fallback usage)
 - `mcp_client.py`: JSON-RPC 2.0 client for MCP server communication
 
 ## Coding Conventions

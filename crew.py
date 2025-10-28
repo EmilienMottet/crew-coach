@@ -2,22 +2,23 @@
 import os
 import sys
 import json
-from typing import Dict, Any
+from typing import Any, Dict, List
 from dotenv import load_dotenv
 from crewai import Crew, Process, LLM
 import litellm
 
 from agents import create_description_agent, create_privacy_agent, create_translation_agent
 from tasks import create_description_task, create_privacy_task, create_translation_task
-from tools import (
-    get_intervals_activity_details,
-    get_intervals_activity_intervals,
-    get_recent_intervals_activities
-)
 
 
 class StravaDescriptionCrew:
     """Crew for generating and validating Strava activity descriptions."""
+
+    DEFAULT_INTERVALS_MCP_TOOLS: tuple[str, ...] = (
+        "IntervalsIcu__get_activity_details",
+        "IntervalsIcu__get_activity_intervals",
+        "IntervalsIcu__get_activities",
+    )
     
     def __init__(self):
         """Initialize the crew with LLM and agents."""
@@ -70,17 +71,58 @@ class StravaDescriptionCrew:
             additional_drop_params=["stop"]
         )
         
-        # Prepare tools for description agent
-        description_tools = [
-            get_intervals_activity_details,
-            get_intervals_activity_intervals,
-            get_recent_intervals_activities
-        ]
+        # Configure MCP references for Intervals.icu tools
+        self.intervals_tool_names = self._load_intervals_tool_names()
+        self.description_mcps = self._build_intervals_mcp_references(self.intervals_tool_names)
+
+        if not self.description_mcps:
+            print(
+                "\n⚠️  Warning: No MCP references configured for Intervals.icu tools. "
+                "Description agent will operate without live workout data.\n",
+                file=sys.stderr
+            )
+        else:
+            print(
+                "\n🔗 MCP references configured: "
+                f"{', '.join(self.description_mcps)}\n",
+                file=sys.stderr
+            )
         
         # Create agents
-        self.description_agent = create_description_agent(self.llm, description_tools)
+        self.description_agent = create_description_agent(
+            self.llm,
+            mcps=self.description_mcps
+        )
         self.privacy_agent = create_privacy_agent(self.llm)
         self.translation_agent = create_translation_agent(self.llm)
+
+    def _load_intervals_tool_names(self) -> List[str]:
+        """Load MCP tool names for Intervals.icu integration."""
+        env_value = os.getenv("INTERVALS_MCP_TOOL_NAMES", "")
+        if env_value:
+            tool_names = [name.strip() for name in env_value.split(",") if name.strip()]
+            if tool_names:
+                return tool_names
+        return list(self.DEFAULT_INTERVALS_MCP_TOOLS)
+
+    def _build_intervals_mcp_references(self, tool_names: List[str]) -> List[str]:
+        """Build MCP references (DSL syntax) for the description agent."""
+        raw_urls = os.getenv("MCP_SERVER_URL", "")
+        if not raw_urls:
+            return []
+
+        references: List[str] = []
+        for entry in (segment.strip() for segment in raw_urls.split(",")):
+            if not entry:
+                continue
+            if entry.startswith("crewai-amp:") or "#" in entry:
+                references.append(entry)
+                continue
+            if tool_names:
+                references.extend(f"{entry}#{tool_name}" for tool_name in tool_names)
+            else:
+                references.append(entry)
+        return references
     
     def process_activity(self, activity_data: Dict[str, Any]) -> Dict[str, Any]:
         """

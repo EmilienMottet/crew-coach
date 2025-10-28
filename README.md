@@ -211,9 +211,9 @@ crew/
 │   ├── description_task.py     # Tâche de génération
 │   ├── privacy_task.py         # Tâche de vérification
 │   └── translation_task.py     # Tâche de traduction (optionnel)
-├── tools/
-│   ├── mcp_client.py          # Client MCP pour API calls
-│   ├── intervals_tools.py     # Outils Intervals.icu
+├── tools/                     # Helpers MCP (legacy, optionnels)
+│   ├── mcp_client.py          # Client MCP HTTP (fallback)
+│   ├── intervals_tools.py     # Wrappers historiques Intervals.icu
 │   └── __init__.py
 ├── crew.py                     # Point d'entrée principal
 ├── requirements.txt
@@ -225,11 +225,15 @@ crew/
 ## 🛠️ Outils MCP disponibles
 
 ### Intervals.icu
-- `get_intervals_activity_details` : Détails complets d'une activité
-- `get_intervals_activity_intervals` : Données des intervalles/segments
-- `get_recent_intervals_activities` : Liste des activités récentes
+
+- `IntervalsIcu__get_activity_details` : Détails complets d'une activité
+- `IntervalsIcu__get_activity_intervals` : Données des intervalles/segments
+- `IntervalsIcu__get_activities` : Liste des activités récentes
+
+> ℹ️ Ces outils sont exposés automatiquement à l'agent de description via le champ `mcps` de CrewAI. Il suffit de définir `MCP_SERVER_URL` (ou plusieurs URL séparées par des virgules) dans l'environnement. Utilisez la variable optionnelle `INTERVALS_MCP_TOOL_NAMES` pour personnaliser la liste des outils à charger.
 
 ### Autres sources (via MCP)
+
 - Strava : Détails activités, segments, zones
 - Hexis.live : Données nutritionnelles
 - Spotify : Playlists d'entraînement
@@ -240,7 +244,7 @@ crew/
 Pour l'activité dans `input.json` (course à 11:54:41) :
 
 1. **Analyse** : Le système récupère les données d'Intervals.icu
-2. **Génération** : 
+2. **Génération** :
    - Titre : "🏃 12.3K Lunch Run - Intervals"
    - Description : Décrit la structure (échauffement, intervalles, récup)
 3. **Vérification** :
@@ -254,7 +258,7 @@ Pour l'activité dans `input.json` (course à 11:54:41) :
 
 ### Workflow complet
 
-```
+```text
 Strava Activity Created
   ↓
 Step 1: Generate Description (Description Agent)
@@ -278,16 +282,19 @@ Final Output → Update Strava
 ## 🐛 Dépannage
 
 ### Le serveur MCP ne répond pas
+ 
 ```bash
 # Vérifier la connectivité
 curl "https://mcp.emottet.com/metamcp/stravaDescriptionAgent/mcp?api_key=..."
 ```
 
 ### Erreur de parsing JSON
+
 - Vérifier que l'input est un JSON valide
 - S'assurer que `object_data` est présent
 
 ### Activité toujours en privé
+
 - Vérifier les horaires dans `.env`
 - Vérifier le fuseau horaire de `start_date_local`
 
@@ -331,6 +338,7 @@ Si cela fonctionne, le problème est résolu dans la version actuelle du code.
 ## 🤝 Support
 
 Pour toute question ou problème, vérifiez :
+
 1. Les logs stderr pour les détails d'exécution
 2. La connectivité au serveur MCP
 3. Les credentials Intervals.icu dans le serveur MCP

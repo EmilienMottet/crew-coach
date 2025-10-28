@@ -40,9 +40,9 @@ def create_description_task(agent, activity_data: Dict[str, Any]) -> Task:
     
     YOUR TASK:
     
-    1. USE INTERVALS.ICU DATA:
-       - Call get_intervals_activity_details with activity_id "{strava_id}" to get detailed metrics
-       - Call get_intervals_activity_intervals with activity_id "{strava_id}" to understand workout structure
+     1. USE INTERVALS.ICU DATA VIA MCP TOOLS:
+         - Call IntervalsIcu__get_activity_details with activity_id "{strava_id}" to get detailed metrics
+         - Call IntervalsIcu__get_activity_intervals with activity_id "{strava_id}" to understand workout structure
        - Analyze the data to understand the type of workout (tempo, intervals, easy run, etc.)
     
     2. CREATE A TITLE (max 50 characters):
