@@ -1,7 +1,7 @@
 crewai==0.86.0
 crewai-tools==0.17.0
 python-dotenv==1.0.0
-requests==2.31.0
+requests==2.32.4
 openai==1.58.1
 pytz==2025.2
 mcp>=1.1.0
