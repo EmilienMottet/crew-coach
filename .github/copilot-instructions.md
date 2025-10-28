@@ -14,11 +14,11 @@ This is a **CrewAI-based multi-agent system** that automatically generates engag
 ## Architecture
 
 ### Agent System
-The project uses a **two-agent sequential workflow**:
+The project uses a **three-agent sequential workflow**:
 
 1. **Activity Description Writer** (`agents/description_agent.py`)
    - Analyzes Intervals.icu training data
-   - Generates concise titles (≤50 chars) and descriptions (≤500 chars)
+   - Generates concise titles (≤50 chars) and descriptions (≤500 chars) in English
    - Identifies workout types (tempo, intervals, easy runs, etc.)
    - Uses emoji appropriately for visual appeal
 
@@ -28,13 +28,22 @@ The project uses a **two-agent sequential workflow**:
    - Recommends privacy settings (public/private)
    - Sanitizes sensitive information
 
+3. **Sports Content Translator** (`agents/translation_agent.py`)
+   - Translates titles and descriptions from English to French
+   - Preserves emojis and formatting
+   - Adapts sports terminology appropriately for French-speaking audience
+   - Maintains character limits (≤50 chars for title, ≤500 chars for description)
+   - **CRITICAL**: The Strava audience is French-speaking, so final content MUST be in French
+
 ### Data Flow
 ```
 Strava Webhook → n8n → crew.py (stdin)
   ↓
-Description Agent (+ MCP tools) → Generate content
+Description Agent (+ MCP tools) → Generate content (English)
   ↓
 Privacy Agent → Validate & adjust
+  ↓
+Translation Agent → Translate to French (MANDATORY - audience is French-speaking)
   ↓
 Final JSON output (stdout) → n8n → Update Strava
 ```
@@ -51,8 +60,9 @@ Final JSON output (stdout) → n8n → Update Strava
 ### Language & Comments
 - **Code**: Write in English (variables, functions, classes, docstrings)
 - **Comments**: English for technical explanations
-- **User-facing text**: French is acceptable in agent prompts/descriptions
+- **User-facing text**: French is REQUIRED for final Strava output (titles and descriptions)
 - **Documentation**: French (README.md) for end-users, English for code
+- **Important**: The Strava audience is French-speaking, so translation to French is MANDATORY
 
 ### Python Style
 - Follow **PEP 8** conventions
@@ -140,10 +150,21 @@ WORK_START_MORNING=08:30
 WORK_END_MORNING=12:00
 WORK_START_AFTERNOON=14:00
 WORK_END_AFTERNOON=17:00
+
+# Translation Configuration (REQUIRED - audience is French-speaking)
+TRANSLATION_ENABLED=true  # MUST be true for French output
+TRANSLATION_TARGET_LANGUAGE=French  # Target language (French for Strava)
+TRANSLATION_SOURCE_LANGUAGE=English  # Source language from Description Agent
 ```
 
 ### Optional
 - `OPENAI_API_KEY`: Alternative to `OPENAI_API_AUTH_TOKEN`
+
+### Translation Requirements
+- **CRITICAL**: `TRANSLATION_ENABLED` MUST be set to `true` in production
+- **Target Language**: Always `French` (the Strava audience is French-speaking)
+- **Source Language**: `English` (Description Agent generates in English)
+- Translation preserves emojis, formatting, and respects character limits
 
 ## Input/Output Contracts
 
@@ -166,12 +187,12 @@ JSON array from Strava webhook:
 ```
 
 ### Output (stdout)
-Structured JSON result:
+Structured JSON result (title and description in FRENCH):
 ```json
 {
   "activity_id": 16284886069,
-  "title": "🏃 12.3K Tempo Run - Strong Effort",
-  "description": "Solid tempo run with controlled pace...",
+  "title": "🏃 Sortie tempo 12.3K - Effort soutenu",
+  "description": "Sortie tempo solide avec un contrôle de l'allure...",
   "should_be_private": false,
   "privacy_check": {
     "approved": true,
@@ -188,6 +209,8 @@ Structured JSON result:
   }
 }
 ```
+
+**Note**: Title and description are in French because the Strava audience is French-speaking. The Translation Agent converts the English content from the Description Agent to French.
 
 ## Testing & Debugging
 
@@ -356,8 +379,10 @@ Potential areas for expansion:
 
 When helping with this project:
 1. **Always check** existing code patterns before suggesting new approaches
-2. **Respect** the two-agent architecture (don't add agents without discussion)
+2. **Respect** the three-agent architecture (Description → Privacy → Translation)
 3. **Follow** error handling patterns (try-except, fallback values, stderr logging)
 4. **Test** MCP and LLM connectivity before debugging agent logic
 5. **Document** any new environment variables or configuration options
 6. **Maintain** compatibility with n8n workflow expectations (stdin/stdout JSON)
+7. **CRITICAL**: Ensure translation to French is ALWAYS enabled (TRANSLATION_ENABLED=true)
+8. **Remember**: The Strava audience is French-speaking, so final output MUST be in French
