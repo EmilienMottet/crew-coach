@@ -1,9 +1,13 @@
 """Agent responsible for creating activity titles and descriptions."""
 from crewai import Agent
-from typing import Any
+from typing import Any, Optional, Sequence
 
 
-def create_description_agent(llm: Any, tools: list) -> Agent:
+def create_description_agent(
+    llm: Any,
+    tools: Optional[Sequence[Any]] = None,
+    mcps: Optional[Sequence[str]] = None
+) -> Agent:
     """
     Create an agent that generates engaging titles and descriptions for activities.
     
@@ -19,10 +23,13 @@ def create_description_agent(llm: Any, tools: list) -> Agent:
     Returns:
         Configured Agent instance
     """
-    return Agent(
-        role="Activity Description Writer",
-        goal="Create engaging and informative titles and descriptions for running activities based on Intervals.icu training data",
-        backstory="""You are an expert sports writer and running coach who specializes in 
+    tools_list = list(tools) if tools else []
+    mcps_list = list(mcps) if mcps else []
+
+    agent_kwargs = {
+        "role": "Activity Description Writer",
+        "goal": "Create engaging and informative titles and descriptions for running activities based on Intervals.icu training data",
+        "backstory": """You are an expert sports writer and running coach who specializes in 
         creating compelling activity descriptions. You have deep knowledge of:
         
         - Running terminology and training concepts (tempo, intervals, easy runs, long runs, etc.)
@@ -42,8 +49,13 @@ def create_description_agent(llm: Any, tools: list) -> Agent:
         - Share accomplishments with their community
         - Analyze their training later
         """,
-        verbose=True,
-        allow_delegation=False,
-        llm=llm,
-        tools=tools
-    )
+        "verbose": True,
+        "allow_delegation": False,
+        "llm": llm,
+        "tools": tools_list,
+    }
+
+    if mcps_list:
+        agent_kwargs["mcps"] = mcps_list
+
+    return Agent(**agent_kwargs)
