@@ -7,8 +7,8 @@ from dotenv import load_dotenv
 from crewai import Crew, Process, LLM
 import litellm
 
-from agents import create_description_agent, create_privacy_agent
-from tasks import create_description_task, create_privacy_task
+from agents import create_description_agent, create_privacy_agent, create_translation_agent
+from tasks import create_description_task, create_privacy_task, create_translation_task
 from tools import (
     get_intervals_activity_details,
     get_intervals_activity_intervals,
@@ -80,6 +80,7 @@ class StravaDescriptionCrew:
         # Create agents
         self.description_agent = create_description_agent(self.llm, description_tools)
         self.privacy_agent = create_privacy_agent(self.llm)
+        self.translation_agent = create_translation_agent(self.llm)
     
     def process_activity(self, activity_data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -257,6 +258,63 @@ class StravaDescriptionCrew:
             final_title = recommended_changes.get("title") or (generated_content.get("title", "Activity") if isinstance(generated_content, dict) else "Activity")
             final_description = recommended_changes.get("description") or (generated_content.get("description", "") if isinstance(generated_content, dict) else "")
         
+        # Step 3: Translate if enabled
+        print("\n🌐 Step 3: Translating content (if enabled)...\n", file=sys.stderr)
+        
+        translation_enabled = os.getenv("TRANSLATION_ENABLED", "false").lower() == "true"
+        
+        if translation_enabled:
+            # Prepare content for translation
+            content_to_translate = {
+                "title": final_title,
+                "description": final_description,
+                "workout_type": generated_content.get("workout_type", "Unknown") if isinstance(generated_content, dict) else "Unknown",
+                "key_metrics": generated_content.get("key_metrics", {}) if isinstance(generated_content, dict) else {}
+            }
+            
+            translation_task = create_translation_task(
+                self.translation_agent,
+                json.dumps(content_to_translate, indent=2)
+            )
+            
+            translation_crew = Crew(
+                agents=[self.translation_agent],
+                tasks=[translation_task],
+                process=Process.sequential,
+                verbose=True
+            )
+            
+            try:
+                translation_result = translation_crew.kickoff()
+                
+                # Parse translation result
+                translation_result_str = str(translation_result)
+                
+                # Strip markdown code block markers if present
+                translation_result_str = translation_result_str.strip()
+                if translation_result_str.startswith("```json"):
+                    translation_result_str = translation_result_str[7:]
+                if translation_result_str.startswith("```"):
+                    translation_result_str = translation_result_str[3:]
+                if translation_result_str.endswith("```"):
+                    translation_result_str = translation_result_str[:-3]
+                translation_result_str = translation_result_str.strip()
+                
+                translated_content = json.loads(translation_result_str)
+                
+                # Use translated title and description
+                final_title = translated_content.get("title", final_title)
+                final_description = translated_content.get("description", final_description)
+                
+                print(f"\n✅ Translation successful:\nTitle: {final_title}\nDescription: {final_description[:100]}...\n", file=sys.stderr)
+                
+            except Exception as e:
+                print(f"\n⚠️ Warning: Translation failed, using original content: {str(e)}\n", file=sys.stderr)
+                # Keep original content if translation fails
+        else:
+            print("\n⏭️  Translation disabled, skipping...\n", file=sys.stderr)
+        
+        # Step 4: Combine results
         final_result = {
             "activity_id": activity_data.get("object_data", {}).get("id") if isinstance(activity_data.get("object_data"), dict) else None,
             "title": final_title,

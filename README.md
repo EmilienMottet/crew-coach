@@ -18,6 +18,13 @@ Réseau d'agents CrewAI pour générer automatiquement des titres et description
    - Recommande le niveau de confidentialité (public/privé)
    - Propose des versions nettoyées du contenu
 
+3. **Sports Content Translator** 🌐 *(Optionnel)*
+   - Traduit les titres et descriptions dans la langue cible
+   - Préserve les emojis et la mise en forme
+   - Adapte la terminologie sportive de manière appropriée
+   - Respecte les limites de caractères (50 pour le titre, 500 pour la description)
+   - S'active via la variable d'environnement `TRANSLATION_ENABLED=true`
+
 ### Règles de confidentialité
 
 - **Horaires de travail** : 08:30-12:00 et 14:00-17:00
@@ -92,6 +99,11 @@ WORK_START_MORNING=08:30
 WORK_END_MORNING=12:00
 WORK_START_AFTERNOON=14:00
 WORK_END_AFTERNOON=17:00
+
+# Traduction (optionnel)
+TRANSLATION_ENABLED=false
+TRANSLATION_TARGET_LANGUAGE=English
+TRANSLATION_SOURCE_LANGUAGE=French
 ```
 
 ### Modèles LLM disponibles
@@ -193,10 +205,12 @@ Le script attend des données au format webhook Strava :
 crew/
 ├── agents/
 │   ├── description_agent.py    # Génère titre et description
-│   └── privacy_agent.py        # Vérifie confidentialité
+│   ├── privacy_agent.py        # Vérifie confidentialité
+│   └── translation_agent.py    # Traduit le contenu (optionnel)
 ├── tasks/
 │   ├── description_task.py     # Tâche de génération
-│   └── privacy_task.py         # Tâche de vérification
+│   ├── privacy_task.py         # Tâche de vérification
+│   └── translation_task.py     # Tâche de traduction (optionnel)
 ├── tools/
 │   ├── mcp_client.py          # Client MCP pour API calls
 │   ├── intervals_tools.py     # Outils Intervals.icu
@@ -233,6 +247,33 @@ Pour l'activité dans `input.json` (course à 11:54:41) :
    - ⚠️ Activité à 11:54 = pendant les heures de travail (08:30-12:00)
    - ✅ Pas d'informations sensibles détectées
    - 🔒 **Recommandation : PRIVÉ**
+4. **Traduction** *(si activée)* :
+   - Traduit le titre et la description vers la langue cible
+   - Préserve les emojis et le formatage
+   - Adapte la terminologie sportive
+
+### Workflow complet
+
+```
+Strava Activity Created
+  ↓
+Step 1: Generate Description (Description Agent)
+  → Fetch data from Intervals.icu
+  → Analyze workout structure
+  → Generate title + description
+  ↓
+Step 2: Privacy Check (Privacy Agent)
+  → Detect sensitive information
+  → Check work hours compliance
+  → Sanitize if needed
+  ↓
+Step 3: Translation (Translation Agent) [Optional]
+  → Translate title to target language
+  → Translate description to target language
+  → Preserve emojis and formatting
+  ↓
+Final Output → Update Strava
+```
 
 ## 🐛 Dépannage
 
