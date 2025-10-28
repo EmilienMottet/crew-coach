@@ -1,0 +1,1758 @@
+[
+  {
+    "aspect_type": "create",
+    "event_time": 1761678623,
+    "object_id": 16284886069,
+    "object_type": "activity",
+    "owner_id": 22805774,
+    "subscription_id": 312192,
+    "updates": {},
+    "object_data": {
+      "resource_state": 3,
+      "athlete": {
+        "id": 22805774,
+        "resource_state": 1
+      },
+      "name": "Lunch Run",
+      "distance": 12337,
+      "moving_time": 3601,
+      "elapsed_time": 3618,
+      "total_elevation_gain": 77,
+      "type": "Run",
+      "sport_type": "Run",
+      "workout_type": null,
+      "device_name": "Garmin Forerunner 955",
+      "id": 16284886069,
+      "start_date": "2025-10-27T10:54:41Z",
+      "start_date_local": "2025-10-27T11:54:41Z",
+      "timezone": "(GMT+01:00) Europe/Paris",
+      "utc_offset": 3600,
+      "location_city": null,
+      "location_state": null,
+      "location_country": null,
+      "achievement_count": 0,
+      "kudos_count": 0,
+      "comment_count": 0,
+      "athlete_count": 2,
+      "photo_count": 0,
+      "map": {
+        "id": "a16284886069",
+        "polyline": "eomvGu`{Qq@{@We@COG_AKu@Uo@OOOIUUUIUOKOOIO[s@k@_@Qc@MOKm@Wa@MCEDaBLmA?EA?AE?OPcAdAeBTm@Fe@Nk@D_@Pe@AWIw@u@iBGWOSIWQg@k@qBM[UYAk@Q{@]m@Og@Ok@a@iAIc@Uy@EWIM_@mAMq@EQU]gAaDa@{A_@aA]wA_@eAEIEe@UaAMy@G}@OsAQyBIc@@uABi@DkBLmBE]Fm@UwEO}@E_@EiA@_AEUe@kAW{A@_AKmAKm@Bu@IuA@SCqADsB?u@BWAc@Gq@AQBa@Ci@BWFODEZMPATKtAa@VETKXEZOVUGaAi@{BAw@D{@Fc@Fq@XkA?UGY?cBCwABu@D}Dc@aGYkA{AaIaAwGOu@Iu@Oq@q@aGO_B_@{Ca@aEKq@QaBSoAIqAOoEKqAOeEEWA[i@eF@m@GeAEoBGw@AIS]QMa@Kg@EYEY?k@FS?sAFU?a@D}@D_@CSGIIo@u@MEM@}D~@}@Jm@JMNER?TVbDLdDJhB@b@BPFjCnArM\\jER`BPxBPbAb@tEAd@I\\w@|A]x@OREZFn@FXPb@Tb@|@vBRZp@dB\\xBJhALt@BZAZDXG^D`@h@vBVjAPJHJO`A@XFLrAx@jAhAd@r@JTZh@Pd@PXZx@`B~Fd@nAf@bBLf@BXL`@Hp@N\\LJZHd@?RDl@?JBDF?JIl@?NGRHp@Ft@Ex@ApAFdBBdDADIDQDKLIT?NNjALj@FVLPH`@L\\DXXx@V~@C^D|ARbALlBJzBElAIl@?bBItC?z@LtAFVBd@FXHj@LdBJ|@XhA^fAdApBLh@Fv@Pz@Rv@b@nA^r@Rr@@Zd@tAb@~A\\`A^pAv@pBDLBb@H\\zB~GF`@@PJb@Cr@Ab@BXAP_@bB]p@Y^Qj@QjBKr@A`@G\\?RFVHNd@V|@Z`@VPBn@b@FJ?HEnAB^d@`@PVh@f@JPh@b@\\l@p@l@LBVUTKt@i@b@SPSj@]XMtAy@\\[LEbAu@LCPKb@GTGNCFIH[JKNLEQAQBCVCXONYLm@DGD[P[Hq@Cg@Dc@?_@Hs@FgANq@D}@Ai@DiBI}@Aa@@IXQHyA?GH}A?QHs@@WFm@Aq@JgABmAF]FmADYBiAHy@BgAF_@JeBGEQTI?QGEBMRs@l@k@r@_Ax@QTcBrAc@h@y@l@[h@u@p@KBCA_@OIImAsCSw@Oc@Yg@K_@[m@]}@Yg@Se@Y_@Yy@QU{@gCe@eAWw@]o@AQ@OZo@TSHMKo@Sw@KkAIUIs@a@mBIe@Cm@]{Au@yFCMKOGc@Ca@Y_COi@Gc@Oq@_@iC}@mCIKQm@iAuCGY]cAIq@Se@e@cBC?E@W`@k@pA]^u@fAUVMTm@t@]l@WZYhAa@hAUDGAKGEAAB@z@CV@NTb@XX\\b@J\\@LCZDtAP|@HNVVJEPBTHP?FMASUk@a@qAKOCD",
+        "resource_state": 3,
+        "summary_polyline": "eomvGu`{Qq@{@We@WeCUo@u@o@k@YKOOIO[s@k@cA_@}@c@a@MCEDaBLmACK?OPcAdAeBTm@\\qBPe@AWIw@u@iBGWYk@}@yCc@u@Ak@Q{@]m@Og@q@uBe@uBi@{AMq@[o@gAaDa@{A_@aA]wAe@oAEe@UaAMy@G}@OsAQyBIc@JkFLmBE]Fm@UwEU}AEiA@_AEUe@kAW{A@_AKmAKm@Bu@IuAAeBDsB?u@BWAc@Gq@@s@Ci@BWLUl@OTK|Cy@r@e@GaAi@{BAw@D{@NuAXkA?UGY?cBCwAHsFc@aGYkA{AaIaAwGi@}Cq@aGqA}Lq@cFIqAk@gNq@yG@m@GeAEoBIaAS]QMcBWcHZ_@CSGy@_AMEkE`AkBVIHGNA^VbDLdDP~CFjCnArM\\jER`BPxBPbAb@tEAd@I\\eBjDEZFn@FXPb@fBvDp@dBv@xF@v@DXG^D`@`AbEZVO`A@XFLrAx@jAhAd@r@jA~BZx@`B~FlArD^bBHp@N\\LJZHfBDPJIx@?NGRPfBGjCFdBBdDi@^IT?N\\vBTh@V~@DXp@xBC^D|ARbAXhFElAIl@?bBItC?z@LtA\\bCLdBJ|@XhA^fAdApBLh@Fv@d@rBb@nA^r@Rr@@ZhAtD\\`A^pAv@pBRnAzB~GHr@Jb@Cr@?nAYrAc@`AY^Qj@_@`EG\\?RFVHNd@V|@Z`@VPBn@b@FTEnAB^d@`@fApAh@b@\\l@f@f@RHZUTKxA}@|@q@`B}@j@e@pA{@^OhASFIH[JKNLEQAQZGXOJS\\wARa@Dc@Ao@DcAHs@FgANq@D}@Ai@DiBI}@Aa@@IXQHyAHwBRyBAq@JgABmATeCLcCBgAF_@JeBGEQTa@CaA`Ak@r@qAnAcBrAc@h@y@l@[h@u@p@KBc@Q]k@y@qBa@uA[m@eAkCm@mAY_@Yy@QU{@gCe@eAWw@]o@?a@Zo@TSHMKo@Sw@KkAIUIs@a@mBMsA]{Au@yFO]Gc@Ca@Y_Cg@_C_@iC}@mCIKQm@iAuCe@}AIq@Se@e@cBI@W`@k@pA]^}DtFYhAa@hAUDSIG@?bBTb@XX\\b@J\\@LCZDtAP|@`@f@JEf@LRCDIASUk@a@qAKOCD"
+      },
+      "trainer": false,
+      "commute": false,
+      "manual": false,
+      "private": true,
+      "visibility": "only_me",
+      "flagged": false,
+      "gear_id": null,
+      "start_latlng": [
+        45.785631,
+        3.092754
+      ],
+      "end_latlng": [
+        45.790641,
+        3.112468
+      ],
+      "average_speed": 3.426,
+      "max_speed": 6.44,
+      "average_cadence": 84.2,
+      "average_watts": 405.2,
+      "max_watts": 892,
+      "weighted_average_watts": 411,
+      "device_watts": true,
+      "kilojoules": 1459.3,
+      "has_heartrate": true,
+      "average_heartrate": 141.6,
+      "max_heartrate": 169,
+      "heartrate_opt_out": false,
+      "display_hide_heartrate_option": true,
+      "elev_high": 377.2,
+      "elev_low": 327.8,
+      "upload_id": 17369623497,
+      "upload_id_str": "17369623497",
+      "external_id": "Course_?_pied_le_midi.fit",
+      "from_accepted_tag": false,
+      "pr_count": 0,
+      "total_photo_count": 0,
+      "has_kudoed": false,
+      "suffer_score": 34,
+      "description": null,
+      "calories": 839,
+      "perceived_exertion": null,
+      "prefer_perceived_exertion": null,
+      "segment_efforts": [
+        {
+          "id": 3418331821234917400,
+          "resource_state": 2,
+          "name": "la montagne - Michelin  ",
+          "activity": {
+            "id": 16284886069,
+            "visibility": "only_me",
+            "resource_state": 1
+          },
+          "athlete": {
+            "id": 22805774,
+            "resource_state": 1
+          },
+          "elapsed_time": 153,
+          "moving_time": 153,
+          "start_date": "2025-10-27T10:58:54Z",
+          "start_date_local": "2025-10-27T11:58:54Z",
+          "distance": 524.8,
+          "start_index": 253,
+          "end_index": 406,
+          "average_cadence": 83.7,
+          "device_watts": true,
+          "average_watts": 378.4,
+          "average_heartrate": 133.7,
+          "max_heartrate": 138,
+          "segment": {
+            "id": 26667151,
+            "resource_state": 2,
+            "name": "la montagne - Michelin  ",
+            "activity_type": "Run",
+            "distance": 524.8,
+            "average_grade": -0.9,
+            "maximum_grade": 0,
+            "elevation_high": 351.2,
+            "elevation_low": 346.4,
+            "start_latlng": [
+              45.788148,
+              3.101174
+            ],
+            "end_latlng": [
+              45.790591,
+              3.106869
+            ],
+            "elevation_profile": null,
+            "elevation_profiles": null,
+            "climb_category": 0,
+            "city": "Clermont-Ferrand",
+            "state": "Auvergne-Rhône-Alpes",
+            "country": "France",
+            "private": false,
+            "hazardous": false,
+            "starred": false
+          },
+          "pr_rank": null,
+          "achievements": [],
+          "visibility": "only_me",
+          "kom_rank": null,
+          "hidden": false
+        },
+        {
+          "id": 3418331821233274000,
+          "resource_state": 2,
+          "name": "400m M&M's",
+          "activity": {
+            "id": 16284886069,
+            "visibility": "only_me",
+            "resource_state": 1
+          },
+          "athlete": {
+            "id": 22805774,
+            "resource_state": 1
+          },
+          "elapsed_time": 120,
+          "moving_time": 120,
+          "start_date": "2025-10-27T11:08:40Z",
+          "start_date_local": "2025-10-27T12:08:40Z",
+          "distance": 422,
+          "start_index": 839,
+          "end_index": 959,
+          "average_cadence": 84.4,
+          "device_watts": true,
+          "average_watts": 375.1,
+          "average_heartrate": 137.9,
+          "max_heartrate": 141,
+          "segment": {
+            "id": 14089646,
+            "resource_state": 2,
+            "name": "400m M&M's",
+            "activity_type": "Run",
+            "distance": 422,
+            "average_grade": -0.4,
+            "maximum_grade": 3.7,
+            "elevation_high": 338.4,
+            "elevation_low": 334.4,
+            "start_latlng": [
+              45.790077,
+              3.123992
+            ],
+            "end_latlng": [
+              45.791352,
+              3.129105
+            ],
+            "elevation_profile": null,
+            "elevation_profiles": null,
+            "climb_category": 0,
+            "city": "Clermont-Ferrand",
+            "state": "Auvergne-Rhône-Alpes",
+            "country": "France",
+            "private": false,
+            "hazardous": false,
+            "starred": false
+          },
+          "pr_rank": null,
+          "achievements": [],
+          "visibility": "only_me",
+          "kom_rank": null,
+          "hidden": false
+        },
+        {
+          "id": 3418331821235538000,
+          "resource_state": 2,
+          "name": "Mile Gravanches",
+          "activity": {
+            "id": 16284886069,
+            "visibility": "only_me",
+            "resource_state": 1
+          },
+          "athlete": {
+            "id": 22805774,
+            "resource_state": 1
+          },
+          "elapsed_time": 439,
+          "moving_time": 439,
+          "start_date": "2025-10-27T11:08:45Z",
+          "start_date_local": "2025-10-27T12:08:45Z",
+          "distance": 1591.4,
+          "start_index": 844,
+          "end_index": 1283,
+          "average_cadence": 84.9,
+          "device_watts": true,
+          "average_watts": 394.9,
+          "average_heartrate": 141.6,
+          "max_heartrate": 147,
+          "segment": {
+            "id": 21945539,
+            "resource_state": 2,
+            "name": "Mile Gravanches",
+            "activity_type": "Run",
+            "distance": 1591.4,
+            "average_grade": -0.6,
+            "maximum_grade": 0.6,
+            "elevation_high": 339.8,
+            "elevation_low": 329.1,
+            "start_latlng": [
+              45.790144,
+              3.124151
+            ],
+            "end_latlng": [
+              45.796048,
+              3.139742
+            ],
+            "elevation_profile": null,
+            "elevation_profiles": null,
+            "climb_category": 0,
+            "city": "Clermont-Ferrand",
+            "state": "Auvergne-Rhône-Alpes",
+            "country": "France",
+            "private": false,
+            "hazardous": false,
+            "starred": false
+          },
+          "pr_rank": null,
+          "achievements": [],
+          "visibility": "only_me",
+          "kom_rank": null,
+          "hidden": false
+        },
+        {
+          "id": 3418331821233204000,
+          "resource_state": 2,
+          "name": "3000m des Gravanches",
+          "activity": {
+            "id": 16284886069,
+            "visibility": "only_me",
+            "resource_state": 1
+          },
+          "athlete": {
+            "id": 22805774,
+            "resource_state": 1
+          },
+          "elapsed_time": 821,
+          "moving_time": 821,
+          "start_date": "2025-10-27T11:08:53Z",
+          "start_date_local": "2025-10-27T12:08:53Z",
+          "distance": 2961.9,
+          "start_index": 852,
+          "end_index": 1673,
+          "average_cadence": 85,
+          "device_watts": true,
+          "average_watts": 431.4,
+          "average_heartrate": 145.5,
+          "max_heartrate": 156,
+          "segment": {
+            "id": 14265559,
+            "resource_state": 2,
+            "name": "3000m des Gravanches",
+            "activity_type": "Run",
+            "distance": 2961.9,
+            "average_grade": -0.1,
+            "maximum_grade": 3.4,
+            "elevation_high": 358,
+            "elevation_low": 350.6,
+            "start_latlng": [
+              45.790246,
+              3.124516
+            ],
+            "end_latlng": [
+              45.795078,
+              3.124046
+            ],
+            "elevation_profile": null,
+            "elevation_profiles": null,
+            "climb_category": 0,
+            "city": "Clermont-Ferrand",
+            "state": "Auvergne-Rhône-Alpes",
+            "country": "France",
+            "private": false,
+            "hazardous": false,
+            "starred": false
+          },
+          "pr_rank": null,
+          "achievements": [],
+          "visibility": "only_me",
+          "kom_rank": null,
+          "hidden": false
+        },
+        {
+          "id": 3418331821235835000,
+          "resource_state": 2,
+          "name": "1000m des Gravanches",
+          "activity": {
+            "id": 16284886069,
+            "visibility": "only_me",
+            "resource_state": 1
+          },
+          "athlete": {
+            "id": 22805774,
+            "resource_state": 1
+          },
+          "elapsed_time": 275,
+          "moving_time": 275,
+          "start_date": "2025-10-27T11:08:59Z",
+          "start_date_local": "2025-10-27T12:08:59Z",
+          "distance": 992.9,
+          "start_index": 858,
+          "end_index": 1133,
+          "average_cadence": 84.7,
+          "device_watts": true,
+          "average_watts": 390,
+          "average_heartrate": 140.3,
+          "max_heartrate": 144,
+          "segment": {
+            "id": 9105081,
+            "resource_state": 2,
+            "name": "1000m des Gravanches",
+            "activity_type": "Run",
+            "distance": 992.9,
+            "average_grade": -0.5,
+            "maximum_grade": 2.2,
+            "elevation_high": 337.2,
+            "elevation_low": 331.8,
+            "start_latlng": [
+              45.790253,
+              3.124759
+            ],
+            "end_latlng": [
+              45.7927,
+              3.136968
+            ],
+            "elevation_profile": null,
+            "elevation_profiles": null,
+            "climb_category": 0,
+            "city": "Clermont-Ferrand",
+            "state": "Auvergne",
+            "country": "France",
+            "private": false,
+            "hazardous": false,
+            "starred": false
+          },
+          "pr_rank": null,
+          "achievements": [],
+          "visibility": "only_me",
+          "kom_rank": null,
+          "hidden": false
+        },
+        {
+          "id": 3418331821235009500,
+          "resource_state": 2,
+          "name": "500-->1000 ",
+          "activity": {
+            "id": 16284886069,
+            "visibility": "only_me",
+            "resource_state": 1
+          },
+          "athlete": {
+            "id": 22805774,
+            "resource_state": 1
+          },
+          "elapsed_time": 140,
+          "moving_time": 140,
+          "start_date": "2025-10-27T11:10:59Z",
+          "start_date_local": "2025-10-27T12:10:59Z",
+          "distance": 507,
+          "start_index": 978,
+          "end_index": 1118,
+          "average_cadence": 84.8,
+          "device_watts": true,
+          "average_watts": 392.4,
+          "average_heartrate": 141.5,
+          "max_heartrate": 144,
+          "segment": {
+            "id": 23870648,
+            "resource_state": 2,
+            "name": "500-->1000 ",
+            "activity_type": "Run",
+            "distance": 507,
+            "average_grade": -0.4,
+            "maximum_grade": 0.9,
+            "elevation_high": 336.7,
+            "elevation_low": 334.5,
+            "start_latlng": [
+              45.791566,
+              3.129956
+            ],
+            "end_latlng": [
+              45.792527,
+              3.13633
+            ],
+            "elevation_profile": null,
+            "elevation_profiles": null,
+            "climb_category": 0,
+            "city": "Clermont-Ferrand",
+            "state": "Auvergne-Rhône-Alpes",
+            "country": "France",
+            "private": false,
+            "hazardous": false,
+            "starred": false
+          },
+          "pr_rank": null,
+          "achievements": [],
+          "visibility": "only_me",
+          "kom_rank": null,
+          "hidden": false
+        },
+        {
+          "id": 3418331821233083400,
+          "resource_state": 2,
+          "name": "1000 à 2000 gravanches",
+          "activity": {
+            "id": 16284886069,
+            "visibility": "only_me",
+            "resource_state": 1
+          },
+          "athlete": {
+            "id": 22805774,
+            "resource_state": 1
+          },
+          "elapsed_time": 270,
+          "moving_time": 270,
+          "start_date": "2025-10-27T11:13:21Z",
+          "start_date_local": "2025-10-27T12:13:21Z",
+          "distance": 985,
+          "start_index": 1120,
+          "end_index": 1390,
+          "average_cadence": 85.2,
+          "device_watts": true,
+          "average_watts": 434.4,
+          "average_heartrate": 145.5,
+          "max_heartrate": 150,
+          "segment": {
+            "id": 22869471,
+            "resource_state": 2,
+            "name": "1000 à 2000 gravanches",
+            "activity_type": "Run",
+            "distance": 985,
+            "average_grade": -0.2,
+            "maximum_grade": 2.1,
+            "elevation_high": 332.8,
+            "elevation_low": 329.1,
+            "start_latlng": [
+              45.792473,
+              3.136444
+            ],
+            "end_latlng": [
+              45.796957,
+              3.136122
+            ],
+            "elevation_profile": null,
+            "elevation_profiles": null,
+            "climb_category": 0,
+            "city": "Clermont-Ferrand",
+            "state": "Auvergne-Rhône-Alpes",
+            "country": "France",
+            "private": false,
+            "hazardous": false,
+            "starred": false
+          },
+          "pr_rank": null,
+          "achievements": [],
+          "visibility": "only_me",
+          "kom_rank": null,
+          "hidden": false
+        },
+        {
+          "id": 3418331821233495000,
+          "resource_state": 2,
+          "name": "Barriere à barriere gravanches retour",
+          "activity": {
+            "id": 16284886069,
+            "visibility": "only_me",
+            "resource_state": 1
+          },
+          "athlete": {
+            "id": 22805774,
+            "resource_state": 1
+          },
+          "elapsed_time": 328,
+          "moving_time": 328,
+          "start_date": "2025-10-27T11:14:00Z",
+          "start_date_local": "2025-10-27T12:14:00Z",
+          "distance": 1201.1,
+          "start_index": 1159,
+          "end_index": 1487,
+          "average_cadence": 85.2,
+          "device_watts": true,
+          "average_watts": 455.5,
+          "average_heartrate": 147.6,
+          "max_heartrate": 156,
+          "segment": {
+            "id": 21723512,
+            "resource_state": 2,
+            "name": "Barriere à barriere gravanches retour",
+            "activity_type": "Run",
+            "distance": 1201.1,
+            "average_grade": 0.1,
+            "maximum_grade": 2.8,
+            "elevation_high": 332.8,
+            "elevation_low": 329.4,
+            "start_latlng": [
+              45.792848,
+              3.13811
+            ],
+            "end_latlng": [
+              45.796228,
+              3.131722
+            ],
+            "elevation_profile": null,
+            "elevation_profiles": null,
+            "climb_category": 0,
+            "city": "Clermont-Ferrand",
+            "state": "Auvergne-Rhône-Alpes",
+            "country": "France",
+            "private": false,
+            "hazardous": false,
+            "starred": false
+          },
+          "pr_rank": null,
+          "achievements": [],
+          "visibility": "only_me",
+          "kom_rank": null,
+          "hidden": false
+        },
+        {
+          "id": 3418331821235425300,
+          "resource_state": 2,
+          "name": "Gravanches Ligne Droite retour",
+          "activity": {
+            "id": 16284886069,
+            "visibility": "only_me",
+            "resource_state": 1
+          },
+          "athlete": {
+            "id": 22805774,
+            "resource_state": 1
+          },
+          "elapsed_time": 162,
+          "moving_time": 162,
+          "start_date": "2025-10-27T11:16:45Z",
+          "start_date_local": "2025-10-27T12:16:45Z",
+          "distance": 593.1,
+          "start_index": 1324,
+          "end_index": 1486,
+          "average_cadence": 85.5,
+          "device_watts": true,
+          "average_watts": 499.5,
+          "average_heartrate": 150.2,
+          "max_heartrate": 156,
+          "segment": {
+            "id": 21732887,
+            "resource_state": 2,
+            "name": "Gravanches Ligne Droite retour",
+            "activity_type": "Run",
+            "distance": 593.1,
+            "average_grade": 0.3,
+            "maximum_grade": 1.8,
+            "elevation_high": 332.7,
+            "elevation_low": 331.1,
+            "start_latlng": [
+              45.797323,
+              3.139182
+            ],
+            "end_latlng": [
+              45.796216,
+              3.131733
+            ],
+            "elevation_profile": null,
+            "elevation_profiles": null,
+            "climb_category": 0,
+            "city": "Clermont-Ferrand",
+            "state": "Auvergne-Rhône-Alpes",
+            "country": "France",
+            "private": false,
+            "hazardous": false,
+            "starred": false
+          },
+          "pr_rank": null,
+          "achievements": [],
+          "visibility": "only_me",
+          "kom_rank": null,
+          "hidden": false
+        },
+        {
+          "id": 3418331821236094000,
+          "resource_state": 2,
+          "name": "Dechetterie 1000m",
+          "activity": {
+            "id": 16284886069,
+            "visibility": "only_me",
+            "resource_state": 1
+          },
+          "athlete": {
+            "id": 22805774,
+            "resource_state": 1
+          },
+          "elapsed_time": 276,
+          "moving_time": 276,
+          "start_date": "2025-10-27T11:17:52Z",
+          "start_date_local": "2025-10-27T12:17:52Z",
+          "distance": 996.9,
+          "start_index": 1391,
+          "end_index": 1667,
+          "average_cadence": 85.2,
+          "device_watts": true,
+          "average_watts": 469.4,
+          "average_heartrate": 150.7,
+          "max_heartrate": 156,
+          "segment": {
+            "id": 22869428,
+            "resource_state": 2,
+            "name": "Dechetterie 1000m",
+            "activity_type": "Run",
+            "distance": 996.9,
+            "average_grade": 0.5,
+            "maximum_grade": 2.7,
+            "elevation_high": 335.9,
+            "elevation_low": 331.3,
+            "start_latlng": [
+              45.796948,
+              3.136063
+            ],
+            "end_latlng": [
+              45.7951,
+              3.124327
+            ],
+            "elevation_profile": null,
+            "elevation_profiles": null,
+            "climb_category": 0,
+            "city": "Clermont-Ferrand",
+            "state": "Auvergne-Rhône-Alpes",
+            "country": "France",
+            "private": false,
+            "hazardous": false,
+            "starred": false
+          },
+          "pr_rank": null,
+          "achievements": [],
+          "visibility": "only_me",
+          "kom_rank": null,
+          "hidden": false
+        },
+        {
+          "id": 3418331821234941000,
+          "resource_state": 2,
+          "name": "Bld vincent auriol",
+          "activity": {
+            "id": 16284886069,
+            "visibility": "only_me",
+            "resource_state": 1
+          },
+          "athlete": {
+            "id": 22805774,
+            "resource_state": 1
+          },
+          "elapsed_time": 122,
+          "moving_time": 122,
+          "start_date": "2025-10-27T11:23:00Z",
+          "start_date_local": "2025-10-27T12:23:00Z",
+          "distance": 440,
+          "start_index": 1699,
+          "end_index": 1821,
+          "average_cadence": 85.2,
+          "device_watts": true,
+          "average_watts": 450.8,
+          "average_heartrate": 150.6,
+          "max_heartrate": 153,
+          "segment": {
+            "id": 21723431,
+            "resource_state": 2,
+            "name": "Bld vincent auriol",
+            "activity_type": "Run",
+            "distance": 440,
+            "average_grade": 0.5,
+            "maximum_grade": 3,
+            "elevation_high": 339.2,
+            "elevation_low": 337.2,
+            "start_latlng": [
+              45.794864,
+              3.123226
+            ],
+            "end_latlng": [
+              45.792436,
+              3.118908
+            ],
+            "elevation_profile": null,
+            "elevation_profiles": null,
+            "climb_category": 0,
+            "city": "Clermont-Ferrand",
+            "state": "Auvergne-Rhône-Alpes",
+            "country": "France",
+            "private": false,
+            "hazardous": false,
+            "starred": false
+          },
+          "pr_rank": null,
+          "achievements": [],
+          "visibility": "only_me",
+          "kom_rank": null,
+          "hidden": false
+        },
+        {
+          "id": 3418331821234901000,
+          "resource_state": 2,
+          "name": "Clos Four",
+          "activity": {
+            "id": 16284886069,
+            "visibility": "only_me",
+            "resource_state": 1
+          },
+          "athlete": {
+            "id": 22805774,
+            "resource_state": 1
+          },
+          "elapsed_time": 113,
+          "moving_time": 113,
+          "start_date": "2025-10-27T11:29:05Z",
+          "start_date_local": "2025-10-27T12:29:05Z",
+          "distance": 396,
+          "start_index": 2049,
+          "end_index": 2162,
+          "average_cadence": 85.5,
+          "device_watts": true,
+          "average_watts": 475.5,
+          "average_heartrate": 148.2,
+          "max_heartrate": 152,
+          "segment": {
+            "id": 20933051,
+            "resource_state": 2,
+            "name": "Clos Four",
+            "activity_type": "Run",
+            "distance": 396,
+            "average_grade": 0.6,
+            "maximum_grade": 5.6,
+            "elevation_high": 347.8,
+            "elevation_low": 342.6,
+            "start_latlng": [
+              45.790698,
+              3.110288
+            ],
+            "end_latlng": [
+              45.789994,
+              3.105453
+            ],
+            "elevation_profile": null,
+            "elevation_profiles": null,
+            "climb_category": 0,
+            "city": "Clermont-Ferrand",
+            "state": "Auvergne-Rhône-Alpes",
+            "country": "France",
+            "private": false,
+            "hazardous": false,
+            "starred": false
+          },
+          "pr_rank": null,
+          "achievements": [],
+          "visibility": "only_me",
+          "kom_rank": null,
+          "hidden": false
+        },
+        {
+          "id": 3418331821235709000,
+          "resource_state": 2,
+          "name": "Rue Pelissier",
+          "activity": {
+            "id": 16284886069,
+            "visibility": "only_me",
+            "resource_state": 1
+          },
+          "athlete": {
+            "id": 22805774,
+            "resource_state": 1
+          },
+          "elapsed_time": 136,
+          "moving_time": 136,
+          "start_date": "2025-10-27T11:44:39Z",
+          "start_date_local": "2025-10-27T12:44:39Z",
+          "distance": 458.8,
+          "start_index": 2982,
+          "end_index": 3118,
+          "average_cadence": 83.3,
+          "device_watts": true,
+          "average_watts": 370.7,
+          "average_heartrate": 137.7,
+          "max_heartrate": 140,
+          "segment": {
+            "id": 26667248,
+            "resource_state": 2,
+            "name": "Rue Pelissier",
+            "activity_type": "Run",
+            "distance": 458.8,
+            "average_grade": -1.2,
+            "maximum_grade": -0.5,
+            "elevation_high": 355.7,
+            "elevation_low": 350.4,
+            "start_latlng": [
+              45.784291,
+              3.101759
+            ],
+            "end_latlng": [
+              45.786755,
+              3.106457
+            ],
+            "elevation_profile": null,
+            "elevation_profiles": null,
+            "climb_category": 0,
+            "city": "Clermont-Ferrand",
+            "state": "Auvergne-Rhône-Alpes",
+            "country": "France",
+            "private": false,
+            "hazardous": false,
+            "starred": false
+          },
+          "pr_rank": null,
+          "achievements": [],
+          "visibility": "only_me",
+          "kom_rank": null,
+          "hidden": false
+        }
+      ],
+      "splits_metric": [
+        {
+          "distance": 1003.4,
+          "elapsed_time": 293,
+          "elevation_difference": -12.8,
+          "moving_time": 293,
+          "split": 1,
+          "average_speed": 3.42,
+          "average_grade_adjusted_speed": 3.35,
+          "average_heartrate": 126.4914089347079,
+          "pace_zone": 2
+        },
+        {
+          "distance": 996.6,
+          "elapsed_time": 291,
+          "elevation_difference": -6.4,
+          "moving_time": 291,
+          "split": 2,
+          "average_speed": 3.42,
+          "average_grade_adjusted_speed": 3.4,
+          "average_heartrate": 136.1443298969072,
+          "pace_zone": 2
+        },
+        {
+          "distance": 1002.3,
+          "elapsed_time": 294,
+          "elevation_difference": -22,
+          "moving_time": 294,
+          "split": 3,
+          "average_speed": 3.41,
+          "average_grade_adjusted_speed": 3.36,
+          "average_heartrate": 137.4251700680272,
+          "pace_zone": 2
+        },
+        {
+          "distance": 999.5,
+          "elapsed_time": 276,
+          "elevation_difference": -7.2,
+          "moving_time": 276,
+          "split": 4,
+          "average_speed": 3.62,
+          "average_grade_adjusted_speed": 3.6,
+          "average_heartrate": 140.78985507246378,
+          "pace_zone": 2
+        },
+        {
+          "distance": 1000.1,
+          "elapsed_time": 273,
+          "elevation_difference": 8.4,
+          "moving_time": 273,
+          "split": 5,
+          "average_speed": 3.66,
+          "average_grade_adjusted_speed": 3.87,
+          "average_heartrate": 146.4945054945055,
+          "pace_zone": 3
+        },
+        {
+          "distance": 1000.6,
+          "elapsed_time": 283,
+          "elevation_difference": 1.6,
+          "moving_time": 283,
+          "split": 6,
+          "average_speed": 3.54,
+          "average_grade_adjusted_speed": 3.67,
+          "average_heartrate": 150.78798586572438,
+          "pace_zone": 2
+        },
+        {
+          "distance": 997.7,
+          "elapsed_time": 300,
+          "elevation_difference": 0.8,
+          "moving_time": 284,
+          "split": 7,
+          "average_speed": 3.51,
+          "average_grade_adjusted_speed": 3.62,
+          "average_heartrate": 149.39084507042253,
+          "pace_zone": 2
+        },
+        {
+          "distance": 1002.4,
+          "elapsed_time": 283,
+          "elevation_difference": 7.8,
+          "moving_time": 283,
+          "split": 8,
+          "average_speed": 3.54,
+          "average_grade_adjusted_speed": 3.7,
+          "average_heartrate": 148.18374558303887,
+          "pace_zone": 2
+        },
+        {
+          "distance": 998.8,
+          "elapsed_time": 290,
+          "elevation_difference": 13.2,
+          "moving_time": 288,
+          "split": 9,
+          "average_speed": 3.47,
+          "average_grade_adjusted_speed": 3.77,
+          "average_heartrate": 151.32986111111111,
+          "pace_zone": 2
+        },
+        {
+          "distance": 999.2,
+          "elapsed_time": 313,
+          "elevation_difference": -2,
+          "moving_time": 313,
+          "split": 10,
+          "average_speed": 3.19,
+          "average_grade_adjusted_speed": 3.25,
+          "average_heartrate": 140.53846153846155,
+          "pace_zone": 1
+        },
+        {
+          "distance": 1001.6,
+          "elapsed_time": 302,
+          "elevation_difference": -10,
+          "moving_time": 302,
+          "split": 11,
+          "average_speed": 3.32,
+          "average_grade_adjusted_speed": 3.29,
+          "average_heartrate": 138.28807947019868,
+          "pace_zone": 1
+        },
+        {
+          "distance": 998.1,
+          "elapsed_time": 307,
+          "elevation_difference": -5.2,
+          "moving_time": 307,
+          "split": 12,
+          "average_speed": 3.25,
+          "average_grade_adjusted_speed": 3.27,
+          "average_heartrate": 136.47231270358307,
+          "pace_zone": 1
+        },
+        {
+          "distance": 336.7,
+          "elapsed_time": 113,
+          "elevation_difference": 2.2,
+          "moving_time": 113,
+          "split": 13,
+          "average_speed": 2.98,
+          "average_grade_adjusted_speed": 3.1,
+          "average_heartrate": 136.58035714285714,
+          "pace_zone": 1
+        }
+      ],
+      "splits_standard": [
+        {
+          "distance": 1610,
+          "elapsed_time": 471,
+          "elevation_difference": -18,
+          "moving_time": 471,
+          "split": 1,
+          "average_speed": 3.42,
+          "average_grade_adjusted_speed": 3.35,
+          "average_heartrate": 129.6545842217484,
+          "pace_zone": 2
+        },
+        {
+          "distance": 1609.2,
+          "elapsed_time": 467,
+          "elevation_difference": -24,
+          "moving_time": 467,
+          "split": 2,
+          "average_speed": 3.45,
+          "average_grade_adjusted_speed": 3.43,
+          "average_heartrate": 137.65952890792292,
+          "pace_zone": 2
+        },
+        {
+          "distance": 1609,
+          "elapsed_time": 441,
+          "elevation_difference": -0.8,
+          "moving_time": 441,
+          "split": 3,
+          "average_speed": 3.65,
+          "average_grade_adjusted_speed": 3.73,
+          "average_heartrate": 143.67800453514738,
+          "pace_zone": 2
+        },
+        {
+          "distance": 1611.4,
+          "elapsed_time": 451,
+          "elevation_difference": 8.2,
+          "moving_time": 451,
+          "split": 4,
+          "average_speed": 3.57,
+          "average_grade_adjusted_speed": 3.73,
+          "average_heartrate": 150.7427937915743,
+          "pace_zone": 2
+        },
+        {
+          "distance": 1608.6,
+          "elapsed_time": 476,
+          "elevation_difference": 5.6,
+          "moving_time": 460,
+          "split": 5,
+          "average_speed": 3.5,
+          "average_grade_adjusted_speed": 3.62,
+          "average_heartrate": 148.23260869565217,
+          "pace_zone": 2
+        },
+        {
+          "distance": 1608.7,
+          "elapsed_time": 483,
+          "elevation_difference": 11.8,
+          "moving_time": 481,
+          "split": 6,
+          "average_speed": 3.34,
+          "average_grade_adjusted_speed": 3.55,
+          "average_heartrate": 147.05833333333334,
+          "pace_zone": 2
+        },
+        {
+          "distance": 1611.4,
+          "elapsed_time": 490,
+          "elevation_difference": -13.2,
+          "moving_time": 490,
+          "split": 7,
+          "average_speed": 3.29,
+          "average_grade_adjusted_speed": 3.28,
+          "average_heartrate": 138.19387755102042,
+          "pace_zone": 1
+        },
+        {
+          "distance": 1068.7,
+          "elapsed_time": 339,
+          "elevation_difference": -1.2,
+          "moving_time": 339,
+          "split": 8,
+          "average_speed": 3.15,
+          "average_grade_adjusted_speed": 3.21,
+          "average_heartrate": 136.60650887573965,
+          "pace_zone": 1
+        }
+      ],
+      "laps": [
+        {
+          "id": 58033217448,
+          "resource_state": 2,
+          "name": "Lap 1",
+          "activity": {
+            "id": 16284886069,
+            "visibility": "only_me",
+            "resource_state": 1
+          },
+          "athlete": {
+            "id": 22805774,
+            "resource_state": 1
+          },
+          "elapsed_time": 293,
+          "moving_time": 293,
+          "start_date": "2025-10-27T10:54:41Z",
+          "start_date_local": "2025-10-27T11:54:41Z",
+          "distance": 1000,
+          "average_speed": 3.41,
+          "max_speed": 4.34,
+          "lap_index": 1,
+          "split": 1,
+          "start_index": 0,
+          "end_index": 294,
+          "total_elevation_gain": 0,
+          "average_cadence": 83.6,
+          "device_watts": true,
+          "average_watts": 373.4,
+          "average_heartrate": 126.5,
+          "max_heartrate": 136,
+          "pace_zone": 2
+        },
+        {
+          "id": 58033217454,
+          "resource_state": 2,
+          "name": "Lap 2",
+          "activity": {
+            "id": 16284886069,
+            "visibility": "only_me",
+            "resource_state": 1
+          },
+          "athlete": {
+            "id": 22805774,
+            "resource_state": 1
+          },
+          "elapsed_time": 6,
+          "moving_time": 6,
+          "start_date": "2025-10-27T10:59:36Z",
+          "start_date_local": "2025-10-27T11:59:36Z",
+          "distance": 23.21,
+          "average_speed": 3.87,
+          "max_speed": 3.84,
+          "lap_index": 2,
+          "split": 2,
+          "start_index": 295,
+          "end_index": 301,
+          "total_elevation_gain": 0,
+          "average_cadence": 84,
+          "device_watts": true,
+          "average_watts": 402.2,
+          "average_heartrate": 134.7,
+          "max_heartrate": 136,
+          "pace_zone": 3
+        },
+        {
+          "id": 58033217459,
+          "resource_state": 2,
+          "name": "Lap 3",
+          "activity": {
+            "id": 16284886069,
+            "visibility": "only_me",
+            "resource_state": 1
+          },
+          "athlete": {
+            "id": 22805774,
+            "resource_state": 1
+          },
+          "elapsed_time": 291,
+          "moving_time": 291,
+          "start_date": "2025-10-27T10:59:43Z",
+          "start_date_local": "2025-10-27T11:59:43Z",
+          "distance": 1000,
+          "average_speed": 3.44,
+          "max_speed": 3.92,
+          "lap_index": 3,
+          "split": 3,
+          "start_index": 302,
+          "end_index": 592,
+          "total_elevation_gain": 2.2,
+          "average_cadence": 83.7,
+          "device_watts": true,
+          "average_watts": 379.9,
+          "average_heartrate": 136.3,
+          "max_heartrate": 140,
+          "pace_zone": 2
+        },
+        {
+          "id": 58033217462,
+          "resource_state": 2,
+          "name": "Lap 4",
+          "activity": {
+            "id": 16284886069,
+            "visibility": "only_me",
+            "resource_state": 1
+          },
+          "athlete": {
+            "id": 22805774,
+            "resource_state": 1
+          },
+          "elapsed_time": 293,
+          "moving_time": 293,
+          "start_date": "2025-10-27T11:04:34Z",
+          "start_date_local": "2025-10-27T12:04:34Z",
+          "distance": 1000,
+          "average_speed": 3.41,
+          "max_speed": 3.86,
+          "lap_index": 4,
+          "split": 4,
+          "start_index": 593,
+          "end_index": 885,
+          "total_elevation_gain": 5.2,
+          "average_cadence": 83.9,
+          "device_watts": true,
+          "average_watts": 358.2,
+          "average_heartrate": 137.3,
+          "max_heartrate": 141,
+          "pace_zone": 2
+        },
+        {
+          "id": 58033217465,
+          "resource_state": 2,
+          "name": "Lap 5",
+          "activity": {
+            "id": 16284886069,
+            "visibility": "only_me",
+            "resource_state": 1
+          },
+          "athlete": {
+            "id": 22805774,
+            "resource_state": 1
+          },
+          "elapsed_time": 276,
+          "moving_time": 276,
+          "start_date": "2025-10-27T11:09:27Z",
+          "start_date_local": "2025-10-27T12:09:27Z",
+          "distance": 1000,
+          "average_speed": 3.62,
+          "max_speed": 3.94,
+          "lap_index": 5,
+          "split": 5,
+          "start_index": 886,
+          "end_index": 1162,
+          "total_elevation_gain": 4.4,
+          "average_cadence": 84.9,
+          "device_watts": true,
+          "average_watts": 391.8,
+          "average_heartrate": 141,
+          "max_heartrate": 145,
+          "pace_zone": 2
+        },
+        {
+          "id": 58033217468,
+          "resource_state": 2,
+          "name": "Lap 6",
+          "activity": {
+            "id": 16284886069,
+            "visibility": "only_me",
+            "resource_state": 1
+          },
+          "athlete": {
+            "id": 22805774,
+            "resource_state": 1
+          },
+          "elapsed_time": 272,
+          "moving_time": 272,
+          "start_date": "2025-10-27T11:14:04Z",
+          "start_date_local": "2025-10-27T12:14:04Z",
+          "distance": 1000,
+          "average_speed": 3.68,
+          "max_speed": 3.98,
+          "lap_index": 6,
+          "split": 6,
+          "start_index": 1163,
+          "end_index": 1435,
+          "total_elevation_gain": 14.4,
+          "average_cadence": 85.2,
+          "device_watts": true,
+          "average_watts": 453.1,
+          "average_heartrate": 146.7,
+          "max_heartrate": 153,
+          "pace_zone": 2
+        },
+        {
+          "id": 58033217472,
+          "resource_state": 2,
+          "name": "Lap 7",
+          "activity": {
+            "id": 16284886069,
+            "visibility": "only_me",
+            "resource_state": 1
+          },
+          "athlete": {
+            "id": 22805774,
+            "resource_state": 1
+          },
+          "elapsed_time": 282,
+          "moving_time": 282,
+          "start_date": "2025-10-27T11:18:37Z",
+          "start_date_local": "2025-10-27T12:18:37Z",
+          "distance": 1000,
+          "average_speed": 3.55,
+          "max_speed": 3.96,
+          "lap_index": 7,
+          "split": 7,
+          "start_index": 1436,
+          "end_index": 1717,
+          "total_elevation_gain": 13.8,
+          "average_cadence": 84.9,
+          "device_watts": true,
+          "average_watts": 457.2,
+          "average_heartrate": 150.8,
+          "max_heartrate": 156,
+          "pace_zone": 2
+        },
+        {
+          "id": 58033217475,
+          "resource_state": 2,
+          "name": "Lap 8",
+          "activity": {
+            "id": 16284886069,
+            "visibility": "only_me",
+            "resource_state": 1
+          },
+          "athlete": {
+            "id": 22805774,
+            "resource_state": 1
+          },
+          "elapsed_time": 301,
+          "moving_time": 285,
+          "start_date": "2025-10-27T11:23:19Z",
+          "start_date_local": "2025-10-27T12:23:19Z",
+          "distance": 1000,
+          "average_speed": 3.51,
+          "max_speed": 4.06,
+          "lap_index": 8,
+          "split": 8,
+          "start_index": 1718,
+          "end_index": 2003,
+          "total_elevation_gain": 9,
+          "average_cadence": 84.7,
+          "device_watts": true,
+          "average_watts": 441,
+          "average_heartrate": 149.3,
+          "max_heartrate": 155,
+          "pace_zone": 2
+        },
+        {
+          "id": 58033217481,
+          "resource_state": 2,
+          "name": "Lap 9",
+          "activity": {
+            "id": 16284886069,
+            "visibility": "only_me",
+            "resource_state": 1
+          },
+          "athlete": {
+            "id": 22805774,
+            "resource_state": 1
+          },
+          "elapsed_time": 282,
+          "moving_time": 282,
+          "start_date": "2025-10-27T11:28:20Z",
+          "start_date_local": "2025-10-27T12:28:20Z",
+          "distance": 1000,
+          "average_speed": 3.55,
+          "max_speed": 4.64,
+          "lap_index": 9,
+          "split": 9,
+          "start_index": 2004,
+          "end_index": 2285,
+          "total_elevation_gain": 11.4,
+          "average_cadence": 85.4,
+          "device_watts": true,
+          "average_watts": 458.9,
+          "average_heartrate": 148.2,
+          "max_heartrate": 153,
+          "pace_zone": 2
+        },
+        {
+          "id": 58033217485,
+          "resource_state": 2,
+          "name": "Lap 10",
+          "activity": {
+            "id": 16284886069,
+            "visibility": "only_me",
+            "resource_state": 1
+          },
+          "athlete": {
+            "id": 22805774,
+            "resource_state": 1
+          },
+          "elapsed_time": 291,
+          "moving_time": 290,
+          "start_date": "2025-10-27T11:33:02Z",
+          "start_date_local": "2025-10-27T12:33:02Z",
+          "distance": 1000,
+          "average_speed": 3.45,
+          "max_speed": 6.44,
+          "lap_index": 10,
+          "split": 10,
+          "start_index": 2286,
+          "end_index": 2576,
+          "total_elevation_gain": 21.4,
+          "average_cadence": 85.3,
+          "device_watts": true,
+          "average_watts": 451.4,
+          "average_heartrate": 151.2,
+          "max_heartrate": 169,
+          "pace_zone": 2
+        },
+        {
+          "id": 58033217488,
+          "resource_state": 2,
+          "name": "Lap 11",
+          "activity": {
+            "id": 16284886069,
+            "visibility": "only_me",
+            "resource_state": 1
+          },
+          "athlete": {
+            "id": 22805774,
+            "resource_state": 1
+          },
+          "elapsed_time": 311,
+          "moving_time": 311,
+          "start_date": "2025-10-27T11:37:54Z",
+          "start_date_local": "2025-10-27T12:37:54Z",
+          "distance": 1000,
+          "average_speed": 3.22,
+          "max_speed": 4.36,
+          "lap_index": 11,
+          "split": 11,
+          "start_index": 2577,
+          "end_index": 2887,
+          "total_elevation_gain": 7.6,
+          "average_cadence": 82.7,
+          "device_watts": true,
+          "average_watts": 374.5,
+          "average_heartrate": 140.4,
+          "max_heartrate": 146,
+          "pace_zone": 1
+        },
+        {
+          "id": 58033217491,
+          "resource_state": 2,
+          "name": "Lap 12",
+          "activity": {
+            "id": 16284886069,
+            "visibility": "only_me",
+            "resource_state": 1
+          },
+          "athlete": {
+            "id": 22805774,
+            "resource_state": 1
+          },
+          "elapsed_time": 302,
+          "moving_time": 302,
+          "start_date": "2025-10-27T11:43:05Z",
+          "start_date_local": "2025-10-27T12:43:05Z",
+          "distance": 1000,
+          "average_speed": 3.31,
+          "max_speed": 4.24,
+          "lap_index": 12,
+          "split": 12,
+          "start_index": 2888,
+          "end_index": 3190,
+          "total_elevation_gain": 2,
+          "average_cadence": 83.5,
+          "device_watts": true,
+          "average_watts": 370.6,
+          "average_heartrate": 138.2,
+          "max_heartrate": 142,
+          "pace_zone": 1
+        },
+        {
+          "id": 58033217496,
+          "resource_state": 2,
+          "name": "Lap 13",
+          "activity": {
+            "id": 16284886069,
+            "visibility": "only_me",
+            "resource_state": 1
+          },
+          "athlete": {
+            "id": 22805774,
+            "resource_state": 1
+          },
+          "elapsed_time": 308,
+          "moving_time": 308,
+          "start_date": "2025-10-27T11:48:08Z",
+          "start_date_local": "2025-10-27T12:48:08Z",
+          "distance": 1000,
+          "average_speed": 3.25,
+          "max_speed": 4.1,
+          "lap_index": 13,
+          "split": 13,
+          "start_index": 3191,
+          "end_index": 3499,
+          "total_elevation_gain": 3.8,
+          "average_cadence": 83.3,
+          "device_watts": true,
+          "average_watts": 371.6,
+          "average_heartrate": 136.5,
+          "max_heartrate": 140,
+          "pace_zone": 1
+        },
+        {
+          "id": 58033217501,
+          "resource_state": 2,
+          "name": "Lap 14",
+          "activity": {
+            "id": 16284886069,
+            "visibility": "only_me",
+            "resource_state": 1
+          },
+          "athlete": {
+            "id": 22805774,
+            "resource_state": 1
+          },
+          "elapsed_time": 102,
+          "moving_time": 102,
+          "start_date": "2025-10-27T11:53:17Z",
+          "start_date_local": "2025-10-27T12:53:17Z",
+          "distance": 312.84,
+          "average_speed": 3.07,
+          "max_speed": 3.44,
+          "lap_index": 14,
+          "split": 14,
+          "start_index": 3500,
+          "end_index": 3602,
+          "total_elevation_gain": 1.8,
+          "average_cadence": 82.4,
+          "device_watts": true,
+          "average_watts": 387.5,
+          "average_heartrate": 136.6,
+          "max_heartrate": 139,
+          "pace_zone": 1
+        }
+      ],
+      "best_efforts": [
+        {
+          "id": 68478785698,
+          "resource_state": 2,
+          "name": "400m",
+          "activity": {
+            "id": 16284886069,
+            "visibility": "only_me",
+            "resource_state": 1
+          },
+          "athlete": {
+            "id": 22805774,
+            "resource_state": 1
+          },
+          "elapsed_time": 109,
+          "moving_time": 109,
+          "start_date": "2025-10-27T10:54:41Z",
+          "start_date_local": "2025-10-27T11:54:41Z",
+          "distance": 400,
+          "pr_rank": null,
+          "achievements": [],
+          "start_index": 1081,
+          "end_index": 1190
+        },
+        {
+          "id": 68478785699,
+          "resource_state": 2,
+          "name": "1/2 mile",
+          "activity": {
+            "id": 16284886069,
+            "visibility": "only_me",
+            "resource_state": 1
+          },
+          "athlete": {
+            "id": 22805774,
+            "resource_state": 1
+          },
+          "elapsed_time": 219,
+          "moving_time": 219,
+          "start_date": "2025-10-27T10:54:41Z",
+          "start_date_local": "2025-10-27T11:54:41Z",
+          "distance": 805,
+          "pr_rank": null,
+          "achievements": [],
+          "start_index": 1158,
+          "end_index": 1377
+        },
+        {
+          "id": 68478785700,
+          "resource_state": 2,
+          "name": "1K",
+          "activity": {
+            "id": 16284886069,
+            "visibility": "only_me",
+            "resource_state": 1
+          },
+          "athlete": {
+            "id": 22805774,
+            "resource_state": 1
+          },
+          "elapsed_time": 273,
+          "moving_time": 273,
+          "start_date": "2025-10-27T10:54:41Z",
+          "start_date_local": "2025-10-27T11:54:41Z",
+          "distance": 1000,
+          "pr_rank": null,
+          "achievements": [],
+          "start_index": 1016,
+          "end_index": 1289
+        },
+        {
+          "id": 68478785694,
+          "resource_state": 2,
+          "name": "1 mile",
+          "activity": {
+            "id": 16284886069,
+            "visibility": "only_me",
+            "resource_state": 1
+          },
+          "athlete": {
+            "id": 22805774,
+            "resource_state": 1
+          },
+          "elapsed_time": 440,
+          "moving_time": 440,
+          "start_date": "2025-10-27T10:54:41Z",
+          "start_date_local": "2025-10-27T11:54:41Z",
+          "distance": 1609,
+          "pr_rank": null,
+          "achievements": [],
+          "start_index": 1023,
+          "end_index": 1463
+        },
+        {
+          "id": 68478785695,
+          "resource_state": 2,
+          "name": "2 mile",
+          "activity": {
+            "id": 16284886069,
+            "visibility": "only_me",
+            "resource_state": 1
+          },
+          "athlete": {
+            "id": 22805774,
+            "resource_state": 1
+          },
+          "elapsed_time": 892,
+          "moving_time": 892,
+          "start_date": "2025-10-27T10:54:41Z",
+          "start_date_local": "2025-10-27T11:54:41Z",
+          "distance": 3219,
+          "pr_rank": null,
+          "achievements": [],
+          "start_index": 869,
+          "end_index": 1761
+        },
+        {
+          "id": 68478785696,
+          "resource_state": 2,
+          "name": "5K",
+          "activity": {
+            "id": 16284886069,
+            "visibility": "only_me",
+            "resource_state": 1
+          },
+          "athlete": {
+            "id": 22805774,
+            "resource_state": 1
+          },
+          "elapsed_time": 1407,
+          "moving_time": 1407,
+          "start_date": "2025-10-27T10:54:41Z",
+          "start_date_local": "2025-10-27T11:54:41Z",
+          "distance": 5000,
+          "pr_rank": null,
+          "achievements": [],
+          "start_index": 514,
+          "end_index": 1921
+        },
+        {
+          "id": 68478785697,
+          "resource_state": 2,
+          "name": "10K",
+          "activity": {
+            "id": 16284886069,
+            "visibility": "only_me",
+            "resource_state": 1
+          },
+          "athlete": {
+            "id": 22805774,
+            "resource_state": 1
+          },
+          "elapsed_time": 2895,
+          "moving_time": 2895,
+          "start_date": "2025-10-27T10:54:41Z",
+          "start_date_local": "2025-10-27T11:54:41Z",
+          "distance": 10000,
+          "pr_rank": null,
+          "achievements": [],
+          "start_index": 4,
+          "end_index": 2883
+        }
+      ],
+      "photos": {
+        "primary": null,
+        "count": 0
+      },
+      "stats_visibility": [
+        {
+          "type": "heart_rate",
+          "visibility": "everyone"
+        },
+        {
+          "type": "pace",
+          "visibility": "everyone"
+        },
+        {
+          "type": "power",
+          "visibility": "everyone"
+        },
+        {
+          "type": "speed",
+          "visibility": "everyone"
+        },
+        {
+          "type": "calories",
+          "visibility": "everyone"
+        }
+      ],
+      "hide_from_home": false,
+      "embed_token": "f165361ae8110ddc9bdd8197d61c07fc39623ed3",
+      "similar_activities": {
+        "effort_count": 1,
+        "average_speed": 3.4259927797833933,
+        "min_average_speed": 3.4259927797833933,
+        "mid_average_speed": 3.425992779783394,
+        "max_average_speed": 3.4259927797833933,
+        "pr_rank": null,
+        "frequency_milestone": null,
+        "trend": {
+          "speeds": [
+            3.425992779783394
+          ],
+          "current_activity_index": 0,
+          "min_speed": 3.4259927797833933,
+          "mid_speed": 3.425992779783394,
+          "max_speed": 3.4259927797833933,
+          "direction": 0
+        },
+        "resource_state": 2
+      },
+      "available_zones": [
+        "heartrate",
+        "pace",
+        "power"
+      ]
+    }
+  }
+]
