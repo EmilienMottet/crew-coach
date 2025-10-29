@@ -6,5 +6,7 @@ services:
     image: ghcr.io/emilienmottet/crew-coach:latest
     env_file:
       - .env
+    ports:
+      - "49200:8000"
     stdin_open: true
     tty: true
