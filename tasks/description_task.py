@@ -1,6 +1,12 @@
 """Task for generating activity descriptions."""
+from __future__ import annotations
+
+import json
+from typing import Any, Dict
+
 from crewai import Task
-from typing import Dict, Any
+
+from schemas import GeneratedActivityContent
 
 
 def create_description_task(agent, activity_data: Dict[str, Any]) -> Task:
@@ -26,68 +32,53 @@ def create_description_task(agent, activity_data: Dict[str, Any]) -> Task:
     avg_pace_min_km = (moving_time / 60) / distance if distance > 0 else 0
     pace_min = int(avg_pace_min_km)
     pace_sec = int((avg_pace_min_km - pace_min) * 60)
-    
+
     description = f"""
-    Analyze the following Strava activity and create an engaging title and description.
-    
-    ACTIVITY INFORMATION:
+    Analyze the Strava activity below and craft an engaging English summary.
+
+    ACTIVITY SNAPSHOT:
     - Strava Activity ID: {strava_id}
-    - Type: {activity_type}
+    - Sport Type: {activity_type}
     - Distance: {distance:.2f} km
-    - Duration: {moving_time_min:.0f} minutes
+    - Moving Duration: {moving_time_min:.0f} minutes
     - Average Pace: {pace_min}:{pace_sec:02d} /km
-    - Start Time: {start_date}
-    
-    YOUR TASK:
-    
-     1. USE INTERVALS.ICU DATA VIA MCP TOOLS:
-         - Call IntervalsIcu__get_activity_details with activity_id "{strava_id}" to get detailed metrics
-         - Call IntervalsIcu__get_activity_intervals with activity_id "{strava_id}" to understand workout structure
-       - Analyze the data to understand the type of workout (tempo, intervals, easy run, etc.)
-    
-    2. CREATE A TITLE (max 50 characters):
-       - Should capture the essence of the workout
-       - Include key metric or achievement
-       - Use 1-2 relevant emojis (running shoe, fire, lightning, etc.)
-       - Examples:
-         * "🏃 12K Tempo Run - Sub 4:00 pace"
-         * "⚡ 5x1000m Intervals - PR effort"
-         * "🔥 20K Long Run - Strong finish"
-    
-    3. WRITE A DESCRIPTION (max 500 characters):
-       - Start with the workout type/purpose
-       - Highlight the structure (warm-up, main set, cool-down)
-       - Include 2-3 key metrics:
-         * Average pace and heart rate
-         * Interval paces if applicable
-         * Notable achievements or segments
-       - End with how it felt or the goal achieved
-       - Use line breaks for readability
-       - Examples:
-         * "Tempo run focusing on threshold pace. Started with 2K warm-up, then 8K at tempo pace (avg 3:55/km, 165 bpm), finished with 2K cool-down. Felt strong throughout - exactly the effort I was targeting! 💪"
-         * "Interval session: 5x1000m with 400m recovery. Target was sub-4:00 pace. Nailed it: 3:52, 3:55, 3:54, 3:56, 3:50 (avg HR 172 bpm). Legs felt fresh, great workout! ⚡"
-    
-    4. IDENTIFY WORKOUT TYPE:
-       - Based on the interval data and pacing, determine the workout category
-       - Common types: Easy Run, Tempo Run, Intervals, Long Run, Recovery, Fartlek, Race
-    
-    OUTPUT FORMAT:
-    Return a JSON object with this exact structure:
-    {{
-        "title": "Your generated title here",
-        "description": "Your generated description here",
-        "workout_type": "Tempo Run, Intervals, Easy Run, etc.",
-        "key_metrics": {{
-            "average_pace": "4:30 /km",
-            "average_hr": "145 bpm",
-            "max_hr": "165 bpm",
-            "intervals_summary": "5x1000m @ 3:50-3:56" (if applicable)
-        }}
-    }}
+    - Local Start Time: {start_date}
+
+    RAW PAYLOAD (for additional context):
+    {json.dumps(object_data, indent=2)}
+
+    YOUR MISSION:
+
+    1. USE MCP TOOLS FOR DATA ENRICHMENT
+        - Call IntervalsIcu__get_activity_details with activity_id "{strava_id}" to gather metrics
+        - Call IntervalsIcu__get_activity_intervals with activity_id "{strava_id}" to inspect workout structure
+        - Combine Strava + Intervals insights to detect workout intent (tempo, intervals, easy, etc.)
+
+    2. PRODUCE A TITLE (≤ 50 characters)
+        - Highlight the workout intent or key achievement
+        - Include 1-2 relevant emojis for energy
+        - Keep wording natural and punchy
+
+    3. PRODUCE A DESCRIPTION (≤ 500 characters)
+        - Open with the workout goal/type
+        - Summarise the structure (warm-up, blocks, cool-down)
+        - Mention 2-3 concrete metrics (pace, HR, splits, feeling)
+        - Close with a short feeling/mindset note
+        - Preserve readability with short sentences or line breaks
+
+    4. CLASSIFY THE WORKOUT
+        - Choose the best matching type (Easy Run, Tempo Run, Intervals, Long Run, Recovery, Fartlek, Race, etc.)
+
+    OUTPUT CONTRACT:
+    - Respond strictly with valid JSON matching the GeneratedActivityContent schema
+    - Do not wrap the JSON in markdown fences
+    - Respect character limits and ensure emojis render correctly
     """
     
     return Task(
         description=description,
         agent=agent,
-        expected_output="A JSON object containing title, description, workout_type, and key_metrics"
+        expected_output=
+        "Valid JSON adhering to the GeneratedActivityContent schema (title, description, workout_type, key_metrics)",
+        output_json=GeneratedActivityContent,
     )

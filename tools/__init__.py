@@ -1,12 +1,3 @@
-"""Tools for the Strava Description Crew."""
-from .intervals_tools import (
-    get_intervals_activity_details,
-    get_intervals_activity_intervals,
-    get_recent_intervals_activities
-)
+"""Legacy tools package retained for backwards compatibility."""
 
-__all__ = [
-    "get_intervals_activity_details",
-    "get_intervals_activity_intervals",
-    "get_recent_intervals_activities"
-]
+__all__: list[str] = []

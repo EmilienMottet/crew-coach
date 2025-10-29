@@ -1,12 +1,22 @@
 """Task for privacy and compliance checking."""
-from crewai import Task
-from typing import Dict, Any
-from datetime import datetime
+from __future__ import annotations
+
+import json
 import os
+from datetime import datetime
+from typing import Any, Dict
+
 import pytz
+from crewai import Task
+
+from schemas import PrivacyAssessment
 
 
-def create_privacy_task(agent, activity_data: Dict[str, Any], generated_content: str) -> Task:
+def create_privacy_task(
+    agent,
+    activity_data: Dict[str, Any],
+    generated_content: Dict[str, Any] | str,
+) -> Task:
     """
     Create a task for checking privacy and working hours compliance.
     
@@ -77,91 +87,67 @@ def create_privacy_task(agent, activity_data: Dict[str, Any], generated_content:
     else:
         fallback_title = f"{activity_type} - {distance:.1f}K"
     
+    if isinstance(generated_content, str):
+        content_payload = generated_content
+    else:
+        content_payload = json.dumps(generated_content, indent=2)
+
     description = f"""
-    Review the following activity details for privacy compliance and working hours policy.
-    
-    ACTIVITY TIMING:
+    Review the activity below for privacy compliance and adherence to working hours policy.
+
+    ACTIVITY TIMING SUMMARY:
     - Start Date/Time (UTC): {start_date_local}
     - Local Time (Europe/Paris): {start_time_str}
     - Day of Week: {day_of_week}
-    
-    WORKING HOURS POLICY (Europe/Paris timezone):
-    - Morning: {work_start_morning} - {work_end_morning}
-    - Afternoon: {work_start_afternoon} - {work_end_afternoon}
-    - Weekends: Generally OK to be public
-    
-    GENERATED CONTENT TO REVIEW:
-    {generated_content}
-    
-    YOUR TASK:
-    
-    1. DETECT FAILED GENERATION:
-       Check if the generated content contains error messages or indicates failure:
-       - Mentions of "unable to complete", "issues retrieving data", "verify connection"
-       - Generic titles like "Activity completed" or "Activity"
-       - Descriptions that explain technical errors instead of describing the workout
-       - ANY indication that the generation process failed
-       
-       **IF GENERATION FAILED:**
-       - Use fallback title: "{fallback_title}"
-       - Set description to empty string: ""
-       - Mark as approved (no privacy issues with empty content)
-       - Set should_be_private based ONLY on working hours check
-       - Explain that fallback was used due to generation failure
-    
-    2. CHECK FOR SENSITIVE INFORMATION:
-       Review the title and description for:
-       - Full names (first names only are acceptable)
-       - Street names, addresses, specific locations beyond city/area
-       - Phone numbers or email addresses
-       - Financial information
-       - Detailed medical conditions or injuries
-       - Any other personally identifiable information
-    
-    3. VERIFY WORKING HOURS COMPLIANCE:
-       - Determine if the activity occurred during working hours
-       - If yes, it MUST be marked as private
-       - Weekends are generally acceptable for public activities
-       - Consider if the timing might reveal work schedule patterns
-    
-    4. PROVIDE RECOMMENDATIONS:
-       - If issues found: Suggest sanitized versions of title/description
-       - Determine visibility: public or private
-       - Explain your reasoning clearly
-       - If no changes needed, confirm the content is safe
-    
-    5. CONSIDER CONTEXT:
-       - Training with a group: "Morning run with the crew" is OK
-       - Location mentions: "Park run" is OK, "123 Main Street loop" is NOT OK
-       - Personal records: Mentioning PRs and metrics is encouraged
-       - Health notes: "Felt strong" is OK, "Running despite knee injury" might be TMI
-    
-    OUTPUT FORMAT:
-    Return a JSON object with this exact structure:
-    {{
-        "privacy_approved": true/false,
-        "during_work_hours": true/false,
-        "should_be_private": true/false,
-        "issues_found": [
-            "List of specific privacy concerns if any"
-        ],
-        "recommended_changes": {{
-            "title": "Sanitized title (only if changes needed, otherwise null)",
-            "description": "Sanitized description (only if changes needed, otherwise null)"
-        }},
-        "reasoning": "Clear explanation of your decision and any recommendations"
-    }}
-    
-    IMPORTANT:
-    - Be specific about what needs to change and why
-    - If content is safe, say so clearly
-    - Always err on the side of privacy protection
-    - Consider the user's professional reputation
+
+    WORKING HOURS POLICY (Europe/Paris):
+    - Morning block: {work_start_morning} → {work_end_morning}
+    - Afternoon block: {work_start_afternoon} → {work_end_afternoon}
+    - Weekends: Usually acceptable for public visibility
+
+    GENERATED CONTENT TO INSPECT (title & description in English):
+    {content_payload}
+
+    DECISION PLAYBOOK:
+
+    1. DETECT GENERATION FAILURES
+       - Look for error language ("unable to complete", "connection issue", etc.)
+       - Detect placeholder titles such as "Activity" or "Activity completed"
+       - If failure detected:
+         • Replace title with fallback "{fallback_title}"
+         • Force description to empty string
+         • Approve privacy (content-free is safe)
+         • Decide visibility strictly based on working hours
+         • Document that a fallback was issued
+
+    2. SCAN FOR SENSITIVE INFORMATION
+       - No surnames, precise addresses, contact details, finances, or medical diagnoses
+       - Generic locations ("park", "city trail") are fine; exact street names are not
+       - Ensure tone remains professional and suitable for public Strava posts
+
+    3. ENFORCE WORKING HOURS POLICY
+       - Activities between the configured work slots must be private
+       - Outside of work hours can remain public unless other privacy issues exist
+
+    4. RETURN ACTIONABLE GUIDANCE
+       - Populate `issues_found` with specific red flags (empty list when safe)
+       - Supply sanitized `recommended_changes` only when modifications are required
+       - Provide a concise `reasoning` paragraph summarising the decision
+
+    RESPONSE FORMAT:
+    - Output must be valid JSON compliant with the PrivacyAssessment schema
+    - Do not surround the JSON with markdown fences
+    - Use `null` for unchanged title/description in `recommended_changes`
+    - Keep explanations short, precise, and professional
     """
     
     return Task(
         description=description,
         agent=agent,
-        expected_output="A JSON object with privacy assessment, recommendations, and reasoning"
+        expected_output=(
+            "Valid JSON adhering to the PrivacyAssessment schema (privacy_approved, "
+            "during_work_hours, should_be_private, issues_found, recommended_changes, reasoning)"
+        ),
+        output_json=PrivacyAssessment,
         # Note: Do NOT use context parameter with strings, it expects Task objects
     )
