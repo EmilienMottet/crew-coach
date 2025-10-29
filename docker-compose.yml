@@ -10,3 +10,9 @@ services:
       - "49200:8000"
     stdin_open: true
     tty: true
+    networks:
+      - crew_net
+
+networks:
+  crew_net:
+    external: true
