@@ -171,15 +171,15 @@ python crew.py < input.json
 
 1. **Nœud Execute Command** :
 
-  ```bash
-  Command: python /home/emottet/Documents/Perso/Sport/crew/crew.py
-  ```
+    ```bash
+    Command: python /home/emottet/Documents/Perso/Sport/crew/crew.py
+    ```
 
 1. **Workflow suggéré** :
 
-  ```text
-  Webhook Strava → Execute Command (Python crew.py) → Parse JSON → Update Strava
-  ```
+    ```text
+    Webhook Strava → Execute Command (Python crew.py) → Parse JSON → Update Strava
+    ```
 
 1. **Input** : Passer les données du webhook Strava via stdin
 
@@ -235,7 +235,7 @@ Le script attend des données au format webhook Strava :
 
 ## 🔧 Architecture
 
-```
+```text
 crew/
 ├── agents/
 │   ├── description_agent.py    # Génère titre et description
