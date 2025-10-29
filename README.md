@@ -97,10 +97,11 @@ OPENAI_API_BASE=http://192.168.0.141:8181/v1
 OPENAI_API_KEY=dummy-key-not-needed-for-local
 OPENAI_MODEL_NAME=gpt-5-mini
 
-# Serveur MCP
+# Serveur MCP (metaMCP regroupe Intervals.icu, Spotify, etc.)
 MCP_SERVER_URL=https://mcp.emottet.com/metamcp/stravaDescriptionAgent/mcp?api_key=...
-SPOTIFY_MCP_SERVER_URL=https://mcp.example.com/spotify/mcp?api_key=...
-SPOTIFY_MCP_TOOL_NAMES=Spotify__get_recently_played
+# Auto-découverte activée par défaut : laissez les variables ci-dessous commentées pour exposer tous les outils.
+# INTERVALS_MCP_TOOL_NAMES=IntervalsIcu__get_activity_details,IntervalsIcu__get_activity_intervals
+# SPOTIFY_MCP_TOOL_NAMES=Spotify__get_recently_played
 
 # Horaires de travail
 WORK_START_MORNING=08:30
@@ -284,7 +285,7 @@ crew/
 - `IntervalsIcu__get_activity_intervals` : Données des intervalles/segments
 - `IntervalsIcu__get_activities` : Liste des activités récentes
 
-> ℹ️ Ces outils sont exposés automatiquement à l'agent de description via le champ `mcps` de CrewAI. Il suffit de définir `MCP_SERVER_URL` (ou plusieurs URL séparées par des virgules) dans l'environnement. Par défaut, l'auto-découverte est utilisée. Définissez `INTERVALS_MCP_TOOL_NAMES` pour verrouiller une liste spécifique d'outils si nécessaire.
+> ℹ️ Ces outils sont exposés automatiquement à l'agent de description via le champ `mcps` de CrewAI. Il suffit de définir `MCP_SERVER_URL` (ou plusieurs URL séparées par des virgules) dans l'environnement. Par défaut, l'auto-découverte est utilisée. Définissez `INTERVALS_MCP_TOOL_NAMES` pour verrouiller une liste spécifique d'outils si nécessaire. metaMCP agrège Intervals.icu, Spotify et d'autres sources derrière un seul endpoint : laissez les listes vides pour tirer parti de l'auto-discovery côté agents.
 
 ### Autres sources (via MCP)
 
