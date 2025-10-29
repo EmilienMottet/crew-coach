@@ -14,7 +14,7 @@ This is a **CrewAI-based multi-agent system** that automatically generates engag
 ## Architecture
 
 ### Agent System
-The project uses a **three-agent sequential workflow**:
+The project uses a **four-agent sequential workflow**:
 
 1. **Activity Description Writer** (`agents/description_agent.py`)
    - Analyzes Intervals.icu training data
@@ -22,13 +22,19 @@ The project uses a **three-agent sequential workflow**:
    - Identifies workout types (tempo, intervals, easy runs, etc.)
    - Uses emoji appropriately for visual appeal
 
-2. **Privacy & Compliance Officer** (`agents/privacy_agent.py`)
+2. **Activity Soundtrack Curator** (`agents/music_agent.py`)
+  - Queries Spotify MPC endpoints for the activity window
+  - Collects up to five tracks actually played during the workout
+  - Appends a short "Music" section to the English description (≤500 chars total)
+  - Falls back gracefully when no playback data is available
+
+3. **Privacy & Compliance Officer** (`agents/privacy_agent.py`)
    - Validates generated content for PII (personally identifiable information)
    - Checks activity timing against work hours (08:30-12:00, 14:00-17:00 CET/CEST)
    - Recommends privacy settings (public/private)
    - Sanitizes sensitive information
 
-3. **Sports Content Translator** (`agents/translation_agent.py`)
+4. **Sports Content Translator** (`agents/translation_agent.py`)
    - Translates titles and descriptions from English to French
    - Preserves emojis and formatting
    - Adapts sports terminology appropriately for French-speaking audience
@@ -40,6 +46,8 @@ The project uses a **three-agent sequential workflow**:
 Strava Webhook → n8n → crew.py (stdin)
   ↓
 Description Agent (+ MCP tools) → Generate content (English)
+  ↓
+Music Agent (+ Spotify MCP) → Append soundtrack summary
   ↓
 Privacy Agent → Validate & adjust
   ↓
@@ -145,8 +153,11 @@ OPENAI_API_BASE=https://your-endpoint.com/v1
 OPENAI_MODEL_NAME=gpt-4
 OPENAI_API_AUTH_TOKEN=base64_token  # OR OPENAI_API_KEY
 
-# MCP Server
+# MCP Servers
 MCP_SERVER_URL=https://mcp.emottet.com/metamcp/.../mcp?api_key=...
+SPOTIFY_MCP_SERVER_URL=https://mcp.example.com/spotify/mcp?api_key=...
+INTERVALS_MCP_TOOL_NAMES=IntervalsIcu__get_activity_details,IntervalsIcu__get_activity_intervals
+SPOTIFY_MCP_TOOL_NAMES=Spotify__get_recently_played
 
 # Privacy Policy
 WORK_START_MORNING=08:30
@@ -195,7 +206,7 @@ Structured JSON result (title and description in FRENCH):
 {
   "activity_id": 16284886069,
   "title": "🏃 Sortie tempo 12.3K - Effort soutenu",
-  "description": "Sortie tempo solide avec un contrôle de l'allure...",
+  "description": "Sortie tempo solide avec un contrôle de l'allure. ...\n\n🎧 Musique : Daft Punk – Harder Better Faster Stronger; Justice – D.A.N.C.E.",
   "should_be_private": false,
   "privacy_check": {
     "approved": true,
@@ -209,7 +220,11 @@ Structured JSON result (title and description in FRENCH):
       "average_pace": "4:53 /km",
       "average_hr": "141 bpm"
     }
-  }
+  },
+  "music_tracks": [
+    "Daft Punk – Harder Better Faster Stronger",
+    "Justice – D.A.N.C.E."
+  ]
 }
 ```
 
@@ -382,7 +397,7 @@ Potential areas for expansion:
 
 When helping with this project:
 1. **Always check** existing code patterns before suggesting new approaches
-2. **Respect** the three-agent architecture (Description → Privacy → Translation)
+2. **Respect** the four-agent architecture (Description → Music → Privacy → Translation)
 3. **Follow** error handling patterns (try-except, fallback values, stderr logging)
 4. **Test** MCP and LLM connectivity before debugging agent logic
 5. **Document** any new environment variables or configuration options
