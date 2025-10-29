@@ -56,7 +56,7 @@ async def healthcheck() -> Dict[str, str]:
 
 
 @app.post("/process")
-async def process_activity(request: Request) -> JSONResponse | Dict[str, Any]:
+async def process_activity(request: Request) -> JSONResponse:
     """Run the Strava crew against the request body."""
     try:
         payload = await request.json()
@@ -78,7 +78,7 @@ async def process_activity(request: Request) -> JSONResponse | Dict[str, Any]:
         fallback = _build_error_response(str(exc))
         return JSONResponse(status_code=500, content=fallback)
 
-    return result
+    return JSONResponse(content=result)
 
 
 if __name__ == "__main__":
