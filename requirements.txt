@@ -6,4 +6,4 @@ openai==1.58.1
 pytz==2025.2
 mcp>=1.19.0
 fastapi==0.115.0
-uvicorn==0.30.6
+uvicorn==0.38.0
