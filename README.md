@@ -106,17 +106,49 @@ TRANSLATION_TARGET_LANGUAGE=English
 TRANSLATION_SOURCE_LANGUAGE=French
 ```
 
+## 🐳 Déploiement Docker & GitHub Packages
+
+### Construction et exécution locales
+
+Copier le fichier d'environnement :
+
+```bash
+cp .env.example .env
+```
+
+Construire l'image containerisée :
+
+```bash
+docker compose build
+```
+
+Traiter une activité en injectant le JSON sur l'entrée standard :
+
+```bash
+docker compose run --rm crew < input.json
+```
+
+> ℹ️ Le service `crew` charge automatiquement les variables définies dans `.env`. Le conteneur attend toujours les données Strava sur `stdin`, comme en exécution locale.
+
+### Publication automatique sur le registre privé GitHub
+
+- Un workflow GitHub Actions (`.github/workflows/docker-publish.yml`) construit l'image Docker et la pousse dans le registre privé GitHub Container Registry (`ghcr.io/emilienmottet/crew-coach`).
+- Le workflow se déclenche à chaque `push` sur `main` (et peut être lancé manuellement). Aucune configuration supplémentaire n'est nécessaire : le token `GITHUB_TOKEN` intégré fournit les droits `packages:write`.
+- Les images sont taguées avec `latest` et le SHA du commit (`ghcr.io/emilienmottet/crew-coach:<sha>`). Vous pouvez ensuite les consommer via `docker pull ghcr.io/emilienmottet/crew-coach:latest`.
+
 ### Modèles LLM disponibles
 
 Le système utilise votre endpoint local avec le modèle `gpt-5-mini` par défaut. Le modèle est configuré pour être compatible avec LiteLLM (utilisé par CrewAI) en utilisant le préfixe `openai/`.
 
 **Important** : Assurez-vous que :
+
 - Votre endpoint local (`OPENAI_API_BASE`) est compatible OpenAI API
 - Le modèle (`OPENAI_MODEL_NAME`) correspond exactement au nom exposé par votre serveur
 - Pour LM Studio : utilisez le nom du modèle affiché dans l'interface
 - Pour Ollama : activez l'API compatible OpenAI sur le port 11434
 
 Autres modèles disponibles sur votre endpoint :
+
 - `gpt-4.1`
 - `gpt-5`
 - `gpt-4o-mini`
@@ -138,18 +170,20 @@ python crew.py < input.json
 ### Intégration n8n
 
 1. **Nœud Execute Command** :
-   ```
-   Command: python /home/emottet/Documents/Perso/Sport/crew/crew.py
-   ```
 
-2. **Workflow suggéré** :
-   ```
-   Webhook Strava → Execute Command (Python crew.py) → Parse JSON → Update Strava
-   ```
+  ```bash
+  Command: python /home/emottet/Documents/Perso/Sport/crew/crew.py
+  ```
 
-3. **Input** : Passer les données du webhook Strava via stdin
+1. **Workflow suggéré** :
 
-4. **Output** : JSON sur stdout avec le résultat
+  ```text
+  Webhook Strava → Execute Command (Python crew.py) → Parse JSON → Update Strava
+  ```
+
+1. **Input** : Passer les données du webhook Strava via stdin
+
+1. **Output** : JSON sur stdout avec le résultat
 
 ## 📥 Format d'entrée
 
@@ -228,7 +262,7 @@ crew/
 - `IntervalsIcu__get_activity_intervals` : Données des intervalles/segments
 - `IntervalsIcu__get_activities` : Liste des activités récentes
 
-> ℹ️ Ces outils sont exposés automatiquement à l'agent de description via le champ `mcps` de CrewAI. Il suffit de définir `MCP_SERVER_URL` (ou plusieurs URL séparées par des virgules) dans l'environnement. Utilisez la variable optionnelle `INTERVALS_MCP_TOOL_NAMES` pour personnaliser la liste des outils à charger.
+> ℹ️ Ces outils sont exposés automatiquement à l'agent de description via le champ `mcps` de CrewAI. Il suffit de définir `MCP_SERVER_URL` (ou plusieurs URL séparées par des virgules) dans l'environnement. Par défaut, l'auto-découverte est utilisée. Définissez `INTERVALS_MCP_TOOL_NAMES` pour verrouiller une liste spécifique d'outils si nécessaire.
 
 ### Autres sources (via MCP)
 

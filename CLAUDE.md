@@ -73,7 +73,7 @@ curl $OPENAI_API_BASE/models
    - Generates English title (≤50 chars) and description (≤500 chars)
    - Identifies workout structure (tempo, intervals, easy runs, etc.)
    - Uses emojis for visual appeal
-   - **Tools**: MCP references to Intervals.icu (configurable via `MCP_SERVER_URL` + `INTERVALS_MCP_TOOL_NAMES`)
+  -    - **Tools**: MCP references to Intervals.icu (auto-discovered via `MCP_SERVER_URL`, optionally filtered with `INTERVALS_MCP_TOOL_NAMES`)
 
 2. **Privacy Agent** (`agents/privacy_agent.py`)
    - Validates content for PII (personally identifiable information)
@@ -108,11 +108,11 @@ Final JSON (stdout) → n8n → Update Strava
 The Description Agent uses **CrewAI's MCP DSL** to dynamically load tools at runtime:
 
 - **Configuration**: Set `MCP_SERVER_URL` (comma-separated URLs supported)
-- **Tool filtering**: Override `INTERVALS_MCP_TOOL_NAMES` to customize loaded tools
-- **Default tools**: `IntervalsIcu__get_activity_details`, `IntervalsIcu__get_activity_intervals`, `IntervalsIcu__get_activities`
+- **Auto-discovery**: By default, the crew lets the MCP server advertise its available tools
+- **Tool filtering**: Set `INTERVALS_MCP_TOOL_NAMES` (comma-separated) to pin a specific subset when you need deterministic access
 - **DSL Syntax**: `https://mcp.server.com/path#ToolName` or `crewai-amp:...`
 
-The system builds MCP references in `crew.py:_build_intervals_mcp_references()` and passes them to the agent via the `mcps` parameter.
+The system builds MCP references in `crew.py:_build_intervals_mcp_references()` and passes them to the agent via the `mcps` parameter. When no tool names are supplied, the raw MCP URL is forwarded so the server can return its catalogue. When no tool names are supplied, the raw MCP URL is forwarded so the server can return its catalogue.
 
 ### LLM Configuration
 
@@ -163,7 +163,6 @@ TRANSLATION_SOURCE_LANGUAGE=English
 - **Work hours timezone**: Always Europe/Paris (CET/CEST)
 - **Title limit**: 50 characters (enforced by Strava)
 - **Description limit**: 500 characters (enforced by Strava)
-- **Default MCP tools**: Defined in `StravaDescriptionCrew.DEFAULT_INTERVALS_MCP_TOOLS`
 
 ## Input/Output Contracts
 

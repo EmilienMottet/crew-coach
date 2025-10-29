@@ -53,7 +53,7 @@ Final JSON output (stdout) → n8n → Update Strava
 - `IntervalsIcu__get_activity_intervals`: Interval/segment breakdowns
 - `IntervalsIcu__get_activities`: Recent activity list
 
-> These tools are exposed to the description agent via CrewAI's `mcps` field. Configure `MCP_SERVER_URL` (optionally comma-separated) and override `INTERVALS_MCP_TOOL_NAMES` to customise the set loaded at runtime.
+> These tools are exposed to the description agent via CrewAI's `mcps` field. Configure `MCP_SERVER_URL` (optionally comma-separated). Auto-discovery is used by default; set `INTERVALS_MCP_TOOL_NAMES` if you need to lock the set of tools to a specific subset.
 
 ### Legacy Wrappers (`tools/`)
 Legacy helper modules have been removed; rely on MCP references directly within agents.
