@@ -56,8 +56,7 @@ Final JSON output (stdout) → n8n → Update Strava
 > These tools are exposed to the description agent via CrewAI's `mcps` field. Configure `MCP_SERVER_URL` (optionally comma-separated) and override `INTERVALS_MCP_TOOL_NAMES` to customise the set loaded at runtime.
 
 ### Legacy Wrappers (`tools/`)
-- `intervals_tools.py`: Historical wrappers for Intervals.icu data (fallback usage)
-- `mcp_client.py`: JSON-RPC 2.0 client for MCP server communication
+Legacy helper modules have been removed; rely on MCP references directly within agents.
 
 ## Coding Conventions
 
@@ -257,7 +256,7 @@ cat input.json | python crew.py 2>&1 | tee full_output.log
 5. Document expected input/output formats
 
 ### When adding new MCP tools:
-1. Add wrapper function in `tools/intervals_tools.py` or create new file
+1. Define lightweight helpers close to the agents or dedicated modules as needed
 2. Use `@tool` decorator with clear description
 3. Handle errors gracefully (return error dict)
 4. Test tool independently before adding to agent

@@ -1,7 +1,11 @@
 """Task for translating activity titles and descriptions."""
-from crewai import Task
-from typing import Any
+from __future__ import annotations
+
 import os
+
+from crewai import Task
+
+from schemas import TranslationPayload
 
 
 def create_translation_task(agent, content_to_translate: str) -> Task:
@@ -20,94 +24,46 @@ def create_translation_task(agent, content_to_translate: str) -> Task:
     
     # Determine source language hint
     source_language = os.getenv("TRANSLATION_SOURCE_LANGUAGE", "French")
-    
+
     description = f"""
-    Translate the following activity content to {target_language}.
-    
+    Translate the activity summary below to {target_language}.
+
     SOURCE LANGUAGE: {source_language}
     TARGET LANGUAGE: {target_language}
-    
-    CONTENT TO TRANSLATE:
+
+    CONTENT TO TRANSLATE (JSON):
     {content_to_translate}
-    
-    YOUR TASK:
-    
-    1. TRANSLATE THE TITLE:
-       - Preserve all emojis in their original positions
-       - Keep the title concise and impactful (max 50 characters)
-       - Maintain the same tone and energy
-       - Adapt running terminology appropriately
-       - Ensure it sounds natural in {target_language}
-    
-    2. TRANSLATE THE DESCRIPTION:
-       - Preserve all emojis and formatting (line breaks, etc.)
-       - Keep the description informative (max 500 characters)
-       - Translate technical terms accurately:
-         * Tempo run, interval session, easy run, long run, etc.
-         * Pace, heart rate, recovery, warm-up, cool-down
-         * Keep units as-is (km, /km, bpm, etc.)
-       - Maintain the motivational and personal tone
-       - Adapt idioms and expressions naturally
-    
-    3. PRESERVE METADATA:
-       - Keep workout_type and key_metrics exactly as they are
-       - These are technical fields that should not be translated
-       - Only translate the human-readable title and description
-    
-    TRANSLATION QUALITY GUIDELINES:
-    
-    - **Natural Language**: The translation should sound like it was originally written in {target_language}
-    - **Sports Context**: Use terminology that athletes in {target_language} would actually use
-    - **Character Limits**: 
-      * Title: Maximum 50 characters (including emojis)
-      * Description: Maximum 500 characters (including emojis)
-    - **Tone Consistency**: Match the original's tone (motivational, analytical, casual, etc.)
-    - **Formatting**: Preserve line breaks, bullet points, and structure
-    
-    COMMON TERMINOLOGY REFERENCE:
-    
-    French → English:
-    - Sortie = Run/outing
-    - Fractionné = Intervals
-    - Tempo/Seuil = Tempo/Threshold
-    - Récupération = Recovery
-    - Échauffement = Warm-up
-    - Retour au calme = Cool-down
-    - Allure = Pace
-    - Fréquence cardiaque = Heart rate
-    - J'ai ressenti = I felt / Felt
-    
-    English → French:
-    - Run = Sortie/Course
-    - Intervals = Fractionné
-    - Tempo = Tempo/Seuil
-    - Recovery = Récupération
-    - Warm-up = Échauffement
-    - Cool-down = Retour au calme
-    - Pace = Allure
-    - Heart rate = Fréquence cardiaque
-    - Felt = J'ai ressenti / Ressenti
-    
-    OUTPUT FORMAT:
-    Return a JSON object with the same structure as the input, but with translated content:
-    {{
-        "title": "Translated title in {target_language}",
-        "description": "Translated description in {target_language}",
-        "workout_type": "Keep original (not translated)",
-        "key_metrics": {{
-            "Keep all metrics exactly as they are (not translated)"
-        }}
-    }}
-    
-    IMPORTANT:
-    - Only translate the "title" and "description" fields
-    - Keep "workout_type" and "key_metrics" unchanged
-    - Ensure character limits are respected
-    - Verify that emojis are preserved correctly
+
+    TRANSLATION CHECKLIST:
+
+    1. TITLE (≤ 50 characters)
+        - Preserve emoji placement exactly
+        - Keep the punchy, motivational tone
+        - Adapt running terminology idiomatically
+
+    2. DESCRIPTION (≤ 500 characters)
+        - Maintain line breaks and formatting cues
+        - Translate running jargon precisely (tempo, intervals, recovery, etc.)
+        - Keep metric units untouched (km, /km, bpm)
+        - Convey the original emotional tone in {target_language}
+
+    3. PROTECT STRUCTURED FIELDS
+        - Do not translate `workout_type`
+        - Do not translate `key_metrics`
+        - Only the natural-language fields should change
+
+    OUTPUT GUARANTEES:
+    - Return valid JSON following the TranslationPayload schema
+    - No markdown fenced blocks
+    - Ensure emojis render correctly and counts remain unchanged
+    - Respect the original structure exactly (same keys/order)
     """
     
     return Task(
         description=description,
         agent=agent,
-        expected_output=f"A JSON object with title and description translated to {target_language}, preserving emojis and formatting"
+        expected_output=(
+            f"Valid JSON adhering to the TranslationPayload schema with title and description translated to {target_language}"
+        ),
+        output_json=TranslationPayload,
     )

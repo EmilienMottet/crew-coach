@@ -211,9 +211,7 @@ crew/
 │   ├── description_task.py     # Tâche de génération
 │   ├── privacy_task.py         # Tâche de vérification
 │   └── translation_task.py     # Tâche de traduction (optionnel)
-├── tools/                     # Helpers MCP (legacy, optionnels)
-│   ├── mcp_client.py          # Client MCP HTTP (fallback)
-│   ├── intervals_tools.py     # Wrappers historiques Intervals.icu
+├── tools/                     # Package conservé (plus de helpers legacy)
 │   └── __init__.py
 ├── crew.py                     # Point d'entrée principal
 ├── requirements.txt
