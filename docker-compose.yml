@@ -1,0 +1,12 @@
+version: "3.9"
+
+services:
+  crew:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ghcr.io/emilienmottet/crew-coach:latest
+    env_file:
+      - .env
+    stdin_open: true
+    tty: true
