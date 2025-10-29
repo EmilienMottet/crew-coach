@@ -7,3 +7,4 @@ pytz==2025.2
 mcp>=1.19.0
 fastapi==0.115.0
 uvicorn==0.38.0
+litellm==1.60.0
