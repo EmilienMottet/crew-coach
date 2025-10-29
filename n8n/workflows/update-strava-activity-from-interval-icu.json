@@ -1,0 +1,106 @@
+{
+  "id": "HuCluxoEh7V3plO5",
+  "name": "Update Strava activity from interval.icu",
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "nodes": [
+    {
+      "id": "0c4caafa-8e2c-4b19-9c57-ccfbc3ca42e2",
+      "name": "Strava Trigger",
+      "type": "n8n-nodes-base.stravaTrigger",
+      "typeVersion": 1,
+      "position": [
+        -128,
+        -80
+      ],
+      "parameters": {
+        "event": "create",
+        "options": {}
+      },
+      "webhookId": "7b2f4637-2ed0-40de-a481-45f3a4ac2897",
+      "credentials": {
+        "stravaOAuth2Api": {
+          "id": "K3T8baQuxLWmmuhd",
+          "name": "Strava account"
+        }
+      }
+    },
+    {
+      "id": "8d4efa51-0788-4503-9c37-8cde03ff992f",
+      "name": "HTTP Request",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        80,
+        -80
+      ],
+      "parameters": {
+        "method": "POST",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json }}",
+        "options": {
+          "response": {
+            "responseFormat": "json"
+          }
+        },
+        "url": "http://crew:8000/process"
+      }
+    },
+    {
+      "id": "aed76cd0-6c81-4d28-95a8-19a29d0e5848",
+      "name": "Update an activity",
+      "type": "n8n-nodes-base.strava",
+      "typeVersion": 1.1,
+      "position": [
+        304,
+        -96
+      ],
+      "parameters": {
+        "resource": "activity",
+        "operation": "update",
+        "activityId": "={{ $json[\"activity_id\"] }}",
+        "updateFields": {
+          "name": "={{ $json[\"title\"] }}",
+          "description": "={{ $json[\"description\"] }}"
+        }
+      },
+      "credentials": {
+        "stravaOAuth2Api": {
+          "id": "K3T8baQuxLWmmuhd",
+          "name": "Strava account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Strava Trigger": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Update an activity",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}
