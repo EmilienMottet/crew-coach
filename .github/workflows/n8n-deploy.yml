@@ -1,0 +1,85 @@
+name: Deploy n8n workflows
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'n8n/workflows/**'
+      - '.github/workflows/n8n-deploy.yml'
+  workflow_dispatch:
+  workflow_call:
+    secrets:
+      N8N_API_URL:
+        required: true
+      N8N_API_KEY:
+        required: true
+
+jobs:
+  deploy:
+    name: Sync workflows to n8n
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate configuration
+        run: |
+          set -euo pipefail
+          N8N_API_URL='${{ secrets.N8N_API_URL }}'
+          N8N_API_KEY='${{ secrets.N8N_API_KEY }}'
+          if [ -z "${N8N_API_URL}" ] || [ -z "${N8N_API_KEY}" ]; then
+            echo "N8N_API_URL and N8N_API_KEY secrets must be configured." >&2
+            exit 1
+          fi
+
+      - name: Deploy workflows
+        run: |
+          set -euo pipefail
+          N8N_API_URL='${{ secrets.N8N_API_URL }}'
+          N8N_API_KEY='${{ secrets.N8N_API_KEY }}'
+          shopt -s nullglob
+          files=(n8n/workflows/*.json)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "No workflow definitions found under n8n/workflows." >&2
+            exit 1
+          fi
+
+          for file in "${files[@]}"; do
+            echo "Deploying ${file}"
+            workflow_id=$(jq -r '.id' "${file}")
+            if [ -z "${workflow_id}" ] || [ "${workflow_id}" = "null" ]; then
+              echo "Workflow file ${file} is missing an id field." >&2
+              exit 1
+            fi
+
+            update_payload=$(jq -c 'del(.id)' "${file}")
+            tmpfile=$(mktemp)
+
+            update_status=$(curl -sS -o "${tmpfile}" -w '%{http_code}' \
+              -X PUT "${N8N_API_URL%/}/rest/workflows/${workflow_id}" \
+              -H "Content-Type: application/json" \
+              -H "n8n-api-key: ${N8N_API_KEY}" \
+              -d "${update_payload}")
+
+            if [ "${update_status}" = "404" ]; then
+              create_payload=$(jq -c '{name, active, nodes, connections, settings, meta, tags}' "${file}")
+              create_status=$(curl -sS -o "${tmpfile}" -w '%{http_code}' \
+                -X POST "${N8N_API_URL%/}/rest/workflows" \
+                -H "Content-Type: application/json" \
+                -H "n8n-api-key: ${N8N_API_KEY}" \
+                -d "${create_payload}")
+              if [ "${create_status}" -ge 300 ]; then
+                cat "${tmpfile}" >&2
+                exit 1
+              fi
+              echo "Created workflow ${workflow_id}"
+            elif [ "${update_status}" -ge 300 ]; then
+              cat "${tmpfile}" >&2
+              exit 1
+            else
+              echo "Updated workflow ${workflow_id}"
+            fi
+
+            rm -f "${tmpfile}"
+          done
