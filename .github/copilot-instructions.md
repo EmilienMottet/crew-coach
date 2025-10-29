@@ -62,6 +62,7 @@ Final JSON output (stdout) → n8n → Update Strava
 - `IntervalsIcu__get_activities`: Recent activity list
 
 > These tools are exposed to the description agent via CrewAI's `mcps` field. Configure `MCP_SERVER_URL` (optionally comma-separated). Auto-discovery is used by default; set `INTERVALS_MCP_TOOL_NAMES` if you need to lock the set of tools to a specific subset.
+> The deployment relies on metaMCP, which exposes Intervals.icu, Spotify, and other providers behind a single endpoint—leave the tool lists unset to benefit from automatic discovery for all agents.
 
 ### Legacy Wrappers (`tools/`)
 Legacy helper modules have been removed; rely on MCP references directly within agents.
@@ -153,11 +154,11 @@ OPENAI_API_BASE=https://your-endpoint.com/v1
 OPENAI_MODEL_NAME=gpt-4
 OPENAI_API_AUTH_TOKEN=base64_token  # OR OPENAI_API_KEY
 
-# MCP Servers
+# MCP Server (metaMCP regroupe Intervals.icu, Spotify, etc.)
 MCP_SERVER_URL=https://mcp.emottet.com/metamcp/.../mcp?api_key=...
-SPOTIFY_MCP_SERVER_URL=https://mcp.example.com/spotify/mcp?api_key=...
-INTERVALS_MCP_TOOL_NAMES=IntervalsIcu__get_activity_details,IntervalsIcu__get_activity_intervals
-SPOTIFY_MCP_TOOL_NAMES=Spotify__get_recently_played
+# Auto-discovery is enabled by default; comment values below only if you need to restrict the toolset.
+# INTERVALS_MCP_TOOL_NAMES=IntervalsIcu__get_activity_details,IntervalsIcu__get_activity_intervals
+# SPOTIFY_MCP_TOOL_NAMES=Spotify__get_recently_played
 
 # Privacy Policy
 WORK_START_MORNING=08:30
