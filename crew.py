@@ -16,16 +16,19 @@ from crewai.tasks.task_output import TaskOutput
 
 from agents import (
     create_description_agent,
+    create_music_agent,
     create_privacy_agent,
     create_translation_agent,
 )
 from schemas import (
+    ActivityMusicSelection,
     GeneratedActivityContent,
     PrivacyAssessment,
     TranslationPayload,
 )
 from tasks import (
     create_description_task,
+    create_music_task,
     create_privacy_task,
     create_translation_task,
 )
@@ -149,6 +152,34 @@ class StravaDescriptionCrew:
     def _build_intervals_mcp_references(self, tool_names: List[str]) -> List[str]:
         """Build MCP references (DSL syntax) for the description agent."""
         raw_urls = os.getenv("MCP_SERVER_URL", "")
+        if not raw_urls:
+            return []
+
+        references: List[str] = []
+        for entry in (segment.strip() for segment in raw_urls.split(",")):
+            if not entry:
+                continue
+            if entry.startswith("crewai-amp:") or "#" in entry:
+                references.append(entry)
+                continue
+            if tool_names:
+                references.extend(f"{entry}#{tool_name}" for tool_name in tool_names)
+            else:
+                references.append(entry)
+        return references
+
+    def _load_spotify_tool_names(self) -> List[str]:
+        """Load MCP tool names for Spotify integration."""
+        env_value = os.getenv("SPOTIFY_MCP_TOOL_NAMES", "")
+        if env_value:
+            tool_names = [name.strip() for name in env_value.split(",") if name.strip()]
+            if tool_names:
+                return tool_names
+        return []
+
+    def _build_spotify_mcp_references(self, tool_names: List[str]) -> List[str]:
+        """Build MCP references for Spotify playback history tools."""
+        raw_urls = os.getenv("SPOTIFY_MCP_SERVER_URL", "")
         if not raw_urls:
             return []
 
