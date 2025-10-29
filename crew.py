@@ -34,12 +34,6 @@ from tasks import (
 class StravaDescriptionCrew:
     """Crew for generating and validating Strava activity descriptions."""
 
-    DEFAULT_INTERVALS_MCP_TOOLS: tuple[str, ...] = (
-        "IntervalsIcu__get_activity_details",
-        "IntervalsIcu__get_activity_intervals",
-        "IntervalsIcu__get_activities",
-    )
-    
     def __init__(self):
         """Initialize the crew with LLM and agents."""
         load_dotenv()
