@@ -7,18 +7,24 @@ Réseau d'agents CrewAI pour générer automatiquement des titres et description
 ### Agents
 
 1. **Activity Description Writer** 📝
-   - Analyse les données d'Intervals.icu
-   - Génère des titres accrocheurs (max 50 caractères)
-   - Rédige des descriptions informatives (max 500 caractères)
-   - Identifie le type d'entraînement (tempo, intervalles, sortie facile, etc.)
+  - Analyse les données d'Intervals.icu
+  - Génère des titres accrocheurs (max 50 caractères)
+  - Rédige des descriptions informatives (max 500 caractères)
+  - Identifie le type d'entraînement (tempo, intervalles, sortie facile, etc.)
 
-2. **Privacy & Compliance Officer** 🔒
+2. **Activity Soundtrack Curator** 🎧
+  - Interroge l'historique Spotify via MCP pour la fenêtre temporelle de l'activité
+  - Sélectionne jusqu'à cinq morceaux réellement écoutés
+  - Ajoute une section courte « Musique » à la fin de la description
+  - Garantit que la description finale reste ≤ 500 caractères
+
+3. **Privacy & Compliance Officer** 🔒
    - Détecte les informations sensibles (noms, adresses, etc.)
    - Vérifie les horaires de travail
    - Recommande le niveau de confidentialité (public/privé)
    - Propose des versions nettoyées du contenu
 
-3. **Sports Content Translator** 🌐 *(Optionnel)*
+4. **Sports Content Translator** 🌐 *(Optionnel)*
    - Traduit les titres et descriptions dans la langue cible
    - Préserve les emojis et la mise en forme
    - Adapte la terminologie sportive de manière appropriée
@@ -93,6 +99,8 @@ OPENAI_MODEL_NAME=gpt-5-mini
 
 # Serveur MCP
 MCP_SERVER_URL=https://mcp.emottet.com/metamcp/stravaDescriptionAgent/mcp?api_key=...
+SPOTIFY_MCP_SERVER_URL=https://mcp.example.com/spotify/mcp?api_key=...
+SPOTIFY_MCP_TOOL_NAMES=Spotify__get_recently_played
 
 # Horaires de travail
 WORK_START_MORNING=08:30
@@ -185,6 +193,13 @@ python crew.py < input.json
 
 1. **Output** : JSON sur stdout avec le résultat
 
+### Versionning et déploiement automatique n8n
+
+- Le workflow n8n `Update Strava activity from interval.icu` est sauvegardé dans le dépôt : `n8n/workflows/update-strava-activity-from-interval-icu.json`.
+- Toute modification sur `main` déclenche le workflow GitHub Actions `.github/workflows/n8n-deploy.yml`. Il synchronise le JSON avec votre instance n8n en utilisant l'API REST (`PUT /rest/workflows/{id}` avec repli en `POST` si le workflow n'existe pas encore).
+- Configurez les secrets de dépôt `N8N_API_URL` (ex. `https://n8n.example.com`) et `N8N_API_KEY` (clé API personnelle) pour autoriser le déploiement.
+- Pour mettre à jour le workflow, modifiez le JSON ou réexportez-le depuis n8n, validez les changements, puis poussez : la CI propagera automatiquement la version.
+
 ## 📥 Format d'entrée
 
 Le script attend des données au format webhook Strava :
@@ -214,7 +229,7 @@ Le script attend des données au format webhook Strava :
 {
   "activity_id": 16284886069,
   "title": "🏃 12.3K Tempo Run - Strong Effort",
-  "description": "Solid tempo run focusing on pace control...",
+  "description": "Solid tempo run focusing on pace control. Negative split on the second half with HR under control.\n\n🎧 Music: Daft Punk – Harder Better Faster Stronger; Justice – D.A.N.C.E.",
   "should_be_private": false,
   "privacy_check": {
     "approved": true,
@@ -227,9 +242,14 @@ Le script attend des données au format webhook Strava :
     "metrics": {
       "average_pace": "4:53 /km",
       "average_hr": "141 bpm",
-      "max_hr": "169 bpm"
+      "max_hr": "169 bpm",
+      "playlist_tracks": "Daft Punk – Harder Better Faster Stronger; Justice – D.A.N.C.E."
     }
-  }
+  },
+  "music_tracks": [
+    "Daft Punk – Harder Better Faster Stronger",
+    "Justice – D.A.N.C.E."
+  ]
 }
 ```
 
@@ -239,10 +259,12 @@ Le script attend des données au format webhook Strava :
 crew/
 ├── agents/
 │   ├── description_agent.py    # Génère titre et description
+│   ├── music_agent.py          # Récupère la musique via Spotify MCP
 │   ├── privacy_agent.py        # Vérifie confidentialité
 │   └── translation_agent.py    # Traduit le contenu (optionnel)
 ├── tasks/
 │   ├── description_task.py     # Tâche de génération
+│   ├── music_task.py           # Tâche d'enrichissement musical
 │   ├── privacy_task.py         # Tâche de vérification
 │   └── translation_task.py     # Tâche de traduction (optionnel)
 ├── tools/                     # Package conservé (plus de helpers legacy)
@@ -279,11 +301,15 @@ Pour l'activité dans `input.json` (course à 11:54:41) :
 2. **Génération** :
    - Titre : "🏃 12.3K Lunch Run - Intervals"
    - Description : Décrit la structure (échauffement, intervalles, récup)
-3. **Vérification** :
+3. **Enrichissement musical** :
+    - Le curator Spotify interroge l'historique des morceaux joués
+    - Jusqu'à cinq titres sont ajoutés en fin de description
+    - Si aucune écoute, la section « Musique » mentionne qu'aucun morceau n'a été détecté
+4. **Vérification** :
    - ⚠️ Activité à 11:54 = pendant les heures de travail (08:30-12:00)
    - ✅ Pas d'informations sensibles détectées
    - 🔒 **Recommandation : PRIVÉ**
-4. **Traduction** *(si activée)* :
+5. **Traduction** *(si activée)* :
    - Traduit le titre et la description vers la langue cible
    - Préserve les emojis et le formatage
    - Adapte la terminologie sportive
@@ -298,12 +324,17 @@ Step 1: Generate Description (Description Agent)
   → Analyze workout structure
   → Generate title + description
   ↓
-Step 2: Privacy Check (Privacy Agent)
+Step 2: Capture Soundtrack (Music Agent)
+  → Query Spotify MCP for recently played tracks
+  → Append up to five songs to the description
+  → Respect the 500-character limit
+  ↓
+Step 3: Privacy Check (Privacy Agent)
   → Detect sensitive information
   → Check work hours compliance
   → Sanitize if needed
   ↓
-Step 3: Translation (Translation Agent) [Optional]
+Step 4: Translation (Translation Agent) [Optional]
   → Translate title to target language
   → Translate description to target language
   → Preserve emojis and formatting

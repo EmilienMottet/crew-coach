@@ -132,10 +132,30 @@ class StravaDescriptionCrew:
                 file=sys.stderr
             )
         
+        self.spotify_tool_names = self._load_spotify_tool_names()
+        self.music_mcps = self._build_spotify_mcp_references(self.spotify_tool_names)
+
+        if not self.music_mcps:
+            print(
+                "\n⚠️  Warning: No MCP references configured for Spotify tools. "
+                "Music enrichment will fall back to empty playlists.\n",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                "\n🎵 Spotify MCP references configured: "
+                f"{', '.join(self.music_mcps)}\n",
+                file=sys.stderr,
+            )
+
         # Create agents
         self.description_agent = create_description_agent(
             self.llm,
             mcps=self.description_mcps
+        )
+        self.music_agent = create_music_agent(
+            self.llm,
+            mcps=self.music_mcps,
         )
         self.privacy_agent = create_privacy_agent(self.llm)
         self.translation_agent = create_translation_agent(self.llm)
@@ -362,7 +382,81 @@ class StravaDescriptionCrew:
             file=sys.stderr,
         )
 
-        print("\n🔒 Step 2: Checking privacy and compliance...\n", file=sys.stderr)
+        print("\n🎧 Step 2: Capturing soundtrack details...\n", file=sys.stderr)
+
+        music_tracks: List[str] = []
+
+        try:
+            music_task = create_music_task(
+                self.music_agent,
+                activity_data,
+                generated_content,
+            )
+
+            music_crew = Crew(
+                agents=[self.music_agent],
+                tasks=[music_task],
+                process=Process.sequential,
+                verbose=True,
+            )
+
+            music_result = music_crew.kickoff()
+            music_model = self._extract_model_from_output(
+                music_result, ActivityMusicSelection
+            )
+
+            if music_model is None:
+                print(
+                    "\n⚠️  Warning: Music agent returned invalid JSON, keeping original description.\n",
+                    file=sys.stderr,
+                )
+            else:
+                music_payload = music_model.model_dump()
+                updated_description = music_payload.get(
+                    "updated_description",
+                    generated_content.get("description", ""),
+                )
+
+                if not isinstance(updated_description, str):
+                    updated_description = generated_content.get("description", "")
+
+                if len(updated_description) > 500:
+                    print(
+                        "\n⚠️  Warning: Music description exceeds 500 characters, trimming to limit.\n",
+                        file=sys.stderr,
+                    )
+                    updated_description = updated_description[:500]
+
+                generated_content["description"] = updated_description
+
+                payload_tracks = music_payload.get("music_tracks", [])
+                if isinstance(payload_tracks, list):
+                    music_tracks = [
+                        track for track in payload_tracks if isinstance(track, str) and track
+                    ]
+
+                if music_tracks:
+                    metrics = generated_content.get("key_metrics")
+                    if not isinstance(metrics, dict):
+                        metrics = {}
+                    metrics["playlist_tracks"] = "; ".join(music_tracks)
+                    generated_content["key_metrics"] = metrics
+
+                print(
+                    f"\n✅ Music enrichment complete: {len(music_tracks)} track(s) captured.\n",
+                    file=sys.stderr,
+                )
+
+        except Exception as exc:  # noqa: BLE001
+            print(
+                f"\n⚠️  Warning: Music agent failed ({exc}), keeping original description.\n",
+                file=sys.stderr,
+            )
+            import traceback
+
+            traceback.print_exc(file=sys.stderr)
+
+        print("\n🔒 Step 3: Checking privacy and compliance...\n", file=sys.stderr)
 
         privacy_task = create_privacy_task(
             self.privacy_agent,
@@ -426,7 +520,7 @@ class StravaDescriptionCrew:
             file=sys.stderr,
         )
 
-        print("\n🌐 Step 3: Translating content (if enabled)...\n", file=sys.stderr)
+        print("\n🌐 Step 4: Translating content (if enabled)...\n", file=sys.stderr)
 
         translation_enabled = os.getenv("TRANSLATION_ENABLED", "false").lower() == "true"
 
@@ -510,6 +604,9 @@ class StravaDescriptionCrew:
                 "metrics": generated_content.get("key_metrics", {}),
             },
         }
+
+        if music_tracks:
+            final_result["music_tracks"] = music_tracks
 
         return final_result
 
