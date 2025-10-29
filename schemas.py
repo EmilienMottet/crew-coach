@@ -20,6 +20,20 @@ class GeneratedActivityContent(BaseModel):
     )
 
 
+class ActivityMusicSelection(BaseModel):
+    """Soundtrack enrichment appended to the generated description."""
+
+    updated_description: str = Field(
+        ...,
+        max_length=1000,
+        description="English activity description with soundtrack details appended",
+    )
+    music_tracks: List[str] = Field(
+        default_factory=list,
+        description="Ordered list of '<artist> – <track>' entries included in the summary",
+    )
+
+
 class PrivacyRecommendations(BaseModel):
     """Recommended sanitized content from the privacy agent."""
 
