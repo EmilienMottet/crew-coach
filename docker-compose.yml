@@ -10,6 +10,7 @@ services:
       - "49200:8000"
     stdin_open: true
     tty: true
+    restart: unless-stopped
     entrypoint: ["python", "server.py"]
     networks:
       - crew_net
