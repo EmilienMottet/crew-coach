@@ -23,92 +23,20 @@ def create_weekly_structure_task(agent: Any, hexis_analysis: Dict[str, Any]) -> 
     hexis_json = json.dumps(hexis_analysis, indent=2)
 
     description = f"""
-    Transform the Hexis training analysis into a structured weekly nutrition plan
-    with detailed daily targets and meal timing guidance.
+Transform Hexis analysis into structured weekly nutrition plan with daily targets and meal timing.
 
-    HEXIS ANALYSIS INPUT:
-    {hexis_json}
+HEXIS INPUT:
+{hexis_json}
 
-    YOUR MISSION:
+TASKS:
+1. For each day (Mon-Sun): extract date, calories, macros from Hexis; add training context (workout type/intensity) and meal timing guidance
+2. Meal timing: consider workout schedule (morning/afternoon/evening), pre/post workout nutrition, macro distribution
+3. Training context examples: "Hard intervals 90min", "Easy run 45min", "Rest day", "Long run 2h tempo"
+4. Weekly summary: training focus, nutritional themes (carb cycling/recovery), special considerations, expected outcomes
 
-    1. CREATE DAILY NUTRITION TARGETS
-        For each day of the week (Monday through Sunday):
-        - Extract the date from the Hexis analysis
-        - Use the calorie target from Hexis
-        - Use the macro targets from Hexis (protein, carbs, fat)
-        - Interpret the training context (workout type, intensity)
-        - Determine optimal meal timing based on workout schedule
-
-    2. PROVIDE MEAL TIMING GUIDANCE
-        For each day, consider:
-        - When is the workout scheduled? (morning/afternoon/evening)
-        - What meals should be eaten before the workout?
-        - What timing is optimal for recovery nutrition?
-        - How should macros be distributed across meals?
-
-        Example meal timing notes:
-        - "High-carb breakfast 2-3h before morning intervals"
-        - "Moderate lunch, pre-workout snack, post-workout recovery dinner"
-        - "Balanced distribution across 3 main meals + 2 snacks"
-        - "Front-load carbs: 40% breakfast, 30% lunch, 30% dinner"
-
-    3. CREATE TRAINING CONTEXT DESCRIPTIONS
-        For each day, provide clear training context:
-        - "Hard interval session (90 min, high intensity)"
-        - "Easy recovery run (45 min, low intensity)"
-        - "Rest day - active recovery"
-        - "Long endurance run (2h, moderate intensity)"
-        - "Tempo workout (60 min, threshold effort)"
-
-    4. WRITE WEEKLY SUMMARY
-        Synthesize the week's nutrition strategy:
-        - Overall training focus (base building, peak training, taper, etc.)
-        - Key nutritional themes (carb cycling, recovery focus, etc.)
-        - Special considerations (race week, travel, etc.)
-        - Expected outcomes (maintain weight, fuel performance, optimize recovery)
-
-        Example summary:
-        "Moderate training week with 3 quality sessions requiring strategic carbohydrate
-        periodization. Emphasis on recovery nutrition post-intervals and long run.
-        Maintaining energy balance with slight carb cycling to match training demands."
-
-    5. OUTPUT STRUCTURED PLAN
-        Return valid JSON matching WeeklyNutritionPlan schema:
-        - Week date range (from Hexis analysis)
-        - Daily targets array (7 days)
-        - Weekly summary
-
-    IMPORTANT GUIDELINES:
-    - Be specific and actionable in meal timing notes
-    - Consider realistic meal schedules (breakfast ~7am, lunch ~12pm, dinner ~7pm)
-    - Account for workout timing in meal distribution
-    - Ensure daily targets align with Hexis recommendations
-    - Make training context clear and descriptive
-
-    EXAMPLE OUTPUT STRUCTURE:
-    {{
-      "week_start_date": "2025-01-06",
-      "week_end_date": "2025-01-12",
-      "daily_targets": [
-        {{
-          "day_name": "Monday",
-          "date": "2025-01-06",
-          "calories": 2800,
-          "macros": {{"protein_g": 140, "carbs_g": 350, "fat_g": 78, "calories": 2800}},
-          "training_context": "Hard interval session (90 min, VO2max intervals)",
-          "meal_timing_notes": "High-carb breakfast 2-3h pre-workout. Recovery-focused post-workout meal within 30min. Balanced dinner."
-        }},
-        ...
-      ],
-      "weekly_summary": "Moderate training week with strategic carb periodization..."
-    }}
-
-    OUTPUT CONTRACT:
-    - Respond with valid JSON matching the WeeklyNutritionPlan schema
-    - Do not wrap JSON in markdown fences
-    - Include all 7 days with complete information
-    - Be specific and practical in meal timing guidance
-    """
+Return JSON: week_start_date, week_end_date, daily_targets (array with day_name/date/calories/macros/training_context/meal_timing_notes for all 7 days), weekly_summary.
+No markdown fences. Be specific and actionable.
+"""
 
     return Task(
         description=description,
