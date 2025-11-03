@@ -1,24 +1,19 @@
 {
-  "id": "HuCluxoEh7V3plO5",
   "name": "Update Strava activity from interval.icu",
-  "active": false,
-  "settings": {
-    "executionOrder": "v1"
-  },
   "nodes": [
     {
-      "id": "0c4caafa-8e2c-4b19-9c57-ccfbc3ca42e2",
-      "name": "Strava Trigger",
+      "parameters": {
+        "event": "create",
+        "options": {}
+      },
       "type": "n8n-nodes-base.stravaTrigger",
       "typeVersion": 1,
       "position": [
         -128,
         -80
       ],
-      "parameters": {
-        "event": "create",
-        "options": {}
-      },
+      "id": "0c4caafa-8e2c-4b19-9c57-ccfbc3ca42e2",
+      "name": "Strava Trigger",
       "webhookId": "7b2f4637-2ed0-40de-a481-45f3a4ac2897",
       "credentials": {
         "stravaOAuth2Api": {
@@ -28,45 +23,43 @@
       }
     },
     {
-      "id": "8d4efa51-0788-4503-9c37-8cde03ff992f",
-      "name": "HTTP Request",
+      "parameters": {
+        "method": "POST",
+        "url": "http://crew:8000/process",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json }}",
+        "options": {
+          "response": {},
+          "timeout": 3600000
+        }
+      },
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.3,
       "position": [
         80,
         -80
       ],
-      "parameters": {
-        "method": "POST",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ $json }}",
-        "options": {
-          "response": {
-            "responseFormat": "json"
-          }
-        },
-  "url": "http://crew:8000/process"
-      }
+      "id": "8d4efa51-0788-4503-9c37-8cde03ff992f",
+      "name": "HTTP Request"
     },
     {
-      "id": "aed76cd0-6c81-4d28-95a8-19a29d0e5848",
-      "name": "Update an activity",
+      "parameters": {
+        "operation": "update",
+        "activityId": "={{ $json[\"activity_id\"] }}",
+        "updateFields": {
+          "description": "={{ $json[\"description\"] }}",
+          "name": "={{ $json[\"title\"] }}"
+        }
+      },
       "type": "n8n-nodes-base.strava",
       "typeVersion": 1.1,
       "position": [
         304,
-        -96
+        -80
       ],
-      "parameters": {
-        "resource": "activity",
-        "operation": "update",
-        "activityId": "={{ $json[\"activity_id\"] }}",
-        "updateFields": {
-          "name": "={{ $json[\"title\"] }}",
-          "description": "={{ $json[\"description\"] }}"
-        }
-      },
+      "id": "aed76cd0-6c81-4d28-95a8-19a29d0e5848",
+      "name": "Update an activity",
       "credentials": {
         "stravaOAuth2Api": {
           "id": "K3T8baQuxLWmmuhd",
@@ -75,6 +68,7 @@
       }
     }
   ],
+  "pinData": {},
   "connections": {
     "Strava Trigger": {
       "main": [
@@ -99,8 +93,19 @@
       ]
     }
   },
-  "meta": {
-    "templateCredsSetupCompleted": true
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Paris",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false,
+    "errorWorkflow": "HuCluxoEh7V3plO5"
   },
+  "versionId": "28fc3925-7b36-47c5-b9e2-458f9c498c33",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "089593b0375f52cffd2e682594e43cdd96459883230a04bef809490471c267bb"
+  },
+  "id": "HuCluxoEh7V3plO5",
   "tags": []
 }
