@@ -32,6 +32,7 @@ from tasks import (
     create_privacy_task,
     create_translation_task,
 )
+from mcp_utils import build_mcp_references, load_catalog_tool_names
 
 
 class StravaDescriptionCrew:
@@ -180,26 +181,13 @@ class StravaDescriptionCrew:
             tool_names = [name.strip() for name in env_value.split(",") if name.strip()]
             if tool_names:
                 return tool_names
-        return []
+        # Fallback to local catalogue so we can still address specific tools if discovery fails.
+        return load_catalog_tool_names(["IntervalsIcu__"])
 
     def _build_intervals_mcp_references(self, tool_names: List[str]) -> List[str]:
         """Build MCP references (DSL syntax) for the description agent."""
         raw_urls = os.getenv("MCP_SERVER_URL", "")
-        if not raw_urls:
-            return []
-
-        references: List[str] = []
-        for entry in (segment.strip() for segment in raw_urls.split(",")):
-            if not entry:
-                continue
-            if entry.startswith("crewai-amp:") or "#" in entry:
-                references.append(entry)
-                continue
-            if tool_names:
-                references.extend(f"{entry}#{tool_name}" for tool_name in tool_names)
-            else:
-                references.append(entry)
-        return references
+        return build_mcp_references(raw_urls, tool_names)
 
     def _load_spotify_tool_names(self) -> List[str]:
         """Load MCP tool names for Spotify integration."""
@@ -208,28 +196,14 @@ class StravaDescriptionCrew:
             tool_names = [name.strip() for name in env_value.split(",") if name.strip()]
             if tool_names:
                 return tool_names
-        return []
+        return load_catalog_tool_names(["spotify__"])
 
     def _build_spotify_mcp_references(self, tool_names: List[str]) -> List[str]:
         """Build MCP references for Spotify playback history tools."""
         raw_urls = os.getenv("SPOTIFY_MCP_SERVER_URL") or os.getenv(
             "MCP_SERVER_URL", ""
         )
-        if not raw_urls:
-            return []
-
-        references: List[str] = []
-        for entry in (segment.strip() for segment in raw_urls.split(",")):
-            if not entry:
-                continue
-            if entry.startswith("crewai-amp:") or "#" in entry:
-                references.append(entry)
-                continue
-            if tool_names:
-                references.extend(f"{entry}#{tool_name}" for tool_name in tool_names)
-            else:
-                references.append(entry)
-        return references
+        return build_mcp_references(raw_urls, tool_names)
 
     @staticmethod
     def _payloads_from_task_output(task_output: TaskOutput) -> List[Dict[str, Any]]:

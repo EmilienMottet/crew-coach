@@ -34,6 +34,7 @@ from tasks import (
     create_nutritional_validation_task,
     create_mealy_integration_task,
 )
+from mcp_utils import build_mcp_references, load_catalog_tool_names
 
 
 class MealPlanningCrew:
@@ -165,9 +166,6 @@ class MealPlanningCrew:
         raw_urls = os.getenv("HEXIS_MCP_SERVER_URL") or os.getenv(
             "MCP_SERVER_URL", ""
         )
-        if not raw_urls:
-            return []
-
         tool_names_env = os.getenv("HEXIS_MCP_TOOL_NAMES", "")
         tool_names = (
             [name.strip() for name in tool_names_env.split(",") if name.strip()]
@@ -175,27 +173,16 @@ class MealPlanningCrew:
             else []
         )
 
-        references: List[str] = []
-        for entry in (segment.strip() for segment in raw_urls.split(",")):
-            if not entry:
-                continue
-            if entry.startswith("crewai-amp:") or "#" in entry:
-                references.append(entry)
-                continue
-            if tool_names:
-                references.extend(f"{entry}#{tool_name}" for tool_name in tool_names)
-            else:
-                references.append(entry)
-        return references
+        if not tool_names:
+            tool_names = load_catalog_tool_names(["hexis__"])
+
+        return build_mcp_references(raw_urls, tool_names)
 
     def _build_mealy_mcp_references(self) -> List[str]:
         """Build MCP references for Mealy integration."""
         raw_urls = os.getenv("MEALY_MCP_SERVER_URL") or os.getenv(
             "MCP_SERVER_URL", ""
         )
-        if not raw_urls:
-            return []
-
         tool_names_env = os.getenv("MEALY_MCP_TOOL_NAMES", "")
         tool_names = (
             [name.strip() for name in tool_names_env.split(",") if name.strip()]
@@ -203,18 +190,10 @@ class MealPlanningCrew:
             else []
         )
 
-        references: List[str] = []
-        for entry in (segment.strip() for segment in raw_urls.split(",")):
-            if not entry:
-                continue
-            if entry.startswith("crewai-amp:") or "#" in entry:
-                references.append(entry)
-                continue
-            if tool_names:
-                references.extend(f"{entry}#{tool_name}" for tool_name in tool_names)
-            else:
-                references.append(entry)
-        return references
+        if not tool_names:
+            tool_names = load_catalog_tool_names(["mealy__"])
+
+        return build_mcp_references(raw_urls, tool_names)
 
     @staticmethod
     def _payloads_from_task_output(task_output: TaskOutput) -> List[Dict[str, Any]]:
