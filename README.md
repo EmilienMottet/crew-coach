@@ -113,6 +113,8 @@ WORK_END_AFTERNOON=17:00
 TRANSLATION_ENABLED=false
 TRANSLATION_TARGET_LANGUAGE=English
 TRANSLATION_SOURCE_LANGUAGE=French
+
+> ℹ️ Les variables `SPOTIFY_MCP_SERVER_URL`, `HEXIS_MCP_SERVER_URL` et `MEALY_MCP_SERVER_URL` sont optionnelles : si elles ne sont pas définies, l'application réutilise automatiquement `MCP_SERVER_URL` pour exposer les outils correspondants.
 ```
 
 ## 🐳 Déploiement Docker & GitHub Packages

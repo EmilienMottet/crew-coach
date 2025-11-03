@@ -212,7 +212,9 @@ class StravaDescriptionCrew:
 
     def _build_spotify_mcp_references(self, tool_names: List[str]) -> List[str]:
         """Build MCP references for Spotify playback history tools."""
-        raw_urls = os.getenv("SPOTIFY_MCP_SERVER_URL", "")
+        raw_urls = os.getenv("SPOTIFY_MCP_SERVER_URL") or os.getenv(
+            "MCP_SERVER_URL", ""
+        )
         if not raw_urls:
             return []
 

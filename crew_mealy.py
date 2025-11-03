@@ -162,7 +162,9 @@ class MealPlanningCrew:
 
     def _build_hexis_mcp_references(self) -> List[str]:
         """Build MCP references for Hexis integration."""
-        raw_urls = os.getenv("HEXIS_MCP_SERVER_URL", "")
+        raw_urls = os.getenv("HEXIS_MCP_SERVER_URL") or os.getenv(
+            "MCP_SERVER_URL", ""
+        )
         if not raw_urls:
             return []
 
@@ -188,7 +190,9 @@ class MealPlanningCrew:
 
     def _build_mealy_mcp_references(self) -> List[str]:
         """Build MCP references for Mealy integration."""
-        raw_urls = os.getenv("MEALY_MCP_SERVER_URL", "")
+        raw_urls = os.getenv("MEALY_MCP_SERVER_URL") or os.getenv(
+            "MCP_SERVER_URL", ""
+        )
         if not raw_urls:
             return []
 
