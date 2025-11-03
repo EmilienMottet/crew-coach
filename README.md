@@ -149,12 +149,17 @@ docker compose run --rm crew < input.json
 
 ### Modèles LLM disponibles
 
-Le système utilise votre endpoint local avec le modèle `gpt-5-mini` par défaut. Le modèle est configuré pour être compatible avec LiteLLM (utilisé par CrewAI) en utilisant le préfixe `openai/`.
+Le système sélectionne désormais automatiquement deux profils de modèles afin d'optimiser les coûts et la latence :
+
+- `OPENAI_SIMPLE_MODEL_NAME` (par défaut `claude-haiku-4.5`) pour les tâches jugées simples : bande-son, conformité, traduction, intégrations Mealy…
+- `OPENAI_COMPLEX_MODEL_NAME` (par défaut `claude-sonnet-4.5`, ou la valeur de `OPENAI_MODEL_NAME` si défini) pour les tâches très complexes : analyse Strava, génération de plans repas, validation nutritionnelle…
+
+Les deux valeurs sont normalisées avec le préfixe `openai/` si vous ne le fournissez pas. Si vous souhaitez désactiver cette sélection automatique, définissez les deux variables sur le même nom de modèle.
 
 **Important** : Assurez-vous que :
 
 - Votre endpoint local (`OPENAI_API_BASE`) est compatible OpenAI API
-- Le modèle (`OPENAI_MODEL_NAME`) correspond exactement au nom exposé par votre serveur
+- Les modèles déclarés correspondent exactement aux noms exposés par votre serveur proxy LiteLLM/OpenAI
 - Pour LM Studio : utilisez le nom du modèle affiché dans l'interface
 - Pour Ollama : activez l'API compatible OpenAI sur le port 11434
 
