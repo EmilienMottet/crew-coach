@@ -119,12 +119,25 @@ class StravaDescriptionCrew:
         self.intervals_tool_names = self._load_intervals_tool_names()
         self.description_mcps = self._build_intervals_mcp_references(self.intervals_tool_names)
 
+        # Check if MCP enforcement is enabled (default: true)
+        require_mcp = os.getenv("REQUIRE_MCP", "true").lower() == "true"
+
         if not self.description_mcps:
-            print(
-                "\n⚠️  Warning: No MCP references configured for Intervals.icu tools. "
-                "Description agent will operate without live workout data.\n",
-                file=sys.stderr
+            error_msg = (
+                "\n❌ Error: No MCP references configured for Intervals.icu tools. "
+                "The Description Agent requires MCP tools to fetch workout data.\n"
+                "Please set MCP_SERVER_URL environment variable.\n"
+                "To disable this check, set REQUIRE_MCP=false (not recommended).\n"
             )
+            if require_mcp:
+                print(error_msg, file=sys.stderr)
+                raise ValueError("MCP configuration is required but not provided")
+            else:
+                print(
+                    "\n⚠️  Warning: No MCP references configured for Intervals.icu tools. "
+                    "Description agent will operate without live workout data.\n",
+                    file=sys.stderr
+                )
         else:
             print(
                 "\n🔗 MCP references configured: "

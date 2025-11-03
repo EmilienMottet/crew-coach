@@ -37,6 +37,9 @@ cat input.json | python crew.py 2>&1 | tee full_output.log
 
 ### Testing
 ```bash
+# Test MCP connectivity (RECOMMENDED - run this first!)
+python test_mcp_connectivity.py
+
 # Test with sample input
 cat input.json | python crew.py
 
@@ -49,13 +52,16 @@ bash test_translation.sh
 
 ### Debugging LLM/MCP Connectivity
 ```bash
+# Test MCP server connectivity and tool availability (Recommended)
+python test_mcp_connectivity.py
+
 # Test LLM endpoint
 curl -X POST $OPENAI_API_BASE/chat/completions \
   -H "Content-Type: application/json" \
   -H "Authorization: Basic $OPENAI_API_AUTH_TOKEN" \
   -d '{"model": "gpt-4", "messages": [{"role": "user", "content": "Hello"}]}'
 
-# Test MCP server
+# Test MCP server (basic curl check)
 curl "$MCP_SERVER_URL"
 
 # List available models
@@ -145,6 +151,10 @@ OPENAI_API_AUTH_TOKEN=base64_token  # OR OPENAI_API_KEY=key
 
 # MCP Server (required for Intervals.icu data)
 MCP_SERVER_URL=https://mcp.emottet.com/metamcp/.../mcp?api_key=...
+
+# MCP Enforcement (default: true)
+# Set to false to allow running without MCP (not recommended for production)
+REQUIRE_MCP=true
 
 # Privacy Policy (required)
 WORK_START_MORNING=08:30
@@ -242,8 +252,9 @@ TRANSLATION_SOURCE_LANGUAGE=English
 
 ### MCP Connection Failures
 - **Cause**: Invalid `MCP_SERVER_URL` or network issues
-- **Fix**: Test URL with curl, check API key validity
-- **Fallback**: System logs warning but continues (Description Agent operates without live data)
+- **Fix**: Test URL with `python test_mcp_connectivity.py` or curl, check API key validity
+- **Default behavior**: System will fail immediately if `REQUIRE_MCP=true` (default)
+- **Testing mode**: Set `REQUIRE_MCP=false` to bypass check (not recommended in production)
 
 ### Activity Always Set to Private
 - **Cause**: Work hours misconfiguration or timezone mismatch
@@ -293,11 +304,12 @@ TRANSLATION_SOURCE_LANGUAGE=English
 - **Documentation**: French in README.md, English in code comments
 
 ### Testing Workflow
-1. **Manual test**: `cat input.json | python crew.py`
-2. **Check stderr**: Verify agent execution flow
-3. **Validate JSON**: Ensure stdout is valid JSON
-4. **Verify French**: Confirm title/description are in French
-5. **Test privacy**: Try activities during work hours (11:54 local time)
+1. **MCP connectivity**: `python test_mcp_connectivity.py` - Verify MCP tools are accessible
+2. **Manual test**: `cat input.json | python crew.py`
+3. **Check stderr**: Verify agent execution flow
+4. **Validate JSON**: Ensure stdout is valid JSON
+5. **Verify French**: Confirm title/description are in French
+6. **Test privacy**: Try activities during work hours (11:54 local time)
 
 ### Git Workflow
 - **Never commit**: `venv/`, `.env`, API keys, personal data
