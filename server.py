@@ -1,19 +1,34 @@
-"""HTTP server exposing the Strava description crew as a REST API."""
+"""HTTP server exposing the Strava description crew and meal planning crew as REST APIs."""
 from __future__ import annotations
 
 import json
 import sys
-from typing import Any, Dict
+from datetime import datetime, timedelta
+from typing import Any, Dict, Optional
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
 
 from crew import StravaDescriptionCrew
+from crew_mealy import MealPlanningCrew
 
-app = FastAPI(title="Strava Activity Description Crew")
+app = FastAPI(
+    title="Strava Activity & Meal Planning Crew",
+    description="Multi-agent CrewAI system for Strava activities and weekly meal planning"
+)
 
-# Reuse a single crew instance to avoid reloading models for every request.
-crew_instance = StravaDescriptionCrew()
+# Reuse crew instances to avoid reloading models for every request.
+strava_crew_instance = StravaDescriptionCrew()
+meal_planning_crew_instance = MealPlanningCrew()
+
+
+class MealPlanRequest(BaseModel):
+    """Request model for meal planning endpoint."""
+    week_start_date: Optional[str] = Field(
+        default=None,
+        description="Start date of the week (YYYY-MM-DD). Defaults to next Monday if not provided."
+    )
 
 
 def _normalize_payload(payload: Any) -> Dict[str, Any]:
@@ -55,6 +70,16 @@ async def healthcheck() -> Dict[str, str]:
     return {"status": "ok"}
 
 
+def _calculate_next_monday() -> str:
+    """Calculate the date of the next Monday."""
+    today = datetime.now()
+    days_until_monday = (7 - today.weekday()) % 7
+    if days_until_monday == 0:
+        days_until_monday = 7  # If today is Monday, get next Monday
+    next_monday = today + timedelta(days=days_until_monday)
+    return next_monday.strftime("%Y-%m-%d")
+
+
 @app.post("/process")
 async def process_activity(request: Request) -> JSONResponse:
     """Run the Strava crew against the request body."""
@@ -69,7 +94,7 @@ async def process_activity(request: Request) -> JSONResponse:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     try:
-        result = crew_instance.process_activity(activity_payload)
+        result = strava_crew_instance.process_activity(activity_payload)
     except Exception as exc:  # noqa: BLE001
         print(f"\n❌ Error while processing request: {exc}\n", file=sys.stderr)
         import traceback
@@ -77,6 +102,50 @@ async def process_activity(request: Request) -> JSONResponse:
         traceback.print_exc(file=sys.stderr)
         fallback = _build_error_response(str(exc))
         return JSONResponse(status_code=500, content=fallback)
+
+    return JSONResponse(content=result)
+
+
+@app.post("/meal-plan")
+async def generate_meal_plan(request_body: MealPlanRequest) -> JSONResponse:
+    """
+    Generate a weekly meal plan based on Hexis training data.
+
+    Args:
+        request_body: Optional week_start_date (YYYY-MM-DD). Defaults to next Monday.
+
+    Returns:
+        Complete meal planning result with integration status
+    """
+    # Determine week start date
+    week_start_date = request_body.week_start_date
+    if not week_start_date:
+        week_start_date = _calculate_next_monday()
+
+    # Validate date format
+    try:
+        datetime.strptime(week_start_date, "%Y-%m-%d")
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid date format. Expected YYYY-MM-DD, got: {week_start_date}"
+        ) from exc
+
+    print(f"\n🍽️  Generating meal plan for week starting: {week_start_date}\n", file=sys.stderr)
+
+    try:
+        result = meal_planning_crew_instance.generate_meal_plan(week_start_date)
+    except Exception as exc:  # noqa: BLE001
+        print(f"\n❌ Error while generating meal plan: {exc}\n", file=sys.stderr)
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+
+        error_result = {
+            "error": str(exc),
+            "week_start_date": week_start_date,
+            "summary": "Meal planning failed due to error",
+        }
+        return JSONResponse(status_code=500, content=error_result)
 
     return JSONResponse(content=result)
 
