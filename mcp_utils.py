@@ -62,11 +62,18 @@ def load_catalog_tool_names(prefixes: Sequence[str]) -> List[str]:
 
 
 def build_mcp_references(raw_urls: str, tool_names: Iterable[str]) -> List[str]:
-    """Compose MCP references ensuring discovery-first access to each server.
+    """Compose MCP references for each server.
 
-    The base MCP endpoint is always added so the agent can perform discovery, and
-    specific tool targets are appended afterward to guarantee availability when
-    discovery is unavailable or filtered.
+    Note: Tool discovery happens automatically when connecting to the MCP server.
+    We don't need to append tool names as URL fragments - the MCP protocol
+    handles tool listing via the list_tools() method.
+    
+    Args:
+        raw_urls: Comma-separated list of MCP server URLs
+        tool_names: Not used, kept for backwards compatibility
+        
+    Returns:
+        List of unique base MCP server URLs without tool-specific fragments
     """
 
     if not raw_urls:
@@ -74,8 +81,6 @@ def build_mcp_references(raw_urls: str, tool_names: Iterable[str]) -> List[str]:
 
     references: List[str] = []
     seen = set()
-
-    tool_list = [name for name in tool_names if name]
 
     def _add(reference: str) -> None:
         if reference and reference not in seen:
@@ -91,13 +96,8 @@ def build_mcp_references(raw_urls: str, tool_names: Iterable[str]) -> List[str]:
             _add(entry)
             continue
 
-        base_reference, _, explicit_tool = entry.partition("#")
+        # Remove any existing fragment from the URL
+        base_reference, _, _ = entry.partition("#")
         _add(base_reference)
-
-        if explicit_tool:
-            _add(entry)
-
-        for tool_name in tool_list:
-            _add(f"{base_reference}#{tool_name}")
 
     return references
