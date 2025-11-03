@@ -46,7 +46,15 @@ class MealPlanningCrew:
 
         # Configure environment variables for LiteLLM/OpenAI
         base_url = os.getenv("OPENAI_API_BASE", "https://ghcopilot.emottet.com/v1")
-        model_name = os.getenv("OPENAI_MODEL_NAME", "gpt-5mini")
+        default_complex_model = os.getenv("OPENAI_MODEL_NAME") or "claude-sonnet-4.5"
+        complex_model_name = os.getenv(
+            "OPENAI_COMPLEX_MODEL_NAME",
+            default_complex_model,
+        )
+        simple_model_name = os.getenv(
+            "OPENAI_SIMPLE_MODEL_NAME",
+            "claude-haiku-4.5",
+        )
 
         # Configure authentication - support both API key and Basic Auth
         auth_token = os.getenv("OPENAI_API_AUTH_TOKEN")  # Base64-encoded Basic Auth
@@ -112,11 +120,13 @@ class MealPlanningCrew:
             os.environ["OPENAI_API_KEY"] = api_key
 
         # Create LLM instance
-        self.llm = LLM(
-            model=f"openai/{model_name}",
-            api_base=base_url,
-            api_key=api_key,
-        )
+        self.simple_llm = self._create_llm(simple_model_name, base_url, api_key)
+        if complex_model_name == simple_model_name:
+            self.complex_llm = self.simple_llm
+        else:
+            self.complex_llm = self._create_llm(complex_model_name, base_url, api_key)
+        # Preserve legacy attribute for compatibility with older components.
+        self.llm = self.complex_llm
 
         # Configure MCP references for Hexis tools
         self.hexis_mcps = self._build_hexis_mcp_references()
@@ -148,17 +158,17 @@ class MealPlanningCrew:
 
         # Create agents
         self.hexis_analysis_agent = create_hexis_analysis_agent(
-            self.llm, mcps=self.hexis_mcps
+            self.complex_llm, mcps=self.hexis_mcps
         )
-        self.weekly_structure_agent = create_weekly_structure_agent(self.llm)
+        self.weekly_structure_agent = create_weekly_structure_agent(self.complex_llm)
         self.meal_generation_agent = create_meal_generation_agent(
-            self.llm, mcps=self.mealy_mcps  # Mealy MCP for fetching preferences
+            self.complex_llm, mcps=self.mealy_mcps  # Mealy MCP for fetching preferences
         )
         self.nutritional_validation_agent = create_nutritional_validation_agent(
-            self.llm
+            self.complex_llm
         )
         self.mealy_integration_agent = create_mealy_integration_agent(
-            self.llm, mcps=self.mealy_mcps
+            self.simple_llm, mcps=self.mealy_mcps
         )
 
     def _build_hexis_mcp_references(self) -> List[str]:
@@ -194,6 +204,18 @@ class MealPlanningCrew:
             tool_names = load_catalog_tool_names(["mealy__"])
 
         return build_mcp_references(raw_urls, tool_names)
+
+    @staticmethod
+    def _create_llm(model_name: str, api_base: str, api_key: str) -> LLM:
+        """Instantiate an LLM client, adding the OpenAI prefix only when needed."""
+        normalized = model_name.strip()
+        if "/" not in normalized:
+            normalized = f"openai/{normalized}"
+        return LLM(
+            model=normalized,
+            api_base=api_base,
+            api_key=api_key,
+        )
 
     @staticmethod
     def _payloads_from_task_output(task_output: TaskOutput) -> List[Dict[str, Any]]:

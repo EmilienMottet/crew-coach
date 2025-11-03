@@ -44,7 +44,15 @@ class StravaDescriptionCrew:
         
         # Configure environment variables for LiteLLM/OpenAI
         base_url = os.getenv("OPENAI_API_BASE", "https://ghcopilot.emottet.com/v1")
-        model_name = os.getenv("OPENAI_MODEL_NAME", "gpt-5mini")
+        default_complex_model = os.getenv("OPENAI_MODEL_NAME") or "claude-sonnet-4.5"
+        complex_model_name = os.getenv(
+            "OPENAI_COMPLEX_MODEL_NAME",
+            default_complex_model,
+        )
+        simple_model_name = os.getenv(
+            "OPENAI_SIMPLE_MODEL_NAME",
+            "claude-haiku-4.5",
+        )
         
         # Configure authentication - support both API key and Basic Auth
         auth_token = os.getenv("OPENAI_API_AUTH_TOKEN")  # Base64-encoded Basic Auth
@@ -110,11 +118,13 @@ class StravaDescriptionCrew:
             os.environ["OPENAI_API_KEY"] = api_key
         
         # Create LLM instance
-        self.llm = LLM(
-            model=f"openai/{model_name}",
-            api_base=base_url,
-            api_key=api_key,
-        )
+        self.simple_llm = self._create_llm(simple_model_name, base_url, api_key)
+        if complex_model_name == simple_model_name:
+            self.complex_llm = self.simple_llm
+        else:
+            self.complex_llm = self._create_llm(complex_model_name, base_url, api_key)
+        # Keep legacy attribute for components that still expect a single primary model.
+        self.llm = self.complex_llm
         
         # Configure MCP references for Intervals.icu tools
         self.intervals_tool_names = self._load_intervals_tool_names()
@@ -164,15 +174,15 @@ class StravaDescriptionCrew:
 
         # Create agents
         self.description_agent = create_description_agent(
-            self.llm,
+            self.complex_llm,
             mcps=self.description_mcps
         )
         self.music_agent = create_music_agent(
-            self.llm,
+            self.simple_llm,
             mcps=self.music_mcps,
         )
-        self.privacy_agent = create_privacy_agent(self.llm)
-        self.translation_agent = create_translation_agent(self.llm)
+        self.privacy_agent = create_privacy_agent(self.simple_llm)
+        self.translation_agent = create_translation_agent(self.simple_llm)
 
     def _load_intervals_tool_names(self) -> List[str]:
         """Load MCP tool names for Intervals.icu integration."""
@@ -204,6 +214,18 @@ class StravaDescriptionCrew:
             "MCP_SERVER_URL", ""
         )
         return build_mcp_references(raw_urls, tool_names)
+
+    @staticmethod
+    def _create_llm(model_name: str, api_base: str, api_key: str) -> LLM:
+        """Instantiate an LLM client, adding the OpenAI prefix when omitted."""
+        normalized = model_name.strip()
+        if "/" not in normalized:
+            normalized = f"openai/{normalized}"
+        return LLM(
+            model=normalized,
+            api_base=api_base,
+            api_key=api_key,
+        )
 
     @staticmethod
     def _payloads_from_task_output(task_output: TaskOutput) -> List[Dict[str, Any]]:
