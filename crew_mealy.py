@@ -364,70 +364,114 @@ class MealPlanningCrew:
         )
 
         # ===================================================================
-        # STEP 3: Meal Generation - Generate actual meals
+        # STEP 3: Meal Generation with Validation Loop
+        # Keep regenerating meals until the validator approves
         # ===================================================================
-        print("\n👨‍🍳 Step 3: Generating weekly meals...\n", file=sys.stderr)
+        print("\n👨‍🍳 Step 3: Generating weekly meals with validation loop...\n", file=sys.stderr)
+        
+        max_attempts = 3
+        meal_plan = None
+        validation = None
+        
+        for attempt in range(1, max_attempts + 1):
+            print(f"\n🔄 Attempt {attempt}/{max_attempts}: Generating meals...\n", file=sys.stderr)
+            
+            # Generate meals
+            meal_task = create_meal_generation_task(
+                self.meal_generation_agent, nutrition_plan
+            )
+            meal_crew = Crew(
+                agents=[self.meal_generation_agent],
+                tasks=[meal_task],
+                process=Process.sequential,
+                verbose=True,
+            )
 
-        meal_task = create_meal_generation_task(
-            self.meal_generation_agent, nutrition_plan
-        )
-        meal_crew = Crew(
-            agents=[self.meal_generation_agent],
-            tasks=[meal_task],
-            process=Process.sequential,
-            verbose=True,
-        )
+            meal_result = meal_crew.kickoff()
+            meal_model = self._extract_model_from_output(meal_result, WeeklyMealPlan)
 
-        meal_result = meal_crew.kickoff()
-        meal_model = self._extract_model_from_output(meal_result, WeeklyMealPlan)
+            if meal_model is None:
+                print(f"\n⚠️  Attempt {attempt}: Meal generation returned invalid JSON\n", file=sys.stderr)
+                continue
 
-        if meal_model is None:
-            error_msg = "Meal generation failed to return valid JSON"
+            meal_plan = meal_model.model_dump()
+            print(
+                f"\n✅ Attempt {attempt}: Meal plan generated ({len(meal_plan.get('daily_plans', []))} days)\n",
+                file=sys.stderr,
+            )
+
+            # Validate the generated meals
+            print(f"\n🔍 Validating meal plan (attempt {attempt})...\n", file=sys.stderr)
+            
+            validation_task = create_nutritional_validation_task(
+                self.nutritional_validation_agent, meal_plan, nutrition_plan
+            )
+            validation_crew = Crew(
+                agents=[self.nutritional_validation_agent],
+                tasks=[validation_task],
+                process=Process.sequential,
+                verbose=True,
+            )
+
+            validation_result = validation_crew.kickoff()
+            validation_model = self._extract_model_from_output(
+                validation_result, NutritionalValidation
+            )
+
+            if validation_model is None:
+                print(f"\n⚠️  Attempt {attempt}: Validation returned invalid JSON\n", file=sys.stderr)
+                continue
+
+            validation = validation_model.model_dump()
+            is_approved = validation.get('approved', False)
+            
+            if is_approved:
+                print(
+                    f"\n✅ SUCCESS (Attempt {attempt}): Meal plan APPROVED by validator!\n",
+                    file=sys.stderr,
+                )
+                break
+            else:
+                issues = validation.get('issues', [])
+                print(
+                    f"\n❌ Attempt {attempt}: Meal plan REJECTED ({len(issues)} issues found)\n",
+                    file=sys.stderr,
+                )
+                print(f"   Issues summary:\n", file=sys.stderr)
+                for i, issue in enumerate(issues[:3], 1):  # Show first 3 issues
+                    print(f"   {i}. {issue[:100]}...\n", file=sys.stderr)
+                
+                if attempt < max_attempts:
+                    print(f"\n🔄 Regenerating meals with validator feedback...\n", file=sys.stderr)
+                    # Update nutrition_plan with feedback for next iteration
+                    nutrition_plan['validation_feedback'] = {
+                        'attempt': attempt,
+                        'issues': issues,
+                        'recommendations': validation.get('recommendations', [])
+                    }
+                else:
+                    print(
+                        f"\n⚠️  Maximum attempts ({max_attempts}) reached. Using last generated plan.\n",
+                        file=sys.stderr,
+                    )
+        
+        # Check if we have valid results
+        if meal_plan is None or validation is None:
+            error_msg = "Meal generation and validation failed after all attempts"
             print(f"\n❌ {error_msg}\n", file=sys.stderr)
-            return {"error": error_msg, "step": "meal_generation"}
-
-        meal_plan = meal_model.model_dump()
+            return {"error": error_msg, "step": "meal_generation_validation_loop"}
+        
         print(
-            f"\n✅ Meal plan generated: {len(meal_plan.get('daily_plans', []))} days\n",
+            f"\n✅ Final validation status: Approved={validation.get('approved', False)}\n",
             file=sys.stderr,
         )
 
+        
         # ===================================================================
-        # STEP 4: Nutritional Validation - Validate the meal plan
+        # STEP 4: Mealy Integration - Sync to Mealy (only if approved)
         # ===================================================================
-        print("\n🔍 Step 4: Validating nutritional quality...\n", file=sys.stderr)
-
-        validation_task = create_nutritional_validation_task(
-            self.nutritional_validation_agent, meal_plan, nutrition_plan
-        )
-        validation_crew = Crew(
-            agents=[self.nutritional_validation_agent],
-            tasks=[validation_task],
-            process=Process.sequential,
-            verbose=True,
-        )
-
-        validation_result = validation_crew.kickoff()
-        validation_model = self._extract_model_from_output(
-            validation_result, NutritionalValidation
-        )
-
-        if validation_model is None:
-            error_msg = "Validation failed to return valid JSON"
-            print(f"\n❌ {error_msg}\n", file=sys.stderr)
-            return {"error": error_msg, "step": "validation"}
-
-        validation = validation_model.model_dump()
-        print(
-            f"\n✅ Validation complete: Approved={validation.get('approved', False)}\n",
-            file=sys.stderr,
-        )
-
-        # ===================================================================
-        # STEP 5: Mealy Integration - Sync to Mealy
-        # ===================================================================
-        print("\n🔗 Step 5: Integrating with Mealy...\n", file=sys.stderr)
-
+        print("\n🔗 Step 4: Integrating with Mealy...\n", file=sys.stderr)
+        
         integration_task = create_mealy_integration_task(
             self.mealy_integration_agent, meal_plan, validation
         )

@@ -24,12 +24,45 @@ def create_meal_generation_task(
         Configured Task instance
     """
     nutrition_json = json.dumps(weekly_nutrition_plan, indent=2)
+    
+    # Check if there's validation feedback from a previous attempt
+    validation_feedback = weekly_nutrition_plan.get('validation_feedback')
+    feedback_section = ""
+    
+    if validation_feedback:
+        attempt = validation_feedback.get('attempt', 0)
+        issues = validation_feedback.get('issues', [])
+        recommendations = validation_feedback.get('recommendations', [])
+        
+        feedback_section = f"""
+
+⚠️⚠️⚠️ CRITICAL - PREVIOUS ATTEMPT #{attempt} WAS REJECTED ⚠️⚠️⚠️
+
+The validator found {len(issues)} issues with your previous meal plan.
+You MUST address these issues in this new attempt:
+
+ISSUES FOUND:
+{chr(10).join(f"  {i+1}. {issue}" for i, issue in enumerate(issues[:5]))}
+
+RECOMMENDATIONS TO FOLLOW:
+{chr(10).join(f"  • {rec}" for rec in recommendations[:5])}
+
+SPECIFIC ACTIONS TO TAKE:
+1. REDUCE portion sizes if calories were too high
+2. INCREASE portions if calories were too low
+3. ADJUST protein sources if protein was off-target
+4. REBALANCE carbs/fats if macros were imbalanced
+5. DO NOT repeat the same mistakes
+
+This is attempt #{attempt + 1}. Make it count!
+"""
 
     description = f"""
 Generate complete weekly meal plan hitting nutrition targets with variety and appeal.
 
 NUTRITION PLAN:
 {nutrition_json}
+{feedback_section}
 
 ⚠️ CRITICAL REQUIREMENT - STRICT MACRO ADHERENCE:
 YOU MUST MATCH THE DAILY TARGETS EXACTLY. This is NON-NEGOTIABLE.
