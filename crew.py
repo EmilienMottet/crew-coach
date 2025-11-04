@@ -33,6 +33,10 @@ from tasks import (
     create_translation_task,
 )
 from mcp_utils import build_mcp_references, load_catalog_tool_names
+from mcp_auth_wrapper import MetaMCPAdapter
+
+# Load environment variables from .env file (override shell variables)
+load_dotenv(override=True)
 
 
 class StravaDescriptionCrew:
@@ -125,61 +129,58 @@ class StravaDescriptionCrew:
             self.complex_llm = self._create_llm(complex_model_name, base_url, api_key)
         # Keep legacy attribute for components that still expect a single primary model.
         self.llm = self.complex_llm
-        
-        # Configure MCP references for Intervals.icu tools
-        self.intervals_tool_names = self._load_intervals_tool_names()
-        self.description_mcps = self._build_intervals_mcp_references(self.intervals_tool_names)
 
-        # Check if MCP enforcement is enabled (default: true)
+        # Initialize MCP adapter with MetaMCP authentication fix
+        self.mcp_adapter = None
+        self.mcp_tools = []
+
+        mcp_url = os.getenv("MCP_SERVER_URL", "")
+        mcp_api_key = os.getenv("MCP_API_KEY", "")
         require_mcp = os.getenv("REQUIRE_MCP", "true").lower() == "true"
 
-        if not self.description_mcps:
+        if mcp_url and mcp_api_key:
+            try:
+                print("\n🔗 Connecting to MCP server...", file=sys.stderr)
+                self.mcp_adapter = MetaMCPAdapter(mcp_url, mcp_api_key, connect_timeout=30)
+                self.mcp_adapter.start()
+                self.mcp_tools = self.mcp_adapter.tools
+                print(f"✅ MCP connected successfully! Discovered {len(self.mcp_tools)} tools\n", file=sys.stderr)
+            except Exception as e:
+                error_msg = f"\n❌ Error connecting to MCP server: {e}\n"
+                if require_mcp:
+                    print(error_msg, file=sys.stderr)
+                    raise ValueError(f"MCP connection failed: {e}")
+                else:
+                    print(f"{error_msg}⚠️  Continuing without MCP tools...\n", file=sys.stderr)
+        elif require_mcp:
             error_msg = (
-                "\n❌ Error: No MCP references configured for Intervals.icu tools. "
+                "\n❌ Error: MCP configuration missing. "
                 "The Description Agent requires MCP tools to fetch workout data.\n"
-                "Please set MCP_SERVER_URL environment variable.\n"
+                "Please set MCP_SERVER_URL and MCP_API_KEY environment variables.\n"
                 "To disable this check, set REQUIRE_MCP=false (not recommended).\n"
             )
-            if require_mcp:
-                print(error_msg, file=sys.stderr)
-                raise ValueError("MCP configuration is required but not provided")
-            else:
-                print(
-                    "\n⚠️  Warning: No MCP references configured for Intervals.icu tools. "
-                    "Description agent will operate without live workout data.\n",
-                    file=sys.stderr
-                )
+            print(error_msg, file=sys.stderr)
+            raise ValueError("MCP configuration is required but not provided")
         else:
-            print(
-                "\n🔗 MCP references configured: "
-                f"{', '.join(self.description_mcps)}\n",
-                file=sys.stderr
-            )
-        
-        self.spotify_tool_names = self._load_spotify_tool_names()
-        self.music_mcps = self._build_spotify_mcp_references(self.spotify_tool_names)
+            print("\n⚠️  Warning: No MCP configuration. Agents will operate without live data.\n", file=sys.stderr)
 
-        if not self.music_mcps:
-            print(
-                "\n⚠️  Warning: No MCP references configured for Spotify tools. "
-                "Music enrichment will fall back to empty playlists.\n",
-                file=sys.stderr,
-            )
-        else:
-            print(
-                "\n🎵 Spotify MCP references configured: "
-                f"{', '.join(self.music_mcps)}\n",
-                file=sys.stderr,
-            )
+        # Filter tools by type for different agents
+        intervals_tools = [t for t in self.mcp_tools if "Intervals" in t.name or "intervals" in t.name.lower()]
+        spotify_tools = [t for t in self.mcp_tools if "Spotify" in t.name or "spotify" in t.name.lower()]
 
-        # Create agents
+        if intervals_tools:
+            print(f"✅ Found {len(intervals_tools)} Intervals.icu tools\n", file=sys.stderr)
+        if spotify_tools:
+            print(f"🎵 Found {len(spotify_tools)} Spotify tools\n", file=sys.stderr)
+
+        # Create agents with MCP tools
         self.description_agent = create_description_agent(
             self.complex_llm,
-            mcps=self.description_mcps
+            tools=intervals_tools if intervals_tools else None
         )
         self.music_agent = create_music_agent(
             self.simple_llm,
-            mcps=self.music_mcps,
+            tools=spotify_tools if spotify_tools else None
         )
         self.privacy_agent = create_privacy_agent(self.simple_llm)
         self.translation_agent = create_translation_agent(self.simple_llm)
@@ -197,7 +198,8 @@ class StravaDescriptionCrew:
     def _build_intervals_mcp_references(self, tool_names: List[str]) -> List[str]:
         """Build MCP references (DSL syntax) for the description agent."""
         raw_urls = os.getenv("MCP_SERVER_URL", "")
-        return build_mcp_references(raw_urls, tool_names)
+        api_key = os.getenv("MCP_API_KEY", "")
+        return build_mcp_references(raw_urls, tool_names, api_key)
 
     def _load_spotify_tool_names(self) -> List[str]:
         """Load MCP tool names for Spotify integration."""
@@ -213,7 +215,8 @@ class StravaDescriptionCrew:
         raw_urls = os.getenv("SPOTIFY_MCP_SERVER_URL") or os.getenv(
             "MCP_SERVER_URL", ""
         )
-        return build_mcp_references(raw_urls, tool_names)
+        api_key = os.getenv("MCP_API_KEY", "")
+        return build_mcp_references(raw_urls, tool_names, api_key)
 
     @staticmethod
     def _create_llm(model_name: str, api_base: str, api_key: str) -> LLM:
@@ -626,14 +629,15 @@ def main():
     """Main entry point for n8n integration."""
     # Read input from stdin (n8n will provide this)
     input_data = sys.stdin.read()
-    
+
+    crew = None
     try:
         activity_data = json.loads(input_data)
-        
+
         # Handle array input (from n8n)
         if isinstance(activity_data, list) and len(activity_data) > 0:
             activity_data = activity_data[0]
-        
+
         # Process the activity
         crew = StravaDescriptionCrew()
         result = crew.process_activity(activity_data)
@@ -663,6 +667,13 @@ def main():
         }
         print(json.dumps(error_result, indent=2))
         sys.exit(1)
+    finally:
+        # Cleanup MCP adapter
+        if crew and crew.mcp_adapter:
+            try:
+                crew.mcp_adapter.stop()
+            except Exception:
+                pass  # Ignore cleanup errors
 
 
 if __name__ == "__main__":

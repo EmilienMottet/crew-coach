@@ -35,6 +35,10 @@ from tasks import (
     create_mealy_integration_task,
 )
 from mcp_utils import build_mcp_references, load_catalog_tool_names
+from mcp_auth_wrapper import MetaMCPAdapter
+
+# Load environment variables from .env file (override shell variables)
+load_dotenv(override=True)
 
 
 class MealPlanningCrew:
@@ -42,7 +46,7 @@ class MealPlanningCrew:
 
     def __init__(self):
         """Initialize the crew with LLM and agents."""
-        load_dotenv()
+        # Environment already loaded at module level
 
         # Configure environment variables for LiteLLM/OpenAI
         base_url = os.getenv("OPENAI_API_BASE", "https://ghcopilot.emottet.com/v1")
@@ -128,82 +132,61 @@ class MealPlanningCrew:
         # Preserve legacy attribute for compatibility with older components.
         self.llm = self.complex_llm
 
-        # Configure MCP references for Hexis tools
-        self.hexis_mcps = self._build_hexis_mcp_references()
-        if not self.hexis_mcps:
-            print(
-                "\n⚠️  Warning: No MCP references configured for Hexis tools. "
-                "Hexis analysis will be limited without live training data.\n",
-                file=sys.stderr,
-            )
-        else:
-            print(
-                f"\n🏃 Hexis MCP references configured: {', '.join(self.hexis_mcps)}\n",
-                file=sys.stderr,
-            )
+        # Initialize MCP adapter with MetaMCP authentication fix
+        self.mcp_adapter = None
+        self.mcp_tools = []
 
-        # Configure MCP references for Mealy tools
-        self.mealy_mcps = self._build_mealy_mcp_references()
-        if not self.mealy_mcps:
-            print(
-                "\n⚠️  Warning: No MCP references configured for Mealy tools. "
-                "Meal integration will fail without Mealy MCP.\n",
-                file=sys.stderr,
-            )
-        else:
-            print(
-                f"\n🍽️  Mealy MCP references configured: {', '.join(self.mealy_mcps)}\n",
-                file=sys.stderr,
-            )
+        mcp_url = os.getenv("MCP_SERVER_URL", "")
+        mcp_api_key = os.getenv("MCP_API_KEY", "")
+        require_mcp = os.getenv("REQUIRE_MCP", "true").lower() == "true"
 
-        # Create agents
+        if mcp_url and mcp_api_key:
+            try:
+                print("\n🔗 Connecting to MCP server...", file=sys.stderr)
+                self.mcp_adapter = MetaMCPAdapter(mcp_url, mcp_api_key, connect_timeout=30)
+                self.mcp_adapter.start()
+                self.mcp_tools = self.mcp_adapter.tools
+                print(f"✅ MCP connected successfully! Discovered {len(self.mcp_tools)} tools\n", file=sys.stderr)
+            except Exception as e:
+                error_msg = f"\n❌ Error connecting to MCP server: {e}\n"
+                if require_mcp:
+                    print(error_msg, file=sys.stderr)
+                    raise ValueError(f"MCP connection failed: {e}")
+                else:
+                    print(f"{error_msg}⚠️  Continuing without MCP tools...\n", file=sys.stderr)
+        elif require_mcp:
+            error_msg = (
+                "\n❌ Error: MCP configuration missing. "
+                "Please set MCP_SERVER_URL and MCP_API_KEY environment variables.\n"
+            )
+            print(error_msg, file=sys.stderr)
+            raise ValueError("MCP configuration is required but not provided")
+        else:
+            print("\n⚠️  Warning: No MCP configuration. Agents will operate without live data.\n", file=sys.stderr)
+
+        # Filter tools by type for different agents
+        hexis_tools = [t for t in self.mcp_tools if "Hexis" in t.name or "hexis" in t.name.lower()]
+        mealy_tools = [t for t in self.mcp_tools if "Mealy" in t.name or "mealy" in t.name.lower()]
+
+        if hexis_tools:
+            print(f"✅ Found {len(hexis_tools)} Hexis tools\n", file=sys.stderr)
+        if mealy_tools:
+            print(f"🍽️  Found {len(mealy_tools)} Mealy tools\n", file=sys.stderr)
+
+        # Create agents with MCP tools
         self.hexis_analysis_agent = create_hexis_analysis_agent(
-            self.complex_llm, mcps=self.hexis_mcps
+            self.complex_llm, tools=hexis_tools if hexis_tools else None
         )
         self.weekly_structure_agent = create_weekly_structure_agent(self.complex_llm)
         self.meal_generation_agent = create_meal_generation_agent(
-            self.complex_llm, mcps=self.mealy_mcps  # Mealy MCP for fetching preferences
+            self.complex_llm, tools=mealy_tools if mealy_tools else None
         )
         self.nutritional_validation_agent = create_nutritional_validation_agent(
             self.complex_llm
         )
         self.mealy_integration_agent = create_mealy_integration_agent(
-            self.simple_llm, mcps=self.mealy_mcps
+            self.simple_llm, tools=mealy_tools if mealy_tools else None
         )
-
-    def _build_hexis_mcp_references(self) -> List[str]:
-        """Build MCP references for Hexis integration."""
-        raw_urls = os.getenv("HEXIS_MCP_SERVER_URL") or os.getenv(
-            "MCP_SERVER_URL", ""
-        )
-        tool_names_env = os.getenv("HEXIS_MCP_TOOL_NAMES", "")
-        tool_names = (
-            [name.strip() for name in tool_names_env.split(",") if name.strip()]
-            if tool_names_env
-            else []
-        )
-
-        if not tool_names:
-            tool_names = load_catalog_tool_names(["hexis__"])
-
-        return build_mcp_references(raw_urls, tool_names)
-
-    def _build_mealy_mcp_references(self) -> List[str]:
-        """Build MCP references for Mealy integration."""
-        raw_urls = os.getenv("MEALY_MCP_SERVER_URL") or os.getenv(
-            "MCP_SERVER_URL", ""
-        )
-        tool_names_env = os.getenv("MEALY_MCP_TOOL_NAMES", "")
-        tool_names = (
-            [name.strip() for name in tool_names_env.split(",") if name.strip()]
-            if tool_names_env
-            else []
-        )
-
-        if not tool_names:
-            tool_names = load_catalog_tool_names(["mealy__"])
-
-        return build_mcp_references(raw_urls, tool_names)
 
     @staticmethod
     def _create_llm(model_name: str, api_base: str, api_key: str) -> LLM:

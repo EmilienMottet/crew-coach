@@ -76,11 +76,14 @@ The project uses **MetaMCP** which aggregates multiple MCP providers (Intervals.
 
 **Environment Setup:**
 ```bash
-# Single MCP URL for all providers (recommended)
-MCP_SERVER_URL=https://mcp.emottet.com/metamcp/stravaDescriptionAgent/mcp?api_key=sk_mt_xxx
+# MCP Server endpoint (SSE recommended for CrewAI - fewer connection errors)
+MCP_SERVER_URL=https://mcp.emottet.com/metamcp/stravaDescriptionAgent/sse
+
+# MCP API Key (separate from URL for better security)
+MCP_API_KEY=sk_mt_xxx
 
 # Alternative: Multiple MCP servers (comma-separated)
-MCP_SERVER_URL=https://server1.com/mcp,https://server2.com/mcp
+# MCP_SERVER_URL=https://server1.com/sse,https://server2.com/sse
 
 # Optional: Filter specific tools (comma-separated)
 INTERVALS_MCP_TOOL_NAMES=IntervalsIcu__get_activity_details,IntervalsIcu__get_activity_intervals
@@ -88,6 +91,11 @@ SPOTIFY_MCP_TOOL_NAMES=Spotify__get_recently_played
 MEALY_MCP_TOOL_NAMES=Mealy__create_meal,Mealy__get_meal
 HEXIS_MCP_TOOL_NAMES=Hexis__get_activities,Hexis__get_athlete
 ```
+
+**Note on Endpoint Choice:**
+- **SSE (`/sse`)**: Recommended for CrewAI - produces zero connection errors
+- **Streamable HTTP (`/mcp`)**: Alternative endpoint, may produce SSE parsing errors but still functional
+- Both endpoints work, but `/sse` provides cleaner connection handling
 
 ### How MCP Tools are Loaded
 
@@ -156,31 +164,6 @@ python test_mcp_connectivity.py
 python test_mcp_minimal.py
 ```
 
-### Common MCP Issues
-
-**Issue: "Session not found" (HTTP 404)**
-- **Cause**: MCP server expects session initialization
-- **Solution**: Use StreamableHTTP client with proper initialization
-- **Code**: See `test_mcp_connectivity.py` for working example
-
-**Issue: "Failed to get MCP tool schemas... TaskGroup error"**
-- **Cause**: CrewAI tries parallel tool discovery, causes connection conflicts
-- **Impact**: Warning only - tools still work when called directly
-- **Solution**: Ignore warning (known CrewAI limitation)
-- **Status**: Tools discovered = 0 (warning), but actual tool calls succeed ✅
-
-**Issue: "No tools discovered from MCP server"**
-- **Cause**: Invalid API key or incorrect URL
-- **Fix**: 
-  1. Check `MCP_SERVER_URL` includes `?api_key=...`
-  2. Test URL with curl: `curl "$MCP_SERVER_URL"`
-  3. Verify API key validity with MetaMCP dashboard
-
-**Issue: Tools work in tests but not in CrewAI**
-- **Cause**: MCP connection lifecycle mismatch
-- **Solution**: Use base URL without fragments for auto-discovery
-- **Code**: `mcp_utils.py` returns single base URL by default
-
 ### MCP Server Architecture
 
 **MetaMCP Aggregation:**
@@ -212,18 +195,67 @@ https://mcp.emottet.com/metamcp/stravaDescriptionAgent/mcp
 ### MCP in Different Crews
 
 **Strava Description Crew (`crew.py`):**
-```python
-# Only needs Intervals.icu and Spotify
+```bash
+# MCP Server and API Key (required) - Use SSE endpoint
+MCP_SERVER_URL=https://mcp.emottet.com/metamcp/stravaDescriptionAgent/sse
+MCP_API_KEY=sk_mt_xxx
+
+# Only needs Intervals.icu and Spotify (optional filters)
 INTERVALS_MCP_TOOL_NAMES=IntervalsIcu__get_activity_details,IntervalsIcu__get_activities
 SPOTIFY_MCP_TOOL_NAMES=Spotify__get_recently_played
 ```
 
 **Meal Planning Crew (`crew_mealy.py`):**
-```python
+```bash
+# Uses same MCP endpoint and API key - Use SSE endpoint
+MCP_SERVER_URL=https://mcp.emottet.com/metamcp/stravaDescriptionAgent/sse
+MCP_API_KEY=sk_mt_xxx
+
 # Needs Hexis and Mealy
-# Leave unset for auto-discovery (recommended)
-MCP_SERVER_URL=https://mcp.emottet.com/metamcp/.../mcp?api_key=...
+# Leave tool names unset for auto-discovery (recommended)
+# HEXIS_MCP_TOOL_NAMES=Hexis__get_activities,Hexis__get_athlete
+# MEALY_MCP_TOOL_NAMES=Mealy__create_meal,Mealy__get_preferences
 ```
+
+### Using mcp-proxy for stdio Clients
+
+**Note**: CrewAI connects directly to MCP servers via HTTP/SSE. The `mcp-proxy` tool is **only needed for stdio-based clients** (Claude Desktop, Cursor, etc.).
+
+**For stdio clients (not CrewAI):**
+```json
+{
+  "mcpServers": {
+    "MetaMCP-SSE": {
+      "command": "uvx",
+      "args": [
+        "mcp-proxy",
+        "http://localhost:12008/metamcp/your-endpoint-name/sse"
+      ],
+      "env": {
+        "API_ACCESS_TOKEN": "sk_mt_your_api_key_here"
+      }
+    },
+    "MetaMCP-StreamableHTTP": {
+      "command": "uvx",
+      "args": [
+        "mcp-proxy",
+        "--transport",
+        "streamablehttp",
+        "http://localhost:12008/metamcp/your-endpoint-name/mcp"
+      ],
+      "env": {
+        "API_ACCESS_TOKEN": "sk_mt_your_api_key_here"
+      }
+    }
+  }
+}
+```
+
+**For CrewAI (current setup):**
+- No proxy needed - direct HTTP/SSE connection
+- Use `/sse` endpoint for best results (fewer connection errors)
+- Set `MCP_SERVER_URL` and `MCP_API_KEY` environment variables
+- API key is automatically appended to requests
 
 ### Debugging MCP Calls
 
