@@ -60,8 +60,13 @@ def create_hexis_analysis_agent(
         - Training load metrics (TSS, CTL, ATL, TSB)
         - Recovery status and readiness scores
         - Sleep and stress data
+        - **Nutritional targets and meal plans** provided by Hexis
+        - Daily macro targets (protein, carbs, fats) and calorie recommendations
 
         Your outputs are precise, actionable, and tailored to the athlete's current state.
+        
+        CRITICAL: Always retrieve nutritional data from Hexis using `hexis_get_weekly_plan` 
+        which includes both workout AND nutrition information for the week.
         """,
         "verbose": True,
         "allow_delegation": False,
