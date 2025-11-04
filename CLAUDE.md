@@ -68,6 +68,181 @@ curl "$MCP_SERVER_URL"
 curl $OPENAI_API_BASE/models
 ```
 
+## Connecting to MCP Servers
+
+### MCP Server Configuration
+
+The project uses **MetaMCP** which aggregates multiple MCP providers (Intervals.icu, Spotify, Mealy, Hexis) behind a single endpoint.
+
+**Environment Setup:**
+```bash
+# Single MCP URL for all providers (recommended)
+MCP_SERVER_URL=https://mcp.emottet.com/metamcp/stravaDescriptionAgent/mcp?api_key=sk_mt_xxx
+
+# Alternative: Multiple MCP servers (comma-separated)
+MCP_SERVER_URL=https://server1.com/mcp,https://server2.com/mcp
+
+# Optional: Filter specific tools (comma-separated)
+INTERVALS_MCP_TOOL_NAMES=IntervalsIcu__get_activity_details,IntervalsIcu__get_activity_intervals
+SPOTIFY_MCP_TOOL_NAMES=Spotify__get_recently_played
+MEALY_MCP_TOOL_NAMES=Mealy__create_meal,Mealy__get_meal
+HEXIS_MCP_TOOL_NAMES=Hexis__get_activities,Hexis__get_athlete
+```
+
+### How MCP Tools are Loaded
+
+CrewAI agents use the `mcps` parameter to discover tools at runtime:
+
+```python
+# In crew.py or crew_mealy.py
+from mcp_utils import build_mcp_references
+
+# Build MCP references (auto-discovery by default)
+mcp_refs = build_mcp_references(
+    server_urls=os.getenv("MCP_SERVER_URL").split(","),
+    tool_names=None  # None = auto-discover all tools
+)
+
+# Create agent with MCP tools
+agent = Agent(
+    role="...",
+    goal="...",
+    mcps=mcp_refs,  # MCP references
+    # ... other config
+)
+```
+
+**What happens:**
+1. `build_mcp_references()` generates MCP URLs from environment variables
+2. If `tool_names=None` → returns base URL for auto-discovery
+3. If `tool_names=['Tool1', 'Tool2']` → returns URLs with fragment IDs (deprecated)
+4. CrewAI connects to MCP server during agent initialization
+5. Tools are dynamically loaded and callable by the agent
+
+### MCP Discovery Process
+
+**Auto-Discovery (Recommended):**
+```python
+# Returns: ["https://mcp.server.com/path?api_key=xxx"]
+mcp_refs = build_mcp_references(
+    server_urls=[os.getenv("MCP_SERVER_URL")],
+    tool_names=None  # Auto-discover
+)
+```
+
+**Manual Tool Selection (Optional):**
+```python
+# Returns: ["https://mcp.server.com/path?api_key=xxx#Tool1", ...]
+mcp_refs = build_mcp_references(
+    server_urls=[os.getenv("MCP_SERVER_URL")],
+    tool_names=["IntervalsIcu__get_activity_details", "Spotify__get_recently_played"]
+)
+```
+
+### Testing MCP Connectivity
+
+```bash
+# Test complete MCP workflow (recommended)
+python test_mcp_connectivity.py
+
+# Expected output:
+# ✅ MCP Tools Discovered: 101
+#    - 9 Mealy tools
+#    - 19 Hexis tools
+#    - 9 Intervals.icu tools
+#    - 19 Spotify tools
+
+# Test minimal async connection
+python test_mcp_minimal.py
+```
+
+### Common MCP Issues
+
+**Issue: "Session not found" (HTTP 404)**
+- **Cause**: MCP server expects session initialization
+- **Solution**: Use StreamableHTTP client with proper initialization
+- **Code**: See `test_mcp_connectivity.py` for working example
+
+**Issue: "Failed to get MCP tool schemas... TaskGroup error"**
+- **Cause**: CrewAI tries parallel tool discovery, causes connection conflicts
+- **Impact**: Warning only - tools still work when called directly
+- **Solution**: Ignore warning (known CrewAI limitation)
+- **Status**: Tools discovered = 0 (warning), but actual tool calls succeed ✅
+
+**Issue: "No tools discovered from MCP server"**
+- **Cause**: Invalid API key or incorrect URL
+- **Fix**: 
+  1. Check `MCP_SERVER_URL` includes `?api_key=...`
+  2. Test URL with curl: `curl "$MCP_SERVER_URL"`
+  3. Verify API key validity with MetaMCP dashboard
+
+**Issue: Tools work in tests but not in CrewAI**
+- **Cause**: MCP connection lifecycle mismatch
+- **Solution**: Use base URL without fragments for auto-discovery
+- **Code**: `mcp_utils.py` returns single base URL by default
+
+### MCP Server Architecture
+
+**MetaMCP Aggregation:**
+```
+https://mcp.emottet.com/metamcp/stravaDescriptionAgent/mcp
+    ├── Intervals.icu (9 tools)
+    │   ├── get_activity_details
+    │   ├── get_activity_intervals
+    │   └── get_activities
+    ├── Spotify (19 tools)
+    │   ├── get_recently_played
+    │   ├── get_current_track
+    │   └── ...
+    ├── Mealy (9 tools)
+    │   ├── create_meal
+    │   ├── get_meal
+    │   └── ...
+    └── Hexis (19 tools)
+        ├── get_activities
+        ├── get_athlete
+        └── ...
+```
+
+**Tool Naming Convention:**
+- Format: `Provider__method_name`
+- Examples: `IntervalsIcu__get_activity_details`, `Spotify__get_recently_played`
+- Case-sensitive: Must match exactly
+
+### MCP in Different Crews
+
+**Strava Description Crew (`crew.py`):**
+```python
+# Only needs Intervals.icu and Spotify
+INTERVALS_MCP_TOOL_NAMES=IntervalsIcu__get_activity_details,IntervalsIcu__get_activities
+SPOTIFY_MCP_TOOL_NAMES=Spotify__get_recently_played
+```
+
+**Meal Planning Crew (`crew_mealy.py`):**
+```python
+# Needs Hexis and Mealy
+# Leave unset for auto-discovery (recommended)
+MCP_SERVER_URL=https://mcp.emottet.com/metamcp/.../mcp?api_key=...
+```
+
+### Debugging MCP Calls
+
+```bash
+# Enable verbose mode
+export CREWAI_VERBOSE=true
+
+# Check MCP tool discovery
+python crew.py < input.json 2>&1 | grep -i "mcp"
+
+# Expected warnings (safe to ignore):
+# [WARNING]: Failed to get MCP tool schemas... TaskGroup error
+# [WARNING]: No tools discovered from MCP server
+# [INFO]: Successfully loaded 0 tools
+
+# Actual tool calls will still work:
+# Agent calls IntervalsIcu__get_activity_details → Success ✅
+```
+
 ## Architecture
 
 ### Three-Agent Sequential Workflow
