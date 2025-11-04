@@ -61,19 +61,20 @@ def load_catalog_tool_names(prefixes: Sequence[str]) -> List[str]:
     return matches
 
 
-def build_mcp_references(raw_urls: str, tool_names: Iterable[str]) -> List[str]:
+def build_mcp_references(raw_urls: str, tool_names: Iterable[str], api_key: str = None) -> List[str]:
     """Compose MCP references for each server.
 
     Note: Tool discovery happens automatically when connecting to the MCP server.
     We don't need to append tool names as URL fragments - the MCP protocol
     handles tool listing via the list_tools() method.
-    
+
     Args:
         raw_urls: Comma-separated list of MCP server URLs
         tool_names: Not used, kept for backwards compatibility
-        
+        api_key: Optional API key to append as query parameter
+
     Returns:
-        List of unique base MCP server URLs without tool-specific fragments
+        List of unique base MCP server URLs with optional API key authentication
     """
 
     if not raw_urls:
@@ -98,6 +99,12 @@ def build_mcp_references(raw_urls: str, tool_names: Iterable[str]) -> List[str]:
 
         # Remove any existing fragment from the URL
         base_reference, _, _ = entry.partition("#")
+
+        # Add API key if provided and not already in URL
+        if api_key and "api_key=" not in base_reference:
+            separator = "&" if "?" in base_reference else "?"
+            base_reference = f"{base_reference}{separator}api_key={api_key}"
+
         _add(base_reference)
 
     return references
