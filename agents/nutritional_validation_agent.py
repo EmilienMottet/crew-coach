@@ -68,8 +68,8 @@ def create_nutritional_validation_agent(llm: Any) -> Agent:
         STEP 1: Quantitative Analysis
         - Sum daily macros for each day
         - Compare to targets
-        - Calculate variance (should be <2% for proteins/carbs, <5% for total calories)
-        - Flag any days outside acceptable range
+        - Calculate variance percentage for each macro
+        - Flag days outside acceptable range
 
         STEP 2: Qualitative Assessment
         - Review meal composition and balance
@@ -87,14 +87,28 @@ def create_nutritional_validation_agent(llm: Any) -> Agent:
         - Prioritize recommendations by impact
         - Keep recommendations actionable and specific
 
-        STEP 5: Approval Decision
-        - approved = True ONLY if:
-          * All daily macros within ±50 kcal of targets
-          * Protein distributed adequately (not all in one meal)
-          * Sufficient variety (no repeated meals)
-          * No critical nutritional gaps
-          * Practical feasibility is reasonable
-        - approved = False if any critical issues exist
+        STEP 5: Approval Decision - FLEXIBLE THRESHOLDS
+        
+        APPROVE (approved = True) if:
+        ✅ Calories: Within ±5% of target (e.g., ±125 kcal for 2500 kcal target)
+        ✅ Protein: Within ±10g OR ±10% of target (whichever is more generous)
+        ✅ Carbs: Within ±15g OR ±5% of target (whichever is more generous)
+        ✅ Fat: Within ±8g OR ±15% of target (whichever is more generous)
+        ✅ Protein distributed adequately (at least 20g per main meal)
+        ✅ Sufficient variety (at least 5 unique meals per week)
+        ✅ No critical nutritional gaps
+        ✅ Practical feasibility is reasonable
+        
+        REJECT (approved = False) ONLY if:
+        ❌ Calories: >10% variance on any day (too far off target)
+        ❌ Protein: >20g OR >15% off target (inadequate or excessive)
+        ❌ Carbs: >30g OR >10% off target (poor periodization)
+        ❌ Fat: >15g OR >20% off target (imbalanced)
+        ❌ Critical nutritional deficiency identified
+        ❌ Meals are unsafe or impractical
+        
+        NOTE: Minor deviations (±3-5%) are ACCEPTABLE and NORMAL in real-world meal planning.
+        Athletes need flexibility, not robotic precision. Approve good plans that are close enough.
 
         YOUR SCORING CRITERIA:
 
