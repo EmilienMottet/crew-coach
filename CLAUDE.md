@@ -72,80 +72,91 @@ curl $OPENAI_API_BASE/models
 
 ### MCP Server Configuration
 
-The project uses **MetaMCP** which aggregates multiple MCP providers (Intervals.icu, Spotify, Mealy, Hexis) behind a single endpoint.
+The project uses **MetaMCP** with **dedicated MCP servers** for each service provider. Each crew connects to multiple specialized MCP endpoints.
 
 **Environment Setup:**
 ```bash
-# MCP Server endpoint (SSE recommended for CrewAI - fewer connection errors)
-MCP_SERVER_URL=https://mcp.emottet.com/metamcp/stravaDescriptionAgent/sse
+# Shared MCP API Key (used by all MCP servers)
+MCP_API_KEY=sk_mt_your_api_key_here
 
-# MCP API Key (separate from URL for better security)
-MCP_API_KEY=sk_mt_xxx
+# ============================================
+# MCP Servers for Strava Description Crew (crew.py)
+# ============================================
 
-# Alternative: Multiple MCP servers (comma-separated)
-# MCP_SERVER_URL=https://server1.com/sse,https://server2.com/sse
+# Strava (19 tools): Activity data, athlete profile, segments, routes
+STRAVA_MCP_SERVER_URL=https://mcp.emottet.com/metamcp/SocialNetworkSport/mcp
 
-# Optional: Filter specific tools (comma-separated)
-INTERVALS_MCP_TOOL_NAMES=IntervalsIcu__get_activity_details,IntervalsIcu__get_activity_intervals
-SPOTIFY_MCP_TOOL_NAMES=Spotify__get_recently_played
-MEALY_MCP_TOOL_NAMES=Mealy__create_meal,Mealy__get_meal
-HEXIS_MCP_TOOL_NAMES=Hexis__get_activities,Hexis__get_athlete
+# Intervals.icu (9 tools): Training data, activity intervals, wellness
+INTERVALS_MCP_SERVER_URL=https://mcp.emottet.com/metamcp/IntervalsIcu/mcp
+
+# Music/Spotify (19 tools): Music playback history, recently played tracks
+MUSIC_MCP_SERVER_URL=https://mcp.emottet.com/metamcp/Music/mcp
+
+# Weather/OpenWeatherMap (11 tools): Weather context during activities
+METEO_MCP_SERVER_URL=https://mcp.emottet.com/metamcp/meteo/mcp
+
+# Toolbox (14 tools): Utility tools (time conversion, fetch, task management)
+TOOLBOX_MCP_SERVER_URL=https://mcp.emottet.com/metamcp/toolbox/mcp
+
+# ============================================
+# MCP Servers for Meal Planning Crew (crew_mealy.py)
+# ============================================
+
+# Food (20 tools): Hexis nutrition data + USDA Food Data Central
+FOOD_MCP_SERVER_URL=https://mcp.emottet.com/metamcp/food/mcp
+
+# Intervals.icu and Toolbox are reused from above
 ```
 
-**Note on Endpoint Choice:**
-- **SSE (`/sse`)**: Recommended for CrewAI - produces zero connection errors
-- **Streamable HTTP (`/mcp`)**: Alternative endpoint, may produce SSE parsing errors but still functional
-- Both endpoints work, but `/sse` provides cleaner connection handling
+**Architecture Benefits:**
+- **Separation of Concerns**: Each MCP server manages a specific domain
+- **Selective Loading**: Crews only connect to servers they need
+- **Fault Tolerance**: If one server fails, others remain operational
+- **Tool Organization**: Tools are grouped by provider for easier filtering
 
 ### How MCP Tools are Loaded
 
-CrewAI agents use the `mcps` parameter to discover tools at runtime:
+The crews use **MetaMCPAdapter** to connect to multiple MCP servers and aggregate tools:
 
 ```python
 # In crew.py or crew_mealy.py
-from mcp_utils import build_mcp_references
+from mcp_auth_wrapper import MetaMCPAdapter
 
-# Build MCP references (auto-discovery by default)
-mcp_refs = build_mcp_references(
-    server_urls=os.getenv("MCP_SERVER_URL").split(","),
-    tool_names=None  # None = auto-discover all tools
-)
+# Connect to multiple MCP servers
+mcp_servers = {
+    "Strava": os.getenv("STRAVA_MCP_SERVER_URL", ""),
+    "Intervals.icu": os.getenv("INTERVALS_MCP_SERVER_URL", ""),
+    "Music": os.getenv("MUSIC_MCP_SERVER_URL", ""),
+    # ... etc
+}
 
-# Create agent with MCP tools
+mcp_adapters = []
+mcp_tools = []
+
+for server_name, server_url in mcp_servers.items():
+    adapter = MetaMCPAdapter(server_url, mcp_api_key, connect_timeout=30)
+    adapter.start()
+    mcp_adapters.append(adapter)
+    mcp_tools.extend(adapter.tools)  # Aggregate tools from all servers
+
+# Filter tools by type
+strava_tools = [t for t in mcp_tools if "strava" in t.name.lower()]
+intervals_tools = [t for t in mcp_tools if "intervals" in t.name.lower()]
+
+# Create agent with filtered tools
 agent = Agent(
-    role="...",
-    goal="...",
-    mcps=mcp_refs,  # MCP references
+    role="Description Agent",
+    tools=strava_tools + intervals_tools,  # Pass tools directly
     # ... other config
 )
 ```
 
 **What happens:**
-1. `build_mcp_references()` generates MCP URLs from environment variables
-2. If `tool_names=None` → returns base URL for auto-discovery
-3. If `tool_names=['Tool1', 'Tool2']` → returns URLs with fragment IDs (deprecated)
-4. CrewAI connects to MCP server during agent initialization
-5. Tools are dynamically loaded and callable by the agent
-
-### MCP Discovery Process
-
-**Auto-Discovery (Recommended):**
-```python
-# Returns: ["https://mcp.server.com/path?api_key=xxx"]
-mcp_refs = build_mcp_references(
-    server_urls=[os.getenv("MCP_SERVER_URL")],
-    tool_names=None  # Auto-discover
-)
-```
-
-**Manual Tool Selection (Optional):**
-```python
-# Returns: ["https://mcp.server.com/path?api_key=xxx#Tool1", ...]
-mcp_refs = build_mcp_references(
-    server_urls=[os.getenv("MCP_SERVER_URL")],
-    tool_names=["IntervalsIcu__get_activity_details", "Spotify__get_recently_played"]
-)
-```
+1. Each MCP server is connected independently via `MetaMCPAdapter`
+2. Tools from all servers are aggregated into a single `mcp_tools` list
+3. Tools are filtered by name/type for each agent
+4. Agents receive specific tool subsets relevant to their role
+5. Connection is kept alive for the duration of the crew execution
 
 ### Testing MCP Connectivity
 
@@ -154,94 +165,126 @@ mcp_refs = build_mcp_references(
 python test_mcp_connectivity.py
 
 # Expected output:
-# ✅ MCP Tools Discovered: 101
-#    - 9 Mealy tools
-#    - 19 Hexis tools
-#    - 9 Intervals.icu tools
-#    - 19 Spotify tools
-
-# Test minimal async connection
-python test_mcp_minimal.py
+# 🔗 Connecting to 5 MCP servers...
+#    Connecting to Strava...
+#    ✅ Strava: 19 tools discovered
+#    Connecting to Intervals.icu...
+#    ✅ Intervals.icu: 9 tools discovered
+#    Connecting to Music...
+#    ✅ Music: 19 tools discovered
+#    Connecting to Meteo...
+#    ✅ Meteo: 11 tools discovered
+#    Connecting to Toolbox...
+#    ✅ Toolbox: 14 tools discovered
+#
+# ✅ MCP connection complete! Total tools discovered: 72
 ```
 
 ### MCP Server Architecture
 
-**MetaMCP Aggregation:**
+**Multiple Specialized Servers:**
 ```
-https://mcp.emottet.com/metamcp/stravaDescriptionAgent/mcp
-    ├── Intervals.icu (9 tools)
-    │   ├── get_activity_details
-    │   ├── get_activity_intervals
-    │   └── get_activities
-    ├── Spotify (19 tools)
-    │   ├── get_recently_played
-    │   ├── get_current_track
+Strava Description Crew (crew.py) connects to:
+    ├── SocialNetworkSport (19 Strava tools)
+    │   ├── strava__get-activity-details
+    │   ├── strava__get-activity-streams
+    │   ├── strava__get-athlete-profile
     │   └── ...
-    ├── Mealy (9 tools)
-    │   ├── create_meal
-    │   ├── get_meal
+    ├── IntervalsIcu (9 training tools)
+    │   ├── IntervalsIcu__get_activity_details
+    │   ├── IntervalsIcu__get_activity_intervals
     │   └── ...
-    └── Hexis (19 tools)
-        ├── get_activities
-        ├── get_athlete
+    ├── Music (19 Spotify tools)
+    │   ├── spotify__getRecentlyPlayed
+    │   ├── spotify__getNowPlaying
+    │   └── ...
+    ├── Meteo (11 OpenWeatherMap tools)
+    │   ├── OpenWeatherMap__get-current-weather
+    │   ├── OpenWeatherMap__get-daily-forecast
+    │   └── ...
+    └── Toolbox (14 utility tools)
+        ├── Time__get_current_time
+        ├── Fetch__fetch
         └── ...
+
+Meal Planning Crew (crew_mealy.py) connects to:
+    ├── Food (20 nutrition tools)
+    │   ├── hexis__hexis_get_nutrition_trend
+    │   ├── hexis__hexis_get_meal_inspiration
+    │   ├── food-data-central__search-foods
+    │   └── ...
+    ├── IntervalsIcu (shared, 9 tools)
+    └── Toolbox (shared, 14 tools)
 ```
 
-**Tool Naming Convention:**
-- Format: `Provider__method_name`
-- Examples: `IntervalsIcu__get_activity_details`, `Spotify__get_recently_played`
-- Case-sensitive: Must match exactly
+**Tool Naming Conventions:**
+- **Strava**: `strava__method-name` (kebab-case)
+- **Intervals.icu**: `IntervalsIcu__method_name` (PascalCase + snake_case)
+- **Spotify**: `spotify__methodName` (camelCase)
+- **OpenWeatherMap**: `OpenWeatherMap__method-name` (PascalCase + kebab-case)
+- **Hexis**: `hexis__hexis_method_name` (all lowercase + snake_case)
+- **Food Data Central**: `food-data-central__method-name` (kebab-case)
+- **Toolbox**: `Tool__method_name` (varies by tool)
 
-### MCP in Different Crews
+### MCP Tool Distribution by Agent
 
 **Strava Description Crew (`crew.py`):**
-```bash
-# MCP Server and API Key (required) - Use SSE endpoint
-MCP_SERVER_URL=https://mcp.emottet.com/metamcp/stravaDescriptionAgent/sse
-MCP_API_KEY=sk_mt_xxx
-
-# Only needs Intervals.icu and Spotify (optional filters)
-INTERVALS_MCP_TOOL_NAMES=IntervalsIcu__get_activity_details,IntervalsIcu__get_activities
-SPOTIFY_MCP_TOOL_NAMES=Spotify__get_recently_played
-```
+- **Description Agent**: Strava + Intervals.icu + Weather + Toolbox
+  - Needs comprehensive data to generate descriptions
+  - Weather context enriches activity narratives
+  - Toolbox for time/date utilities
+- **Music Agent**: Spotify
+  - Fetches recently played tracks during activity
+  - Enriches description with soundtrack information
+- **Privacy Agent**: No MCP tools (pure reasoning)
+- **Translation Agent**: No MCP tools (pure reasoning)
 
 **Meal Planning Crew (`crew_mealy.py`):**
-```bash
-# Uses same MCP endpoint and API key - Use SSE endpoint
-MCP_SERVER_URL=https://mcp.emottet.com/metamcp/stravaDescriptionAgent/sse
-MCP_API_KEY=sk_mt_xxx
-
-# Needs Hexis and Mealy
-# Leave tool names unset for auto-discovery (recommended)
-# HEXIS_MCP_TOOL_NAMES=Hexis__get_activities,Hexis__get_athlete
-# MEALY_MCP_TOOL_NAMES=Mealy__create_meal,Mealy__get_preferences
-```
+- **Hexis Analysis Agent**: Hexis + Intervals.icu + Toolbox
+  - Analyzes training load from Hexis
+  - Cross-references with Intervals.icu data
+  - Uses time utilities for weekly planning
+- **Weekly Structure Agent**: No MCP tools (pure reasoning)
+- **Meal Generation Agent**: Hexis + Food Data Central + Toolbox
+  - Hexis for meal inspiration and recipes
+  - Food Data Central for nutritional data
+  - Toolbox for date calculations
+- **Nutritional Validation Agent**: Food Data Central + Hexis
+  - Validates meal nutritional accuracy
+  - Cross-checks with food databases
+- **Mealy Integration Agent**: Hexis
+  - Integrates with Hexis meal planning system
 
 ### Using mcp-proxy for stdio Clients
 
-**Note**: CrewAI connects directly to MCP servers via HTTP/SSE. The `mcp-proxy` tool is **only needed for stdio-based clients** (Claude Desktop, Cursor, etc.).
+**Note**: CrewAI connects directly to MCP servers via HTTP. The `mcp-proxy` tool is **only needed for stdio-based clients** (Claude Desktop, Cursor, etc.).
 
-**For stdio clients (not CrewAI):**
+**For CrewAI (current setup):**
+- No proxy needed - direct HTTP connection via MetaMCPAdapter
+- Set individual MCP server URLs (STRAVA_MCP_SERVER_URL, INTERVALS_MCP_SERVER_URL, etc.)
+- Set shared `MCP_API_KEY` environment variable
+- API key is automatically appended to requests
+- Multiple servers are connected simultaneously
+
+**For stdio clients (Claude Desktop, Cursor, etc.):**
 ```json
 {
   "mcpServers": {
-    "MetaMCP-SSE": {
+    "Strava": {
       "command": "uvx",
       "args": [
         "mcp-proxy",
-        "http://localhost:12008/metamcp/your-endpoint-name/sse"
+        "https://mcp.emottet.com/metamcp/SocialNetworkSport/mcp"
       ],
       "env": {
         "API_ACCESS_TOKEN": "sk_mt_your_api_key_here"
       }
     },
-    "MetaMCP-StreamableHTTP": {
+    "IntervalsIcu": {
       "command": "uvx",
       "args": [
         "mcp-proxy",
-        "--transport",
-        "streamablehttp",
-        "http://localhost:12008/metamcp/your-endpoint-name/mcp"
+        "https://mcp.emottet.com/metamcp/IntervalsIcu/mcp"
       ],
       "env": {
         "API_ACCESS_TOKEN": "sk_mt_your_api_key_here"
@@ -250,12 +293,6 @@ MCP_API_KEY=sk_mt_xxx
   }
 }
 ```
-
-**For CrewAI (current setup):**
-- No proxy needed - direct HTTP/SSE connection
-- Use `/sse` endpoint for best results (fewer connection errors)
-- Set `MCP_SERVER_URL` and `MCP_API_KEY` environment variables
-- API key is automatically appended to requests
 
 ### Debugging MCP Calls
 
