@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # Base image with Python runtime
-FROM python:3.11-slim
+FROM python:3.12-slim
 
 # Avoid writing bytecode files and ensure output is flushed straight away
 ENV PYTHONDONTWRITEBYTECODE=1 \
