@@ -17,7 +17,7 @@ from functools import partial
 import httpx
 
 from mcp.client.session import ClientSession
-from mcp.client.sse import sse_client
+from mcp.client.streamable_http import streamablehttp_client
 from mcpadapt.crewai_adapter import CrewAIAdapter
 from crewai.tools import BaseTool
 
@@ -90,12 +90,13 @@ class MetaMCPAdapter:
 
         async def setup():
             async with AsyncExitStack() as stack:
-                # Connect to MCP server with custom HTTP client
-                read, write = await stack.enter_async_context(
-                    sse_client(
+                # Connect to MCP server with custom HTTP client using streamable HTTP
+                read, write, _ = await stack.enter_async_context(
+                    streamablehttp_client(
                         url=f"{self.mcp_url}?api_key={self.api_key}",
                         httpx_client_factory=self._create_auth_client,
-                        timeout=float(self.connect_timeout)
+                        timeout=float(self.connect_timeout),
+                        terminate_on_close=True
                     )
                 )
 
