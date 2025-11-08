@@ -132,32 +132,48 @@ class MealPlanningCrew:
         # Preserve legacy attribute for compatibility with older components.
         self.llm = self.complex_llm
 
-        # Initialize MCP adapter with MetaMCP authentication fix
-        self.mcp_adapter = None
+        # Initialize MCP adapters with MetaMCP authentication fix
+        self.mcp_adapters = []
         self.mcp_tools = []
 
-        mcp_url = os.getenv("MCP_SERVER_URL", "")
         mcp_api_key = os.getenv("MCP_API_KEY", "")
         require_mcp = os.getenv("REQUIRE_MCP", "true").lower() == "true"
 
-        if mcp_url and mcp_api_key:
-            try:
-                print("\n🔗 Connecting to MCP server...", file=sys.stderr)
-                self.mcp_adapter = MetaMCPAdapter(mcp_url, mcp_api_key, connect_timeout=30)
-                self.mcp_adapter.start()
-                self.mcp_tools = self.mcp_adapter.tools
-                print(f"✅ MCP connected successfully! Discovered {len(self.mcp_tools)} tools\n", file=sys.stderr)
-            except Exception as e:
-                error_msg = f"\n❌ Error connecting to MCP server: {e}\n"
-                if require_mcp:
-                    print(error_msg, file=sys.stderr)
-                    raise ValueError(f"MCP connection failed: {e}")
-                else:
-                    print(f"{error_msg}⚠️  Continuing without MCP tools...\n", file=sys.stderr)
+        # Define MCP server URLs for Meal Planning Crew
+        mcp_servers = {
+            "Food": os.getenv("FOOD_MCP_SERVER_URL", ""),
+            "Intervals.icu": os.getenv("INTERVALS_MCP_SERVER_URL", ""),
+            "Toolbox": os.getenv("TOOLBOX_MCP_SERVER_URL", ""),
+        }
+
+        # Filter out empty URLs
+        active_servers = {name: url for name, url in mcp_servers.items() if url}
+
+        if active_servers and mcp_api_key:
+            print(f"\n🔗 Connecting to {len(active_servers)} MCP servers...\n", file=sys.stderr)
+
+            for server_name, server_url in active_servers.items():
+                try:
+                    print(f"   Connecting to {server_name}...", file=sys.stderr)
+                    adapter = MetaMCPAdapter(server_url, mcp_api_key, connect_timeout=30)
+                    adapter.start()
+                    self.mcp_adapters.append(adapter)
+                    self.mcp_tools.extend(adapter.tools)
+                    print(f"   ✅ {server_name}: {len(adapter.tools)} tools discovered", file=sys.stderr)
+                except Exception as e:
+                    error_msg = f"   ❌ {server_name}: Connection failed - {e}"
+                    if require_mcp:
+                        print(error_msg, file=sys.stderr)
+                        raise ValueError(f"MCP connection failed for {server_name}: {e}")
+                    else:
+                        print(f"{error_msg} (continuing without this server)", file=sys.stderr)
+
+            print(f"\n✅ MCP connection complete! Total tools discovered: {len(self.mcp_tools)}\n", file=sys.stderr)
         elif require_mcp:
             error_msg = (
                 "\n❌ Error: MCP configuration missing. "
-                "Please set MCP_SERVER_URL and MCP_API_KEY environment variables.\n"
+                "Please set MCP server URLs and MCP_API_KEY environment variables.\n"
+                "Required: FOOD_MCP_SERVER_URL, INTERVALS_MCP_SERVER_URL\n"
             )
             print(error_msg, file=sys.stderr)
             raise ValueError("MCP configuration is required but not provided")
@@ -165,27 +181,45 @@ class MealPlanningCrew:
             print("\n⚠️  Warning: No MCP configuration. Agents will operate without live data.\n", file=sys.stderr)
 
         # Filter tools by type for different agents
-        hexis_tools = [t for t in self.mcp_tools if "Hexis" in t.name or "hexis" in t.name.lower()]
-        mealy_tools = [t for t in self.mcp_tools if "Mealy" in t.name or "mealy" in t.name.lower()]
+        hexis_tools = [t for t in self.mcp_tools if "hexis" in t.name.lower()]
+        food_data_tools = [t for t in self.mcp_tools if "food" in t.name.lower() and "hexis" not in t.name.lower()]
+        intervals_tools = [t for t in self.mcp_tools if "intervals" in t.name.lower()]
+        toolbox_tools = [t for t in self.mcp_tools if any(keyword in t.name.lower() for keyword in ["fetch", "time", "task"])]
 
         if hexis_tools:
             print(f"✅ Found {len(hexis_tools)} Hexis tools\n", file=sys.stderr)
-        if mealy_tools:
-            print(f"🍽️  Found {len(mealy_tools)} Mealy tools\n", file=sys.stderr)
+        if food_data_tools:
+            print(f"🍎 Found {len(food_data_tools)} Food Data Central tools\n", file=sys.stderr)
+        if intervals_tools:
+            print(f"📊 Found {len(intervals_tools)} Intervals.icu tools\n", file=sys.stderr)
+        if toolbox_tools:
+            print(f"🛠️  Found {len(toolbox_tools)} Toolbox tools\n", file=sys.stderr)
 
         # Create agents with MCP tools
+        # Hexis Analysis Agent: needs Hexis, Intervals.icu, and Toolbox
+        hexis_analysis_tools = hexis_tools + intervals_tools + toolbox_tools
         self.hexis_analysis_agent = create_hexis_analysis_agent(
-            self.complex_llm, tools=hexis_tools if hexis_tools else None
+            self.complex_llm, tools=hexis_analysis_tools if hexis_analysis_tools else None
         )
+
+        # Weekly Structure Agent: no MCP tools needed (pure reasoning)
         self.weekly_structure_agent = create_weekly_structure_agent(self.complex_llm)
+
+        # Meal Generation Agent: needs all food-related tools
+        meal_generation_tools = hexis_tools + food_data_tools + toolbox_tools
         self.meal_generation_agent = create_meal_generation_agent(
-            self.complex_llm, tools=mealy_tools if mealy_tools else None
+            self.complex_llm, tools=meal_generation_tools if meal_generation_tools else None
         )
+
+        # Nutritional Validation Agent: needs food data for validation
+        validation_tools = food_data_tools + hexis_tools
         self.nutritional_validation_agent = create_nutritional_validation_agent(
-            self.complex_llm
+            self.complex_llm, tools=validation_tools if validation_tools else None
         )
+
+        # Mealy Integration Agent: needs Hexis tools for meal creation
         self.mealy_integration_agent = create_mealy_integration_agent(
-            self.simple_llm, tools=mealy_tools if mealy_tools else None
+            self.simple_llm, tools=hexis_tools if hexis_tools else None
         )
 
     @staticmethod

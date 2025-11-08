@@ -3,7 +3,7 @@ from crewai import Agent
 from typing import Any
 
 
-def create_nutritional_validation_agent(llm: Any) -> Agent:
+def create_nutritional_validation_agent(llm: Any, tools: Any = None) -> Agent:
     """
     Create an agent that validates the nutritional quality of generated meal plans.
 
@@ -15,10 +15,13 @@ def create_nutritional_validation_agent(llm: Any) -> Agent:
 
     Args:
         llm: The language model to use
+        tools: Optional list of tools for food data validation
 
     Returns:
         Configured Agent instance
     """
+    tools_list = list(tools) if tools else []
+
     return Agent(
         role="Registered Dietitian & Quality Assurance Specialist",
         goal="Rigorously validate meal plans to ensure nutritional adequacy, accuracy, variety, and practical feasibility for athletic performance",
@@ -119,11 +122,10 @@ def create_nutritional_validation_agent(llm: Any) -> Agent:
         You are thorough, evidence-based, and focused on athlete success. Your validation
         ensures meal plans are not just theoretically sound, but practically excellent.
 
-        You do NOT require external tools - you work purely from the meal plan and
-        nutrition targets provided, using your expertise to validate quality.
+        You can optionally use food database tools to verify nutritional accuracy when needed.
         """,
         verbose=True,
         allow_delegation=False,
         llm=llm,
-        tools=[],
+        tools=tools_list,
     )
