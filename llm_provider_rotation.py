@@ -18,6 +18,8 @@ from pydantic import BaseModel
 
 
 RATE_LIMIT_KEYWORDS = ("rate limit", "quota", "429")
+PROMPTLESS_ENDPOINT_HINTS = ("codex",)
+PROMPTLESS_MODEL_HINTS = ("o1", "o3")
 
 
 @dataclass(frozen=True)
@@ -28,6 +30,22 @@ class ProviderCandidate:
     model: str
     api_base: str
     api_key: str
+    disable_system_prompt: bool = False
+
+
+def _requires_promptless_mode(api_base: str, model_name: str) -> bool:
+    """Return True when an endpoint/model rejects system prompts."""
+
+    base = (api_base or "").lower()
+    model = (model_name or "").lower()
+
+    if any(keyword in base for keyword in PROMPTLESS_ENDPOINT_HINTS):
+        return True
+
+    if any(keyword in model for keyword in PROMPTLESS_MODEL_HINTS):
+        return True
+
+    return False
 
 
 def create_llm_with_rotation(
@@ -43,7 +61,7 @@ def create_llm_with_rotation(
         api_key=api_key,
     )
 
-    if len(provider_chain) == 1:
+    if len(provider_chain) == 1 and not provider_chain[0].disable_system_prompt:
         provider = provider_chain[0]
         return LLM(model=provider.model, api_base=provider.api_base, api_key=provider.api_key)
 
@@ -72,6 +90,7 @@ def _build_provider_chain(
         model=normalized_model,
         api_base=api_base,
         api_key=api_key,
+        disable_system_prompt=_requires_promptless_mode(api_base, normalized_model),
     )
 
     if not rotation_enabled:
@@ -99,7 +118,16 @@ def _build_provider_chain(
 
     candidates = _deduplicate_candidates(candidates)
     candidates = _randomize_provider_order(candidates)
-    return _ensure_copilot_fallback(candidates, api_key)
+    candidates = _ensure_copilot_fallback(candidates, api_key)
+
+    for candidate in candidates:
+        if candidate.disable_system_prompt:
+            print(
+                f"ℹ️  {agent_name or 'LLM'} provider {candidate.label} strips system prompts per endpoint requirements",
+                file=sys.stderr,
+            )
+
+    return candidates
 
 
 def _parse_rotation_entries(
@@ -143,6 +171,7 @@ def _parse_rotation_entries(
                 model=resolved_model,
                 api_base=resolved_base,
                 api_key=resolved_key,
+                disable_system_prompt=_requires_promptless_mode(resolved_base, resolved_model),
             )
         )
 
@@ -181,6 +210,7 @@ def _ensure_copilot_fallback(
         model=copilot_model,
         api_base=copilot_base,
         api_key=copilot_key,
+        disable_system_prompt=_requires_promptless_mode(copilot_base, copilot_model),
     )
 
     extended = list(candidates) + [fallback]
@@ -195,7 +225,12 @@ def _deduplicate_candidates(
     unique: List[ProviderCandidate] = []
     seen = set()
     for candidate in candidates:
-        key = (candidate.model, candidate.api_base, candidate.api_key)
+        key = (
+            candidate.model,
+            candidate.api_base,
+            candidate.api_key,
+            candidate.disable_system_prompt,
+        )
         if key in seen:
             continue
         unique.append(candidate)
@@ -274,6 +309,7 @@ class RotatingLLM(BaseLLM):
         response_model: type[BaseModel] | None = None,
     ) -> Any:
         last_error: Exception | None = None
+        base_messages = messages
 
         for index, provider in enumerate(self._providers):
             llm = self._ensure_llm(index)
@@ -284,8 +320,13 @@ class RotatingLLM(BaseLLM):
                         file=sys.stderr,
                     )
 
+                effective_messages = _prepare_messages_for_provider(
+                    base_messages,
+                    provider.disable_system_prompt,
+                )
+
                 response = llm.call(
-                    messages=messages,
+                    messages=effective_messages,
                     tools=tools,
                     callbacks=callbacks,
                     available_functions=available_functions,
@@ -361,3 +402,43 @@ def _is_rate_limit_error(exc: Exception) -> bool:
         message = ""
 
     return any(keyword in message for keyword in RATE_LIMIT_KEYWORDS)
+
+
+def _prepare_messages_for_provider(
+    messages: str | List[LLMMessage], disable_system_prompt: bool
+) -> str | List[LLMMessage]:
+    if not disable_system_prompt or isinstance(messages, str):
+        return messages
+    return _merge_system_prompt_into_user(messages)
+
+
+def _merge_system_prompt_into_user(messages: List[LLMMessage]) -> List[LLMMessage]:
+    sanitized: List[LLMMessage] = []
+    system_chunks: List[str] = []
+
+    for message in messages:
+        role = message["role"]
+        content = message["content"]
+        if role == "system":
+            stripped = content.strip()
+            if stripped:
+                system_chunks.append(stripped)
+            continue
+
+        sanitized.append({"role": role, "content": content})
+
+    if not system_chunks:
+        return sanitized
+
+    merged_prompt = "\n\n".join(system_chunks).strip()
+    if not merged_prompt:
+        return sanitized
+
+    merged_entry: LLMMessage = {"role": "user", "content": merged_prompt}
+    if sanitized and sanitized[0]["role"] == "user":
+        first_content = sanitized[0]["content"].strip()
+        combined_content = f"{merged_prompt}\n\n{first_content}".strip()
+        sanitized[0] = {"role": "user", "content": combined_content}
+        return sanitized
+
+    return [merged_entry, *sanitized]
