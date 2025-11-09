@@ -372,7 +372,7 @@ The system builds MCP references in `crew.py:_build_intervals_mcp_references()` 
 2. **API Key**: Set `OPENAI_API_KEY` (standard Bearer token)
 
 **Endpoint Setup**:
-- `OPENAI_API_BASE`: Custom endpoint URL (e.g., `https://ghcopilot.emottet.com/v1`)
+- `OPENAI_API_BASE`: Custom endpoint URL (e.g., `https://ccproxy.emottet.com/copilot/v1`)
 - `OPENAI_MODEL_NAME`: Model identifier (e.g., `gpt-4`, `gpt-5-mini`)
 - **LiteLLM prefix**: Models are referenced as `openai/{model_name}` internally
 

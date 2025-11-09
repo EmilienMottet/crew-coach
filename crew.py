@@ -34,6 +34,7 @@ from tasks import (
 )
 from mcp_utils import build_mcp_references, load_catalog_tool_names
 from mcp_auth_wrapper import MetaMCPAdapter
+from llm_provider_rotation import create_llm_with_rotation
 
 # Load environment variables from .env file (override shell variables)
 load_dotenv(override=True)
@@ -45,25 +46,25 @@ class StravaDescriptionCrew:
     def __init__(self):
         """Initialize the crew with LLM and agents."""
         load_dotenv()
-        
+
         # Configure environment variables for LiteLLM/OpenAI
-        base_url = os.getenv("OPENAI_API_BASE", "https://ghcopilot.emottet.com/v1")
-        default_complex_model = os.getenv("OPENAI_MODEL_NAME") or "claude-sonnet-4.5"
+        base_url = os.getenv("OPENAI_API_BASE", "https://ccproxy.emottet.com/copilot/v1")
+        default_complex_model = os.getenv("OPENAI_MODEL_NAME") or "claude-sonnet-4-5"
         complex_model_name = os.getenv(
             "OPENAI_COMPLEX_MODEL_NAME",
             default_complex_model,
         )
         simple_model_name = os.getenv(
             "OPENAI_SIMPLE_MODEL_NAME",
-            "claude-haiku-4.5",
+            "claude-haiku-4-5",
         )
-        
+
         # Configure authentication - support both API key and Basic Auth
         auth_token = os.getenv("OPENAI_API_AUTH_TOKEN")  # Base64-encoded Basic Auth
-        
+
         # Set environment variables that LiteLLM expects
         os.environ["OPENAI_API_BASE"] = base_url
-        
+
         # Configure litellm/OpenAI authentication
         if auth_token:
             basic_token = auth_token
@@ -120,15 +121,36 @@ class StravaDescriptionCrew:
             # Use standard API key
             api_key = os.getenv("OPENAI_API_KEY", "dummy-key")
             os.environ["OPENAI_API_KEY"] = api_key
-        
-        # Create LLM instance
-        self.simple_llm = self._create_llm(simple_model_name, base_url, api_key)
-        if complex_model_name == simple_model_name:
-            self.complex_llm = self.simple_llm
-        else:
-            self.complex_llm = self._create_llm(complex_model_name, base_url, api_key)
-        # Keep legacy attribute for components that still expect a single primary model.
-        self.llm = self.complex_llm
+
+        # Create per-agent LLMs with optional overrides
+        # This allows each agent to use a different model/endpoint for cost optimization
+        self.description_llm = self._create_agent_llm(
+            agent_name="DESCRIPTION",
+            default_model=complex_model_name,
+            default_base=base_url,
+            default_key=api_key
+        )
+
+        self.music_llm = self._create_agent_llm(
+            agent_name="MUSIC",
+            default_model=simple_model_name,
+            default_base=base_url,
+            default_key=api_key
+        )
+
+        self.privacy_llm = self._create_agent_llm(
+            agent_name="PRIVACY",
+            default_model=simple_model_name,
+            default_base=base_url,
+            default_key=api_key
+        )
+
+        self.translation_llm = self._create_agent_llm(
+            agent_name="TRANSLATION",
+            default_model=simple_model_name,
+            default_base=base_url,
+            default_key=api_key
+        )
 
         # Initialize MCP adapters with MetaMCP authentication fix
         self.mcp_adapters = []
@@ -204,21 +226,21 @@ class StravaDescriptionCrew:
         # Description Agent: needs Strava, Intervals.icu, Weather, and Toolbox
         description_tools = strava_tools + intervals_tools + weather_tools + toolbox_tools
         self.description_agent = create_description_agent(
-            self.complex_llm,
+            self.description_llm,
             tools=description_tools if description_tools else None
         )
 
         # Music Agent: needs Spotify tools
         self.music_agent = create_music_agent(
-            self.simple_llm,
+            self.music_llm,
             tools=spotify_tools if spotify_tools else None
         )
 
         # Privacy Agent: no MCP tools needed (pure reasoning)
-        self.privacy_agent = create_privacy_agent(self.simple_llm)
+        self.privacy_agent = create_privacy_agent(self.privacy_llm)
 
         # Translation Agent: no MCP tools needed
-        self.translation_agent = create_translation_agent(self.simple_llm)
+        self.translation_agent = create_translation_agent(self.translation_llm)
 
     def _load_intervals_tool_names(self) -> List[str]:
         """Load MCP tool names for Intervals.icu integration."""
@@ -253,14 +275,62 @@ class StravaDescriptionCrew:
         api_key = os.getenv("MCP_API_KEY", "")
         return build_mcp_references(raw_urls, tool_names, api_key)
 
+    def _create_agent_llm(
+        self,
+        agent_name: str,
+        default_model: str,
+        default_base: str,
+        default_key: str,
+    ) -> LLM:
+        """Create an LLM for a specific agent with optional per-agent overrides.
+
+        Supports environment variables:
+        - {AGENT_NAME}_AGENT_MODEL: Model name for this agent
+        - {AGENT_NAME}_AGENT_API_BASE: API base URL for this agent
+
+        Args:
+            agent_name: Name prefix for env vars (e.g., "DESCRIPTION", "MUSIC")
+            default_model: Fallback model name
+            default_base: Fallback API base URL
+            default_key: API key to use
+
+        Returns:
+            Configured LLM instance
+        """
+        # Check for agent-specific overrides
+        model_key = f"{agent_name}_AGENT_MODEL"
+        base_key = f"{agent_name}_AGENT_API_BASE"
+
+        agent_model = os.getenv(model_key, default_model)
+        agent_base = os.getenv(base_key, default_base)
+
+        # Log configuration for transparency
+        if os.getenv(model_key) or os.getenv(base_key):
+            print(
+                f"🔧 {agent_name} Agent: Using custom config "
+                f"(model={agent_model}, base={agent_base})",
+                file=sys.stderr,
+            )
+
+        return self._create_llm(
+            agent_model,
+            agent_base,
+            default_key,
+            agent_name=agent_name,
+        )
+
     @staticmethod
-    def _create_llm(model_name: str, api_base: str, api_key: str) -> LLM:
-        """Instantiate an LLM client, adding the OpenAI prefix when omitted."""
-        normalized = model_name.strip()
-        if "/" not in normalized:
-            normalized = f"openai/{normalized}"
-        return LLM(
-            model=normalized,
+    def _create_llm(
+        model_name: str,
+        api_base: str,
+        api_key: str,
+        agent_name: str,
+    ) -> LLM:
+        """Instantiate an LLM with provider rotation support when enabled."""
+
+        return create_llm_with_rotation(
+            agent_name=agent_name,
+            model_name=model_name,
             api_base=api_base,
             api_key=api_key,
         )

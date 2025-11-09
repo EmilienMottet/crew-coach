@@ -36,6 +36,7 @@ from tasks import (
 )
 from mcp_utils import build_mcp_references, load_catalog_tool_names
 from mcp_auth_wrapper import MetaMCPAdapter
+from llm_provider_rotation import create_llm_with_rotation
 
 # Load environment variables from .env file (override shell variables)
 load_dotenv(override=True)
@@ -49,8 +50,8 @@ class MealPlanningCrew:
         # Environment already loaded at module level
 
         # Configure environment variables for LiteLLM/OpenAI
-        base_url = os.getenv("OPENAI_API_BASE", "https://ghcopilot.emottet.com/v1")
-        default_complex_model = os.getenv("OPENAI_MODEL_NAME") or "claude-sonnet-4.5"
+        base_url = os.getenv("OPENAI_API_BASE", "https://ccproxy.emottet.com/copilot/v1")
+        default_complex_model = os.getenv("OPENAI_MODEL_NAME") or "claude-sonnet-4-5"
         complex_model_name = os.getenv(
             "OPENAI_COMPLEX_MODEL_NAME",
             default_complex_model,
@@ -123,14 +124,42 @@ class MealPlanningCrew:
             api_key = os.getenv("OPENAI_API_KEY", "dummy-key")
             os.environ["OPENAI_API_KEY"] = api_key
 
-        # Create LLM instance
-        self.simple_llm = self._create_llm(simple_model_name, base_url, api_key)
-        if complex_model_name == simple_model_name:
-            self.complex_llm = self.simple_llm
-        else:
-            self.complex_llm = self._create_llm(complex_model_name, base_url, api_key)
-        # Preserve legacy attribute for compatibility with older components.
-        self.llm = self.complex_llm
+        # Create per-agent LLMs with optional overrides
+        # This allows each agent to use a different model/endpoint for cost optimization
+        self.hexis_analysis_llm = self._create_agent_llm(
+            agent_name="HEXIS_ANALYSIS",
+            default_model=complex_model_name,
+            default_base=base_url,
+            default_key=api_key
+        )
+
+        self.weekly_structure_llm = self._create_agent_llm(
+            agent_name="WEEKLY_STRUCTURE",
+            default_model=complex_model_name,
+            default_base=base_url,
+            default_key=api_key
+        )
+
+        self.meal_generation_llm = self._create_agent_llm(
+            agent_name="MEAL_GENERATION",
+            default_model=complex_model_name,
+            default_base=base_url,
+            default_key=api_key
+        )
+
+        self.nutritional_validation_llm = self._create_agent_llm(
+            agent_name="NUTRITIONAL_VALIDATION",
+            default_model=complex_model_name,
+            default_base=base_url,
+            default_key=api_key
+        )
+
+        self.mealy_integration_llm = self._create_agent_llm(
+            agent_name="MEALY_INTEGRATION",
+            default_model=simple_model_name,
+            default_base=base_url,
+            default_key=api_key
+        )
 
         # Initialize MCP adapters with MetaMCP authentication fix
         self.mcp_adapters = []
@@ -199,37 +228,85 @@ class MealPlanningCrew:
         # Hexis Analysis Agent: needs Hexis, Intervals.icu, and Toolbox
         hexis_analysis_tools = hexis_tools + intervals_tools + toolbox_tools
         self.hexis_analysis_agent = create_hexis_analysis_agent(
-            self.complex_llm, tools=hexis_analysis_tools if hexis_analysis_tools else None
+            self.hexis_analysis_llm, tools=hexis_analysis_tools if hexis_analysis_tools else None
         )
 
         # Weekly Structure Agent: no MCP tools needed (pure reasoning)
-        self.weekly_structure_agent = create_weekly_structure_agent(self.complex_llm)
+        self.weekly_structure_agent = create_weekly_structure_agent(self.weekly_structure_llm)
 
         # Meal Generation Agent: needs all food-related tools
         meal_generation_tools = hexis_tools + food_data_tools + toolbox_tools
         self.meal_generation_agent = create_meal_generation_agent(
-            self.complex_llm, tools=meal_generation_tools if meal_generation_tools else None
+            self.meal_generation_llm, tools=meal_generation_tools if meal_generation_tools else None
         )
 
         # Nutritional Validation Agent: needs food data for validation
         validation_tools = food_data_tools + hexis_tools
         self.nutritional_validation_agent = create_nutritional_validation_agent(
-            self.complex_llm, tools=validation_tools if validation_tools else None
+            self.nutritional_validation_llm, tools=validation_tools if validation_tools else None
         )
 
         # Mealy Integration Agent: needs Hexis tools for meal creation
         self.mealy_integration_agent = create_mealy_integration_agent(
-            self.simple_llm, tools=hexis_tools if hexis_tools else None
+            self.mealy_integration_llm, tools=hexis_tools if hexis_tools else None
+        )
+
+    def _create_agent_llm(
+        self,
+        agent_name: str,
+        default_model: str,
+        default_base: str,
+        default_key: str,
+    ) -> LLM:
+        """Create an LLM for a specific agent with optional per-agent overrides.
+
+        Supports environment variables:
+        - {AGENT_NAME}_AGENT_MODEL: Model name for this agent
+        - {AGENT_NAME}_AGENT_API_BASE: API base URL for this agent
+
+        Args:
+            agent_name: Name prefix for env vars (e.g., "HEXIS_ANALYSIS", "MEAL_GENERATION")
+            default_model: Fallback model name
+            default_base: Fallback API base URL
+            default_key: API key to use
+
+        Returns:
+            Configured LLM instance
+        """
+        # Check for agent-specific overrides
+        model_key = f"{agent_name}_AGENT_MODEL"
+        base_key = f"{agent_name}_AGENT_API_BASE"
+
+        agent_model = os.getenv(model_key, default_model)
+        agent_base = os.getenv(base_key, default_base)
+
+        # Log configuration for transparency
+        if os.getenv(model_key) or os.getenv(base_key):
+            print(
+                f"🔧 {agent_name} Agent: Using custom config "
+                f"(model={agent_model}, base={agent_base})",
+                file=sys.stderr,
+            )
+
+        return self._create_llm(
+            agent_model,
+            agent_base,
+            default_key,
+            agent_name=agent_name,
         )
 
     @staticmethod
-    def _create_llm(model_name: str, api_base: str, api_key: str) -> LLM:
-        """Instantiate an LLM client, adding the OpenAI prefix only when needed."""
-        normalized = model_name.strip()
-        if "/" not in normalized:
-            normalized = f"openai/{normalized}"
-        return LLM(
-            model=normalized,
+    def _create_llm(
+        model_name: str,
+        api_base: str,
+        api_key: str,
+        agent_name: str,
+    ) -> LLM:
+        """Instantiate an LLM with provider rotation support when enabled."""
+
+        return create_llm_with_rotation(
+            agent_name=agent_name,
+            model_name=model_name,
             api_base=api_base,
             api_key=api_key,
         )

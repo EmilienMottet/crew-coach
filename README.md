@@ -76,7 +76,7 @@ If `OPENAI_API_AUTH_TOKEN` is set, it takes precedence and will be used as `Auth
 
 ### Example curl request
 ```bash
-curl https://ghcopilot.emottet.com/v1/chat/completions \
+curl https://ccproxy.emottet.com/copilot/v1/chat/completions \
   -H "Authorization: Basic b2NvOjc2d3VudFk4Q3QzR2szRFU=" \
   -H "Content-Type: application/json" \
   -d '{
@@ -170,6 +170,43 @@ Autres modèles disponibles sur votre endpoint :
 - `gpt-4o-mini`
 - `claude-sonnet-4.5`
 - `gemini-2.5-pro`
+
+### Rotation automatique des providers
+
+Les agents relancent désormais automatiquement l'inférence sur une autre passerelle lorsqu'un provider renvoie une erreur de quota (`429` / `rate limit`). Le comportement par défaut est :
+
+- Tentative sur la config primaire (`OPENAI_*` ou variables agent spécifiques)
+- Tentatives successives définies via les variables `*_PROVIDER_ROTATION` (l'ordre est aléatoire à chaque lancement pour équilibrer Copilot/Claude)
+- Dernier recours obligatoire : `gpt-5-mini` exposé via le provider Copilot (`https://ccproxy.emottet.com/copilot/v1`)
+
+#### Configuration
+
+```
+# Activer/Désactiver la rotation globale (true par défaut)
+ENABLE_LLM_PROVIDER_ROTATION=true
+
+# Chaîne globale : label|model|api_base|api_key_hint séparés par des « ; »
+LLM_PROVIDER_ROTATION="anthropic|claude-sonnet-4.5|https://anthropic.proxy/v1|ANTHROPIC_API_KEY;openrouter|same|https://openrouter.ai/api/v1|ENV:OPENROUTER_KEY"
+
+# Chaîne spécifique à un agent (ex : Activity Description Writer)
+DESCRIPTION_PROVIDER_ROTATION="azure-sonnet|claude-sonnet-4.5|https://azure.example/v1|AZURE_KEY"
+
+# Provider Copilot utilisé pour le dernier fallback
+COPILOT_API_BASE=https://ccproxy.emottet.com/copilot/v1
+COPILOT_API_KEY=${OPENAI_API_KEY}
+COPILOT_FALLBACK_MODEL=gpt-5-mini
+```
+
+- `label` : libre, sert uniquement aux logs (ex. `anthropic`, `openrouter`)
+- `model` : laissez vide ou mettez `same` pour réutiliser le modèle primaire, sinon indiquez le nom complet
+- `api_base` : endpoint compatible OpenAI
+- `api_key_hint` :
+  - `ENV:MY_TOKEN` ou simplement `MY_TOKEN` → lit la variable d'environnement correspondante
+  - `key=XXX` → valeur inline (éviter si possible)
+
+Toutes les chaînes suivent le même format. Pour les agents Strava, les préfixes possibles sont `DESCRIPTION`, `MUSIC`, `PRIVACY`, `TRANSLATION`. Pour le meal planning : `HEXIS_ANALYSIS`, `WEEKLY_STRUCTURE`, `MEAL_GENERATION`, `NUTRITIONAL_VALIDATION`, `MEALY_INTEGRATION`. Si aucune chaîne spécifique n'est définie, la variable globale `LLM_PROVIDER_ROTATION` est utilisée.
+
+En cas d'expiration de quota sur tous les providers configurés, la tentative finale est forcée sur `gpt-5-mini` côté Copilot pour assurer un comportement déterministe.
 
 ## 📖 Utilisation
 
