@@ -186,7 +186,7 @@ Les agents relancent désormais automatiquement l'inférence sur une autre passe
 ENABLE_LLM_PROVIDER_ROTATION=true
 
 # Chaîne globale : label|model|api_base|api_key_hint séparés par des « ; »
-LLM_PROVIDER_ROTATION="anthropic|claude-sonnet-4.5|https://anthropic.proxy/v1|ANTHROPIC_API_KEY;openrouter|same|https://openrouter.ai/api/v1|ENV:OPENROUTER_KEY"
+LLM_PROVIDER_ROTATION="anthropic|claude-sonnet-4.5|https://anthropic.proxy/v1|ANTHROPIC_API_KEY;codex-gpt5|gpt-5|https://ccproxy.emottet.com/codex/v1|ENV:OPENAI_API_KEY;openrouter|same|https://openrouter.ai/api/v1|ENV:OPENROUTER_KEY"
 
 # Chaîne spécifique à un agent (ex : Activity Description Writer)
 DESCRIPTION_PROVIDER_ROTATION="azure-sonnet|claude-sonnet-4.5|https://azure.example/v1|AZURE_KEY"
@@ -203,6 +203,8 @@ COPILOT_FALLBACK_MODEL=gpt-5-mini
 - `api_key_hint` :
   - `ENV:MY_TOKEN` ou simplement `MY_TOKEN` → lit la variable d'environnement correspondante
   - `key=XXX` → valeur inline (éviter si possible)
+
+L'entrée `codex-gpt5` ci-dessus pointe directement vers `https://ccproxy.emottet.com/codex/v1` (modèles `gpt-5`, `gpt-5-codex`). Ce proxy refuse les messages `system`, donc l'orchestrateur fusionne automatiquement le prompt système dans la première instruction utilisateur dès qu'un endpoint `codex` est détecté.
 
 Toutes les chaînes suivent le même format. Pour les agents Strava, les préfixes possibles sont `DESCRIPTION`, `MUSIC`, `PRIVACY`, `TRANSLATION`. Pour le meal planning : `HEXIS_ANALYSIS`, `WEEKLY_STRUCTURE`, `MEAL_GENERATION`, `NUTRITIONAL_VALIDATION`, `MEALY_INTEGRATION`. Si aucune chaîne spécifique n'est définie, la variable globale `LLM_PROVIDER_ROTATION` est utilisée.
 
