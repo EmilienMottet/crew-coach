@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Mock LLM configuration
-base_url = os.getenv("OPENAI_API_BASE", "https://ghcopilot.emottet.com/v1")
+base_url = os.getenv("OPENAI_API_BASE", "https://ccproxy.emottet.com/copilot/v1")
 model_name = os.getenv("OPENAI_MODEL_NAME", "gpt-5mini")
 api_key = os.getenv("OPENAI_API_KEY", "dummy-key")
 

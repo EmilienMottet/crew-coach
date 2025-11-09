@@ -1,0 +1,363 @@
+"""Provider rotation helpers for CrewAI LLM instances."""
+
+from __future__ import annotations
+
+import os
+import sys
+import random
+from dataclasses import dataclass
+from typing import Any, Dict, List, Sequence
+
+from crewai import LLM
+from crewai.agent.core import Agent
+from crewai.llms.base_llm import BaseLLM
+from crewai.task import Task
+from crewai.tools.base_tool import BaseTool
+from crewai.utilities.types import LLMMessage
+from pydantic import BaseModel
+
+
+RATE_LIMIT_KEYWORDS = ("rate limit", "quota", "429")
+
+
+@dataclass(frozen=True)
+class ProviderCandidate:
+    """Represents a single provider/model endpoint in the rotation chain."""
+
+    label: str
+    model: str
+    api_base: str
+    api_key: str
+
+
+def create_llm_with_rotation(
+    *, agent_name: str, model_name: str, api_base: str, api_key: str
+) -> BaseLLM:
+    """Create an LLM wrapped with provider rotation logic when enabled."""
+
+    normalized_model = _normalize_model_name(model_name)
+    provider_chain = _build_provider_chain(
+        agent_name=agent_name,
+        normalized_model=normalized_model,
+        api_base=api_base,
+        api_key=api_key,
+    )
+
+    if len(provider_chain) == 1:
+        provider = provider_chain[0]
+        return LLM(model=provider.model, api_base=provider.api_base, api_key=provider.api_key)
+
+    labels = ", ".join(candidate.label for candidate in provider_chain)
+    print(
+        f"\n🔁 {agent_name or 'LLM'} provider chain: {labels}\n",
+        file=sys.stderr,
+    )
+    return RotatingLLM(agent_name or "LLM", provider_chain)
+
+
+def _build_provider_chain(
+    *, agent_name: str, normalized_model: str, api_base: str, api_key: str
+) -> List[ProviderCandidate]:
+    """Assemble the ordered provider list for a given agent."""
+
+    rotation_enabled = os.getenv("ENABLE_LLM_PROVIDER_ROTATION", "true").lower() not in {
+        "0",
+        "false",
+        "no",
+        "off",
+    }
+
+    primary = ProviderCandidate(
+        label=_provider_label(agent_name, api_base, suffix="primary"),
+        model=normalized_model,
+        api_base=api_base,
+        api_key=api_key,
+    )
+
+    if not rotation_enabled:
+        return [primary]
+
+    candidates: List[ProviderCandidate] = [primary]
+    env_keys = []
+    if agent_name:
+        env_keys.append(f"{agent_name}_PROVIDER_ROTATION")
+    env_keys.append("LLM_PROVIDER_ROTATION")
+
+    for env_key in env_keys:
+        raw_value = os.getenv(env_key, "").strip()
+        if not raw_value:
+            continue
+        candidates.extend(
+            _parse_rotation_entries(
+                raw_value=raw_value,
+                default_model=normalized_model,
+                default_base=api_base,
+                default_key=api_key,
+                source_key=env_key,
+            )
+        )
+
+    candidates = _deduplicate_candidates(candidates)
+    candidates = _randomize_provider_order(candidates)
+    return _ensure_copilot_fallback(candidates, api_key)
+
+
+def _parse_rotation_entries(
+    *,
+    raw_value: str,
+    default_model: str,
+    default_base: str,
+    default_key: str,
+    source_key: str,
+) -> List[ProviderCandidate]:
+    """Parse rotation entries defined in an environment variable."""
+
+    entries: List[ProviderCandidate] = []
+    for chunk in raw_value.split(";"):
+        token = chunk.strip()
+        if not token:
+            continue
+
+        parts = [part.strip() for part in token.split("|")]
+        while len(parts) < 4:
+            parts.append("")
+
+        label_part, model_part, base_part, key_part = parts[:4]
+        resolved_model = (
+            default_model if _uses_default_marker(model_part) else _normalize_model_name(model_part)
+        )
+        resolved_base = base_part or default_base
+        resolved_key = _resolve_api_key_hint(key_part, default_key)
+
+        if not resolved_key:
+            print(
+                f"⚠️  Skipping provider '{token}' from {source_key}: no API key available",
+                file=sys.stderr,
+            )
+            continue
+
+        label = label_part or _provider_label(source_key, resolved_base)
+        entries.append(
+            ProviderCandidate(
+                label=label,
+                model=resolved_model,
+                api_base=resolved_base,
+                api_key=resolved_key,
+            )
+        )
+
+    return entries
+
+
+def _resolve_api_key_hint(hint: str, fallback_key: str) -> str:
+    if not hint:
+        return fallback_key
+
+    normalized = hint.strip()
+    if not normalized:
+        return fallback_key
+
+    if normalized.lower().startswith("env:"):
+        env_name = normalized.split(":", 1)[1].strip()
+        return os.getenv(env_name, fallback_key)
+
+    if normalized.lower().startswith("key="):
+        return normalized.split("=", 1)[1]
+
+    return os.getenv(normalized, fallback_key)
+
+
+def _ensure_copilot_fallback(
+    candidates: Sequence[ProviderCandidate], default_key: str
+) -> List[ProviderCandidate]:
+    """Append the mandatory Copilot fallback unless already present."""
+
+    copilot_base = os.getenv("COPILOT_API_BASE", "https://ccproxy.emottet.com/copilot/v1")
+    copilot_key = os.getenv("COPILOT_API_KEY", default_key)
+    copilot_model = _normalize_model_name(os.getenv("COPILOT_FALLBACK_MODEL", "gpt-5-mini"))
+
+    fallback = ProviderCandidate(
+        label="copilot-fallback",
+        model=copilot_model,
+        api_base=copilot_base,
+        api_key=copilot_key,
+    )
+
+    extended = list(candidates) + [fallback]
+    return _deduplicate_candidates(extended)
+
+
+def _deduplicate_candidates(
+    candidates: Sequence[ProviderCandidate],
+) -> List[ProviderCandidate]:
+    """Remove duplicate provider definitions while preserving order."""
+
+    unique: List[ProviderCandidate] = []
+    seen = set()
+    for candidate in candidates:
+        key = (candidate.model, candidate.api_base, candidate.api_key)
+        if key in seen:
+            continue
+        unique.append(candidate)
+        seen.add(key)
+    return unique
+
+
+def _randomize_provider_order(
+    candidates: Sequence[ProviderCandidate],
+) -> List[ProviderCandidate]:
+    """Shuffle provider order to distribute load across endpoints."""
+
+    randomized = list(candidates)
+    if len(randomized) <= 1:
+        return randomized
+
+    random.shuffle(randomized)
+    return randomized
+
+
+def _normalize_model_name(model_name: str) -> str:
+    cleaned = (model_name or "").strip()
+    if not cleaned:
+        raise ValueError("Model name cannot be empty")
+    if "/" not in cleaned:
+        return f"openai/{cleaned}"
+    return cleaned
+
+
+def _uses_default_marker(value: str) -> bool:
+    if not value:
+        return True
+    lowered = value.strip().lower()
+    return lowered in {"", "same", "default", "~"}
+
+
+def _provider_label(prefix: str, base_url: str, suffix: str | None = None) -> str:
+    host = base_url.split("//")[-1]
+    host = host.rstrip("/")
+    if suffix:
+        return f"{prefix or 'primary'}:{suffix}@{host}"
+    return f"{prefix or 'fallback'}@{host}"
+
+
+class RotatingLLM(BaseLLM):
+    """BaseLLM wrapper that retries calls across multiple providers on 429 errors."""
+
+    def __init__(self, agent_name: str, providers: Sequence[ProviderCandidate]) -> None:
+        if not providers:
+            raise ValueError("At least one provider is required for rotation")
+
+        self._agent_name = agent_name or "LLM"
+        self._providers = list(providers)
+        self._llms: List[LLM | None] = [None] * len(self._providers)
+        self._last_success_index = 0
+
+        primary_llm = self._instantiate_llm(self._providers[0])
+        self._llms[0] = primary_llm
+
+        super().__init__(
+            model=primary_llm.model,
+            temperature=getattr(primary_llm, "temperature", None),
+            api_key=getattr(primary_llm, "api_key", None),
+            base_url=getattr(primary_llm, "base_url", None),
+            provider=getattr(primary_llm, "provider", None),
+        )
+
+    def call(
+        self,
+        messages: str | List[LLMMessage],
+        tools: List[Dict[str, BaseTool]] | None = None,
+        callbacks: List[Any] | None = None,
+        available_functions: Dict[str, Any] | None = None,
+        from_task: Task | None = None,
+        from_agent: Agent | None = None,
+        response_model: type[BaseModel] | None = None,
+    ) -> Any:
+        last_error: Exception | None = None
+
+        for index, provider in enumerate(self._providers):
+            llm = self._ensure_llm(index)
+            try:
+                if index > 0:
+                    print(
+                        f"\n🔁 {self._agent_name}: retrying with {provider.label} ({provider.model})\n",
+                        file=sys.stderr,
+                    )
+
+                response = llm.call(
+                    messages=messages,
+                    tools=tools,
+                    callbacks=callbacks,
+                    available_functions=available_functions,
+                    from_task=from_task,
+                    from_agent=from_agent,
+                    response_model=response_model,
+                )
+
+                self._last_success_index = index
+                self._sync_metadata(llm)
+                return response
+
+            except Exception as exc:  # noqa: BLE001
+                if not _is_rate_limit_error(exc):
+                    raise
+
+                last_error = exc
+                if index == len(self._providers) - 1:
+                    break
+
+                print(
+                    f"⚠️  {self._agent_name}: provider {provider.label} hit quota, rotating...",
+                    file=sys.stderr,
+                )
+
+        if last_error:
+            raise last_error
+        raise RuntimeError("Provider rotation exhausted without capturing exception")
+
+    def _ensure_llm(self, index: int) -> LLM:
+        llm = self._llms[index]
+        if llm is None:
+            llm = self._instantiate_llm(self._providers[index])
+            self._llms[index] = llm
+        return llm
+
+    @staticmethod
+    def _instantiate_llm(target: ProviderCandidate) -> LLM:
+        return LLM(model=target.model, api_base=target.api_base, api_key=target.api_key)
+
+    def _sync_metadata(self, llm: LLM) -> None:
+        self.model = getattr(llm, "model", self.model)
+        self.api_key = getattr(llm, "api_key", self.api_key)
+        self.base_url = getattr(llm, "base_url", self.base_url)
+
+    def __getattr__(self, item: str) -> Any:
+        current = self._llms[self._last_success_index]
+        if current is not None and hasattr(current, item):
+            return getattr(current, item)
+        raise AttributeError(item)
+
+    @staticmethod
+    def set_callbacks(callbacks: List[Any]) -> None:  # pragma: no cover - delegation helper
+        LLM.set_callbacks(callbacks)
+
+    @staticmethod
+    def set_env_callbacks() -> None:  # pragma: no cover - delegation helper
+        LLM.set_env_callbacks()
+
+
+def _is_rate_limit_error(exc: Exception) -> bool:
+    exc_name = exc.__class__.__name__
+    if exc_name in {"RateLimitError", "RateLimitException"}:
+        return True
+
+    status_code = getattr(exc, "status_code", None) or getattr(exc, "http_status", None)
+    if status_code == 429:
+        return True
+
+    try:
+        message = str(exc).lower()
+    except Exception:  # pragma: no cover - defensive
+        message = ""
+
+    return any(keyword in message for keyword in RATE_LIMIT_KEYWORDS)

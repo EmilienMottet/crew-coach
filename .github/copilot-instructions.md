@@ -117,7 +117,7 @@ The system supports **two authentication patterns**:
    ```
 
 ### LLM Endpoint Setup
-- Use `OPENAI_API_BASE` for custom endpoints (e.g., `https://ghcopilot.emottet.com/v1`)
+- Use `OPENAI_API_BASE` for custom endpoints (e.g., `https://ccproxy.emottet.com/copilot/v1`)
 - Use `OPENAI_MODEL_NAME` for model selection (e.g., `gpt-4`, `gpt-5-mini`)
 - CrewAI uses **LiteLLM**, which requires the `openai/` prefix for model names
 - Set `drop_params=True` to ignore unsupported parameters
