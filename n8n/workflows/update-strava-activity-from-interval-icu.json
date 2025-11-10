@@ -23,6 +23,90 @@
       }
     },
     {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -128,
+        140
+      ],
+      "id": "a1b2c3d4-5e6f-7g8h-9i0j-k1l2m3n4o5p6",
+      "name": "Manual Trigger"
+    },
+    {
+      "parameters": {
+        "resource": "activity",
+        "operation": "getAll",
+        "returnAll": false,
+        "limit": 5
+      },
+      "type": "n8n-nodes-base.strava",
+      "typeVersion": 1.1,
+      "position": [
+        80,
+        140
+      ],
+      "id": "b2c3d4e5-6f7g-8h9i-0j1k-l2m3n4o5p6q7",
+      "name": "Get Recent Activities",
+      "credentials": {
+        "stravaOAuth2Api": {
+          "id": "K3T8baQuxLWmmuhd",
+          "name": "Strava account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "json",
+        "include": "noOtherFields"
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        304,
+        140
+      ],
+      "id": "c3d4e5f6-7g8h-9i0j-1k2l-m3n4o5p6q7r8",
+      "name": "Split Activities"
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "webhook-format-1",
+              "name": "object_type",
+              "type": "string",
+              "value": "activity"
+            },
+            {
+              "id": "webhook-format-2",
+              "name": "object_id",
+              "type": "number",
+              "value": "={{ $json.id }}"
+            },
+            {
+              "id": "webhook-format-3",
+              "name": "object_data",
+              "type": "object",
+              "value": "={{ $json }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        528,
+        140
+      ],
+      "id": "d4e5f6g7-8h9i-0j1k-2l3m-n4o5p6q7r8s9",
+      "name": "Transform to Webhook Format"
+    },
+    {
       "parameters": {
         "method": "POST",
         "url": "http://crew:8000/process",
@@ -71,6 +155,50 @@
   "pinData": {},
   "connections": {
     "Strava Trigger": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get Recent Activities",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Recent Activities": {
+      "main": [
+        [
+          {
+            "node": "Split Activities",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Activities": {
+      "main": [
+        [
+          {
+            "node": "Transform to Webhook Format",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transform to Webhook Format": {
       "main": [
         [
           {

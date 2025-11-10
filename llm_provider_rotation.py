@@ -71,7 +71,7 @@ def create_llm_with_rotation(
 ) -> BaseLLM:
     """Create an LLM wrapped with provider rotation logic when enabled."""
 
-    normalized_model = _normalize_model_name(model_name)
+    normalized_model = _normalize_model_name(model_name, api_base)
     provider_chain = _build_provider_chain(
         agent_name=agent_name,
         normalized_model=normalized_model,
@@ -170,10 +170,10 @@ def _parse_rotation_entries(
             parts.append("")
 
         label_part, model_part, base_part, key_part = parts[:4]
-        resolved_model = (
-            default_model if _uses_default_marker(model_part) else _normalize_model_name(model_part)
-        )
         resolved_base = base_part or default_base
+        resolved_model = (
+            default_model if _uses_default_marker(model_part) else _normalize_model_name(model_part, resolved_base)
+        )
         resolved_key = _resolve_api_key_hint(key_part, default_key)
 
         if not resolved_key:
@@ -223,7 +223,7 @@ def _ensure_copilot_fallback(
 
     copilot_base = os.getenv("COPILOT_API_BASE", "https://ccproxy.emottet.com/copilot/v1")
     copilot_key = os.getenv("COPILOT_API_KEY", default_key)
-    copilot_model = _normalize_model_name(os.getenv("COPILOT_FALLBACK_MODEL", "gpt-5-mini"))
+    copilot_model = _normalize_model_name(os.getenv("COPILOT_FALLBACK_MODEL", "gpt-5-mini"), copilot_base)
 
     fallback = ProviderCandidate(
         label="copilot-fallback",
@@ -273,10 +273,17 @@ def _randomize_provider_order(
     return randomized
 
 
-def _normalize_model_name(model_name: str) -> str:
+def _normalize_model_name(model_name: str, api_base: str = "") -> str:
+    """Normalize model name, avoiding openai/ prefix for ccproxy endpoints."""
     cleaned = (model_name or "").strip()
     if not cleaned:
         raise ValueError("Model name cannot be empty")
+
+    # Skip openai/ prefix for ccproxy/copilot endpoints that don't support it
+    base_lower = (api_base or "").lower()
+    if "ccproxy" in base_lower or "copilot" in base_lower:
+        return cleaned
+
     if "/" not in cleaned:
         return f"openai/{cleaned}"
     return cleaned

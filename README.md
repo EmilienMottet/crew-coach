@@ -80,7 +80,7 @@ curl https://ccproxy.emottet.com/copilot/v1/chat/completions \
   -H "Authorization: Basic b2NvOjc2d3VudFk4Q3QzR2szRFU=" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "gpt-4",
+    "model": "claude-sonnet-4.5",
     "messages": [{"role": "user", "content": "Hello"}],
     "temperature": 0.7,
     "max_tokens": 1024
@@ -165,10 +165,10 @@ Les deux valeurs sont normalisées avec le préfixe `openai/` si vous ne le four
 
 Autres modèles disponibles sur votre endpoint :
 
-- `gpt-4.1`
 - `gpt-5`
-- `gpt-4o-mini`
+- `gpt-5-mini`
 - `claude-sonnet-4.5`
+- `claude-haiku-4.5`
 - `gemini-2.5-pro`
 
 ### Rotation automatique des providers
