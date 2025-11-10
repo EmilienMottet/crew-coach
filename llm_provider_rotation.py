@@ -21,6 +21,11 @@ RATE_LIMIT_KEYWORDS = ("rate limit", "quota", "429")
 PROMPTLESS_ENDPOINT_HINTS = ("codex",)
 PROMPTLESS_MODEL_HINTS = ("o1", "o3")
 
+# Codex GPT-5 endpoints reject tool invocation/function calling, so we only
+# allow them when the agent runs without tools.
+TOOL_FREE_ENDPOINT_HINTS = ("codex",)
+TOOL_FREE_MODEL_HINTS = ("gpt-5",)
+
 
 @dataclass(frozen=True)
 class ProviderCandidate:
@@ -31,6 +36,7 @@ class ProviderCandidate:
     api_base: str
     api_key: str
     disable_system_prompt: bool = False
+    tool_free_only: bool = False
 
 
 def _requires_promptless_mode(api_base: str, model_name: str) -> bool:
@@ -46,6 +52,18 @@ def _requires_promptless_mode(api_base: str, model_name: str) -> bool:
         return True
 
     return False
+
+
+def _requires_tool_free_context(api_base: str, model_name: str) -> bool:
+    """Return True when the provider cannot execute tool/function calls."""
+
+    base = (api_base or "").lower()
+    model = (model_name or "").lower()
+
+    if not any(keyword in base for keyword in TOOL_FREE_ENDPOINT_HINTS):
+        return False
+
+    return any(keyword in model for keyword in TOOL_FREE_MODEL_HINTS)
 
 
 def create_llm_with_rotation(
@@ -91,6 +109,7 @@ def _build_provider_chain(
         api_base=api_base,
         api_key=api_key,
         disable_system_prompt=_requires_promptless_mode(api_base, normalized_model),
+        tool_free_only=_requires_tool_free_context(api_base, normalized_model),
     )
 
     if not rotation_enabled:
@@ -172,6 +191,7 @@ def _parse_rotation_entries(
                 api_base=resolved_base,
                 api_key=resolved_key,
                 disable_system_prompt=_requires_promptless_mode(resolved_base, resolved_model),
+                tool_free_only=_requires_tool_free_context(resolved_base, resolved_model),
             )
         )
 
@@ -211,6 +231,7 @@ def _ensure_copilot_fallback(
         api_base=copilot_base,
         api_key=copilot_key,
         disable_system_prompt=_requires_promptless_mode(copilot_base, copilot_model),
+        tool_free_only=_requires_tool_free_context(copilot_base, copilot_model),
     )
 
     extended = list(candidates) + [fallback]
@@ -230,6 +251,7 @@ def _deduplicate_candidates(
             candidate.api_base,
             candidate.api_key,
             candidate.disable_system_prompt,
+            candidate.tool_free_only,
         )
         if key in seen:
             continue
@@ -310,8 +332,19 @@ class RotatingLLM(BaseLLM):
     ) -> Any:
         last_error: Exception | None = None
         base_messages = messages
+        has_tools = bool(tools) or bool(available_functions)
+        attempted_provider = False
 
         for index, provider in enumerate(self._providers):
+            if has_tools and provider.tool_free_only:
+                print(
+                    f"⏭️  {self._agent_name}: skipping {provider.label} ({provider.model}) "
+                    "because this endpoint cannot execute tool calls",
+                    file=sys.stderr,
+                )
+                continue
+
+            attempted_provider = True
             llm = self._ensure_llm(index)
             try:
                 if index > 0:
@@ -354,6 +387,10 @@ class RotatingLLM(BaseLLM):
 
         if last_error:
             raise last_error
+        if not attempted_provider:
+            raise RuntimeError(
+                f"{self._agent_name}: no compatible provider available for tool-enabled calls"
+            )
         raise RuntimeError("Provider rotation exhausted without capturing exception")
 
     def _ensure_llm(self, index: int) -> LLM:
