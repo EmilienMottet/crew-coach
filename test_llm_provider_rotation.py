@@ -46,7 +46,7 @@ class TestLLMProviderRotation(unittest.TestCase):
             ),
             ProviderCandidate(
                 label="copilot",
-                model="openai/gpt-4o",
+                model="claude-sonnet-4.5",
                 api_base="https://copilot.example/v1",
                 api_key="key-copilot",
                 disable_system_prompt=False,
@@ -58,8 +58,8 @@ class TestLLMProviderRotation(unittest.TestCase):
             llm = RotatingLLM("TestAgent", providers)
             response = llm.call(messages=[], tools=[{"name": "demo"}])
 
-        self.assertEqual(response, {"model": "openai/gpt-4o"})
-        self.assertEqual(call_log, ["openai/gpt-4o"])
+        self.assertEqual(response, {"model": "claude-sonnet-4.5"})
+        self.assertEqual(call_log, ["claude-sonnet-4.5"])
 
 
 if __name__ == "__main__":

@@ -118,8 +118,8 @@ The system supports **two authentication patterns**:
 
 ### LLM Endpoint Setup
 - Use `OPENAI_API_BASE` for custom endpoints (e.g., `https://ccproxy.emottet.com/copilot/v1`)
-- Use `OPENAI_MODEL_NAME` for model selection (e.g., `gpt-4`, `gpt-5-mini`)
-- CrewAI uses **LiteLLM**, which requires the `openai/` prefix for model names
+- Use `OPENAI_MODEL_NAME` for model selection (e.g., `claude-sonnet-4.5`, `gpt-5-mini`)
+- CrewAI uses **LiteLLM**, which requires the `openai/` prefix for model names (except ccproxy endpoints)
 - Set `drop_params=True` to ignore unsupported parameters
 
 ### Important Notes
@@ -151,7 +151,7 @@ The system supports **two authentication patterns**:
 ```bash
 # LLM Configuration
 OPENAI_API_BASE=https://your-endpoint.com/v1
-OPENAI_MODEL_NAME=gpt-4
+OPENAI_MODEL_NAME=claude-sonnet-4.5
 OPENAI_API_AUTH_TOKEN=base64_token  # OR OPENAI_API_KEY
 
 # MCP Server (metaMCP regroupe Intervals.icu, Spotify, etc.)

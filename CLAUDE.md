@@ -59,7 +59,7 @@ python test_mcp_connectivity.py
 curl -X POST $OPENAI_API_BASE/chat/completions \
   -H "Content-Type: application/json" \
   -H "Authorization: Basic $OPENAI_API_AUTH_TOKEN" \
-  -d '{"model": "gpt-4", "messages": [{"role": "user", "content": "Hello"}]}'
+  -d '{"model": "gpt-5", "messages": [{"role": "user", "content": "Hello"}]}'
 
 # Test MCP server (basic curl check)
 curl "$MCP_SERVER_URL"
@@ -373,8 +373,8 @@ The system builds MCP references in `crew.py:_build_intervals_mcp_references()` 
 
 **Endpoint Setup**:
 - `OPENAI_API_BASE`: Custom endpoint URL (e.g., `https://ccproxy.emottet.com/copilot/v1`)
-- `OPENAI_MODEL_NAME`: Model identifier (e.g., `gpt-4`, `gpt-5-mini`)
-- **LiteLLM prefix**: Models are referenced as `openai/{model_name}` internally
+- `OPENAI_MODEL_NAME`: Model identifier (e.g., `claude-sonnet-4.5`, `gpt-5-mini`)
+- **LiteLLM prefix**: Models are referenced as `openai/{model_name}` internally (except for ccproxy endpoints)
 
 ### Error Handling Philosophy
 
@@ -390,7 +390,7 @@ The system builds MCP references in `crew.py:_build_intervals_mcp_references()` 
 ```bash
 # LLM Configuration (required)
 OPENAI_API_BASE=https://your-endpoint.com/v1
-OPENAI_MODEL_NAME=gpt-4
+OPENAI_MODEL_NAME=claude-sonnet-4.5
 OPENAI_API_AUTH_TOKEN=base64_token  # OR OPENAI_API_KEY=key
 
 # MCP Server (required for Intervals.icu data)
