@@ -204,7 +204,7 @@ COPILOT_FALLBACK_MODEL=gpt-5-mini
   - `ENV:MY_TOKEN` ou simplement `MY_TOKEN` → lit la variable d'environnement correspondante
   - `key=XXX` → valeur inline (éviter si possible)
 
-L'entrée `codex-gpt5` ci-dessus pointe directement vers `https://ccproxy.emottet.com/codex/v1` (modèles `gpt-5`, `gpt-5-codex`). Ce proxy refuse les messages `system`, donc l'orchestrateur fusionne automatiquement le prompt système dans la première instruction utilisateur dès qu'un endpoint `codex` est détecté.
+L'entrée `codex-gpt5` ci-dessus pointe directement vers `https://ccproxy.emottet.com/codex/v1` (modèles `gpt-5`, `gpt-5-codex`). Ce proxy refuse les messages `system`, donc l'orchestrateur fusionne automatiquement le prompt système dans la première instruction utilisateur dès qu'un endpoint `codex` est détecté. Comme ce backend ne gère pas les appels tools/functions, il n'est sélectionné que pour les agents qui n'ont aucun outil associé (ex. Privacy, Translation, Weekly Structure).
 
 Toutes les chaînes suivent le même format. Pour les agents Strava, les préfixes possibles sont `DESCRIPTION`, `MUSIC`, `PRIVACY`, `TRANSLATION`. Pour le meal planning : `HEXIS_ANALYSIS`, `WEEKLY_STRUCTURE`, `MEAL_GENERATION`, `NUTRITIONAL_VALIDATION`, `MEALY_INTEGRATION`. Si aucune chaîne spécifique n'est définie, la variable globale `LLM_PROVIDER_ROTATION` est utilisée.
 
