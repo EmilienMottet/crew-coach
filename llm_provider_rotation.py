@@ -274,19 +274,122 @@ def _randomize_provider_order(
 
 
 def _normalize_model_name(model_name: str, api_base: str = "") -> str:
-    """Normalize model name, avoiding openai/ prefix for ccproxy endpoints."""
+    """Normalize model name based on the endpoint requirements."""
     cleaned = (model_name or "").strip()
     if not cleaned:
         raise ValueError("Model name cannot be empty")
 
-    # Skip openai/ prefix for ccproxy/copilot endpoints that don't support it
     base_lower = (api_base or "").lower()
-    if "ccproxy" in base_lower or "copilot" in base_lower:
-        return cleaned
 
+    # Detect endpoint type from URL
+    if "/copilot/v1" in base_lower:
+        # Copilot endpoint: use short names
+        return _normalize_for_copilot(cleaned)
+    elif "/codex/v1" in base_lower:
+        # Codex endpoint: use short names (gpt-5, gpt-5-codex)
+        return _normalize_for_codex(cleaned)
+    elif "/claude/v1" in base_lower:
+        # Claude endpoint: use full versioned names
+        return _normalize_for_claude_endpoint(cleaned)
+    elif "ccproxy" in base_lower:
+        # Generic ccproxy: assume copilot behavior
+        return _normalize_for_copilot(cleaned)
+
+    # Default: add openai/ prefix if needed
     if "/" not in cleaned:
         return f"openai/{cleaned}"
     return cleaned
+
+
+def _normalize_for_copilot(model_name: str) -> str:
+    """Normalize model names for the copilot endpoint."""
+    # Copilot accepts short names like: gpt-5, gpt-5-mini, claude-sonnet-4.5
+    # Map common variations to canonical short names
+    model_lower = model_name.lower()
+
+    # GPT models
+    if "gpt-5-codex" in model_lower:
+        return "gpt-5-codex"
+    if "gpt-5-mini" in model_lower:
+        return "gpt-5-mini"
+    if "gpt-5" in model_lower:
+        return "gpt-5"
+    if "gpt-4.1" in model_lower or "gpt-41" in model_lower:
+        return "gpt-4.1"
+    if "gpt-4o" in model_lower:
+        return "gpt-4o"
+
+    # Claude models - map to short names
+    if "claude-sonnet-4.5" in model_lower or "claude-sonnet-4-5" in model_lower:
+        return "claude-sonnet-4.5"
+    if "claude-haiku-4.5" in model_lower or "claude-haiku-4-5" in model_lower:
+        return "claude-haiku-4.5"
+    if "claude-sonnet-4" in model_lower and "4.5" not in model_lower and "4-5" not in model_lower:
+        return "claude-sonnet-4"
+    if "claude-3.5-sonnet" in model_lower or "claude-35-sonnet" in model_lower:
+        return "claude-3.5-sonnet"
+
+    # Gemini models
+    if "gemini-2.5-pro" in model_lower or "gemini-25-pro" in model_lower:
+        return "gemini-2.5-pro"
+
+    # Grok models
+    if "grok-code-fast" in model_lower:
+        return "grok-code-fast-1"
+
+    return model_name
+
+
+def _normalize_for_codex(model_name: str) -> str:
+    """Normalize model names for the codex endpoint."""
+    # Codex only accepts: gpt-5, gpt-5-codex
+    model_lower = model_name.lower()
+
+    if "gpt-5-codex" in model_lower:
+        return "gpt-5-codex"
+    if "gpt-5" in model_lower:
+        return "gpt-5"
+
+    # Default to gpt-5 for unrecognized models
+    return "gpt-5"
+
+
+def _normalize_for_claude_endpoint(model_name: str) -> str:
+    """Normalize model names for the claude endpoint (requires full versioned names)."""
+    model_lower = model_name.lower()
+
+    # Map short names to full versioned names
+    claude_version_map = {
+        "claude-sonnet-4.5": "claude-sonnet-4-5-20250929",
+        "claude-sonnet-4-5": "claude-sonnet-4-5-20250929",
+        "claude-haiku-4.5": "claude-haiku-4-5-20251001",
+        "claude-haiku-4-5": "claude-haiku-4-5-20251001",
+        "claude-opus-4.1": "claude-opus-4-1-20250805",
+        "claude-opus-4-1": "claude-opus-4-1-20250805",
+        "claude-opus-4": "claude-opus-4-20250514",
+        "claude-sonnet-4": "claude-sonnet-4-20250514",
+        "claude-3.7-sonnet": "claude-3-7-sonnet-20250219",
+        "claude-3-7-sonnet": "claude-3-7-sonnet-20250219",
+        "claude-3.5-sonnet": "claude-3-5-sonnet-20241022",
+        "claude-3-5-sonnet": "claude-3-5-sonnet-20241022",
+        "claude-3.5-haiku": "claude-3-5-haiku-20241022",
+        "claude-3-5-haiku": "claude-3-5-haiku-20241022",
+        "claude-3-opus": "claude-3-opus-20240229",
+        "claude-3-sonnet": "claude-3-sonnet-20240229",
+        "claude-3-haiku": "claude-3-haiku-20240307",
+    }
+
+    # Check if the model name is already a full versioned name
+    if model_lower.endswith(tuple(m[-8:] for m in claude_version_map.values() if len(m) > 8)):
+        return model_name
+
+    # Find matching short name and return full version
+    for short_name, full_name in claude_version_map.items():
+        if short_name in model_lower:
+            return full_name
+
+    # If no match, return as-is (might be already a full version)
+    return model_name
 
 
 def _uses_default_marker(value: str) -> bool:
