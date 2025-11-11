@@ -1,0 +1,15 @@
+{
+  "workflows": {
+    "update_strava_activity": {
+      "id": "HuCluxoEh7V3plO5",
+      "name": "Update Strava activity from interval.icu",
+      "description": "Processes Strava activities one by one using Loop Over Activities"
+    },
+    "weekly_meal_plan": {
+      "id": "VSOAzIak3SfoMqVR",
+      "name": "Weekly Meal Plan Generator",
+      "description": "Generates weekly meal plans based on training data"
+    }
+  },
+  "last_updated": "2025-11-11T20:56:08.830Z"
+}
