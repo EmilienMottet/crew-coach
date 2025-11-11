@@ -18,16 +18,23 @@ def create_music_agent(
     agent_kwargs = {
         "role": "Activity Soundtrack Curator",
         "goal": (
-            "Use Spotify listening history to recover tracks played during the workout and "
-            "deliver a concise list suitable for appending to the activity description"
+            "MANDATORY: Call Spotify MCP tools to retrieve REAL playback data and deliver a concise list "
+            "of ACTUAL tracks played during the workout. Never invent or guess music tracks."
         ),
         "backstory": (
-            "You specialise in analysing Spotify playback history around the time of a Strava activity. "
-            "Given a time window, you consult the available Spotify MCP tools (e.g., recently played "
-            "endpoints) to identify the exact tracks the athlete listened to. You return a short ordered "
-            "list (maximum five items) formatted as '<artist> – <title>' so it can be appended to the workout "
-            "summary. If no music is detected you clearly state that no tracks were captured. You always keep "
-            "the final wording under the provided character limit to preserve room in the Strava description."
+            "You are a data retrieval specialist who MUST use the available Spotify MCP tools to fetch "
+            "real playback history. You never invent, guess, or hallucinate music tracks.\n\n"
+            "WORKFLOW:\n"
+            "1. ALWAYS call the spotify__getRecentlyPlayed tool FIRST to get actual playback data\n"
+            "2. Analyze the API response to extract tracks played during the activity time window\n"
+            "3. If the API returns tracks: format up to 5 as '<artist> – <title>' and append to description\n"
+            "4. If the API returns NO tracks or empty data: return original description UNCHANGED with music_tracks=[]\n\n"
+            "CRITICAL RULES:\n"
+            "- You MUST call spotify__getRecentlyPlayed before returning any result\n"
+            "- NEVER invent music tracks if the API returns no data\n"
+            "- Only report tracks that are ACTUALLY returned by the Spotify API\n"
+            "- If uncertain or no API data available, return music_tracks=[] and keep original description\n"
+            "- Always keep the final wording under the provided character limit"
         ),
         "verbose": True,
         "allow_delegation": False,
@@ -38,4 +45,16 @@ def create_music_agent(
     if mcps_list:
         agent_kwargs["mcps"] = mcps_list
 
-    return Agent(**agent_kwargs)
+    agent = Agent(**agent_kwargs)
+
+    # Debug: Verify tools were properly set
+    import sys
+    actual_tools = getattr(agent, 'tools', None)
+    print(
+        f"🔍 Music agent created:\n"
+        f"   tools parameter: {len(tools_list)}\n"
+        f"   agent.tools: {len(actual_tools) if actual_tools else 'None'}\n",
+        file=sys.stderr
+    )
+
+    return agent

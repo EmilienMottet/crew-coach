@@ -281,21 +281,33 @@ def _normalize_model_name(model_name: str, api_base: str = "") -> str:
 
     base_lower = (api_base or "").lower()
 
+    # Debug logging
+    print(f"🔍 Normalizing model: '{cleaned}' for endpoint: '{api_base}'", file=sys.stderr)
+
     # Detect endpoint type from URL
     if "/copilot/v1" in base_lower:
         # Copilot endpoint: use short names
-        return _normalize_for_copilot(cleaned)
+        normalized = _normalize_for_copilot(cleaned)
+        print(f"   ✓ Copilot endpoint detected → '{normalized}'", file=sys.stderr)
+        return normalized
     elif "/codex/v1" in base_lower:
         # Codex endpoint: use short names (gpt-5, gpt-5-codex)
-        return _normalize_for_codex(cleaned)
+        normalized = _normalize_for_codex(cleaned)
+        print(f"   ✓ Codex endpoint detected → '{normalized}'", file=sys.stderr)
+        return normalized
     elif "/claude/v1" in base_lower:
         # Claude endpoint: use full versioned names
-        return _normalize_for_claude_endpoint(cleaned)
-    elif "ccproxy" in base_lower:
-        # Generic ccproxy: assume copilot behavior
-        return _normalize_for_copilot(cleaned)
+        normalized = _normalize_for_claude_endpoint(cleaned)
+        print(f"   ✓ Claude endpoint detected → '{normalized}'", file=sys.stderr)
+        return normalized
+    elif "ccproxy" in base_lower or "ghcopilot" in base_lower:
+        # Generic ccproxy/ghcopilot: assume copilot behavior
+        normalized = _normalize_for_copilot(cleaned)
+        print(f"   ✓ Generic ccproxy/ghcopilot endpoint detected → '{normalized}'", file=sys.stderr)
+        return normalized
 
     # Default: add openai/ prefix if needed
+    print(f"   ✓ Generic OpenAI endpoint detected", file=sys.stderr)
     if "/" not in cleaned:
         return f"openai/{cleaned}"
     return cleaned
@@ -445,11 +457,19 @@ class RotatingLLM(BaseLLM):
         has_tools = bool(tools) or bool(available_functions)
         attempted_provider = False
 
+        # Log agent call with tool info
+        tool_count = len(tools) if tools else (len(available_functions) if available_functions else 0)
+        print(
+            f"\n🤖 {self._agent_name} calling LLM (has_tools={has_tools}, tool_count={tool_count})",
+            file=sys.stderr,
+        )
+
         for index, provider in enumerate(self._providers):
             if has_tools and provider.tool_free_only:
                 print(
-                    f"⏭️  {self._agent_name}: skipping {provider.label} ({provider.model}) "
-                    "because this endpoint cannot execute tool calls",
+                    f"\n⏭️  {self._agent_name}: SKIPPING {provider.label} ({provider.model})\n"
+                    f"   Reason: Agent requires tool calling but this endpoint does not support it\n"
+                    f"   (Codex endpoints cannot execute MCP tool calls)\n",
                     file=sys.stderr,
                 )
                 continue
@@ -480,6 +500,13 @@ class RotatingLLM(BaseLLM):
 
                 self._last_success_index = index
                 self._sync_metadata(llm)
+
+                # Log which provider was successfully used
+                print(
+                    f"✅ {self._agent_name}: successfully used {provider.label} ({provider.model})\n",
+                    file=sys.stderr,
+                )
+
                 return response
 
             except Exception as exc:  # noqa: BLE001

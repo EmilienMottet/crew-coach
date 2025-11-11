@@ -390,11 +390,33 @@ The system automatically normalizes model names based on the endpoint being used
    - Example: `claude-sonnet-4.5` → `gpt-5` (fallback)
    - System prompts: ❌ Disabled (automatically stripped)
    - Tool calls: ❌ Disabled for GPT-5 models (automatically skipped)
+   - **⚠️ CRITICAL**: Cannot be used with agents that require MCP tools (Description, Music)
 
 3. **Claude Endpoint** (`/claude/v1`):
    - Requires full versioned names: `claude-sonnet-4-5-20250929`, `claude-haiku-4-5-20251001`
    - Example: `claude-sonnet-4.5` → `claude-sonnet-4-5-20250929` (auto-mapped)
    - System prompts: ✅ Enabled
+
+**Agent Tool Requirements & Endpoint Compatibility**:
+
+The system enforces strict validation to prevent agents from using incompatible endpoints:
+
+| Agent | Requires Tools | Compatible Endpoints | Incompatible |
+|-------|---------------|---------------------|--------------|
+| Description | ✅ Yes (Strava, Intervals.icu, Weather) | Copilot, Claude | ❌ Codex |
+| Music | ✅ Yes (Spotify) | Copilot, Claude | ❌ Codex |
+| Privacy | ⚪ No | Copilot, Claude, Codex | - |
+| Translation | ⚪ No | Copilot, Claude, Codex | - |
+
+**Error Prevention**:
+- If you configure `OPENAI_API_BASE=https://ccproxy.emottet.com/codex/v1` with `OPENAI_MODEL_NAME=gpt-5`, the system will **REJECT** this configuration for Description and Music agents at startup with a clear error message.
+- The provider rotation system (in `llm_provider_rotation.py`) automatically **skips** codex providers when an agent needs to make tool calls.
+- On startup, you'll see logs like:
+  ```
+  🤖 MUSIC Agent: ✅ with tools
+     Model: claude-haiku-4-5
+     Endpoint: copilot (https://ccproxy.emottet.com/copilot/v1)
+  ```
 
 **Testing Model Normalization**:
 ```bash
@@ -520,6 +542,15 @@ TRANSLATION_SOURCE_LANGUAGE=English
 - **Error handling**: MCP tools should return error dicts, not raise exceptions
 
 ## Common Issues & Solutions
+
+**Note**: For detailed troubleshooting, see `TROUBLESHOOTING.md`.
+
+### "Error: the Action Input is not a valid key, value dictionary"
+- **Cause**: LLM passing a list instead of a dictionary to MCP tool
+- **Fix**: Implemented automatic input validation wrapper (`mcp_tool_wrapper.py`)
+- **Prevention**: Enhanced agent prompts with explicit examples
+- **Testing**: Run `python test_tool_wrapper.py` to verify wrapper functionality
+- **Details**: See `TROUBLESHOOTING.md` for full explanation
 
 ### "LLM Provider NOT provided"
 - **Cause**: Missing or incorrect `OPENAI_API_BASE` / `OPENAI_MODEL_NAME`

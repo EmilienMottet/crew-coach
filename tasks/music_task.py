@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from datetime import datetime, timedelta
 from typing import Any, Dict
 
@@ -27,9 +28,15 @@ def create_music_task(
         end_dt = start_dt + timedelta(seconds=moving_time)
         start_iso = start_dt.isoformat()
         end_iso = end_dt.isoformat()
-    except Exception:  # noqa: BLE001
+        print(f"⏰ Music task timestamps calculated:", file=sys.stderr)
+        print(f"   Start: {start_iso}", file=sys.stderr)
+        print(f"   End: {end_iso}", file=sys.stderr)
+        print(f"   Duration: {moving_time}s\n", file=sys.stderr)
+    except Exception as e:  # noqa: BLE001
         start_iso = start_date_local
         end_iso = ""
+        print(f"⚠️  Warning: Failed to parse timestamps: {e}", file=sys.stderr)
+        print(f"   Using raw start: {start_iso}\n", file=sys.stderr)
 
     existing_title = generated_content.get("title", "")
     existing_description = generated_content.get("description", "")
@@ -46,24 +53,45 @@ def create_music_task(
         "description_before_music": existing_description,
     }
 
+    print(f"📸 Music task snapshot:", file=sys.stderr)
+    print(f"   {json.dumps(snapshot, indent=6)}\n", file=sys.stderr)
+
     description = f"""
     Retrieve the music listened to during the Strava activity and append it to the summary.
 
     CONTEXT SNAPSHOT (JSON):
     {json.dumps(snapshot, indent=2)}
 
-    DATA REQUIREMENTS:
-    1. Use the configured Spotify MCP tools to query the playback history between the start and end timestamps.
-       - If only a start time is available, inspect a ±5 minute window around the start.
-       - Prefer precise tools such as `Spotify__get_recently_played` or equivalent.
-    2. Extract up to five distinct tracks ordered by playback time. Format each entry as "<artist> – <track>".
-    3. If no tracks are found, explicitly state that no music was captured instead of guessing.
+    DATA REQUIREMENTS - MANDATORY TOOL USAGE:
+
+    ⚠️  CRITICAL: You MUST use the Spotify MCP tools to retrieve REAL playback data.
+    DO NOT invent or guess music tracks. Only report tracks that are returned by the Spotify API.
+
+    REQUIRED STEPS:
+    1. FIRST: Call the `spotify__getRecentlyPlayed` tool with appropriate time parameters.
+       Example call:
+       - Tool: spotify__getRecentlyPlayed
+       - Parameters: {{"limit": 50}} or with time filtering if supported
+
+    2. THEN: Analyze the ACTUAL response from Spotify API:
+       - Extract tracks that were played during the activity window (start_utc to end_utc)
+       - Filter by timestamps to ensure tracks overlap with the activity period
+       - Select up to five distinct tracks ordered by playback time
+       - Format each entry as "<artist> – <track>"
+
+    3. If the Spotify API returns NO tracks or an empty response:
+       - DO NOT add any music section to the description
+       - DO NOT invent placeholder tracks
+       - Return the original description unchanged with music_tracks: []
 
     OUTPUT CONTRACT:
-    - Start from the existing English description and append a short "Music" section at the end.
-      Example pattern:
-        "... main description text.\n\n🎧 Music: Artist – Track; ..."
-    - Keep the entire updated description ≤ 500 characters. Trim the track list if necessary.
+    - If tracks are found:
+      * Start from the existing English description and append a short "Music" section at the end.
+      * Example pattern: "... main description text.\n\n🎧 Music: Artist – Track; ..."
+      * Keep the entire updated description ≤ 500 characters. Trim the track list if necessary.
+    - If NO tracks are found:
+      * Return the original description UNCHANGED (do not add any music section or message).
+      * Set music_tracks to an empty list [].
     - Return valid JSON following the ActivityMusicSelection schema.
     - Do not wrap the JSON in markdown fences.
     - Ensure the appended section is suitable for later French translation and keeps emoji intact.

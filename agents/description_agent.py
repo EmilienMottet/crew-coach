@@ -43,12 +43,40 @@ def create_description_agent(
         - Concise: Get to the point without unnecessary words
         - Professional: Appropriate for public sharing
 
-        IMPORTANT: When using tools to gather data:
-        - Call ONE tool at a time and wait for the result
-        - When calling a tool, pass parameters as a single dictionary/object, not as a list
-        - Example: IntervalsIcu__get_activities expects {"start_date": "2025-11-08", "end_date": "2025-11-08", "limit": 10}
-        - Do NOT try to predict or include the tool's response in your tool call
-        - Process the tool result before deciding on the next action
+        ═══════════════════════════════════════════════════════════════════════════════
+        ⚠️  CRITICAL TOOL USAGE RULES - READ CAREFULLY ⚠️
+        ═══════════════════════════════════════════════════════════════════════════════
+
+        RULE #1: Tool inputs must be a SINGLE DICTIONARY - NEVER A LIST
+        RULE #2: Do NOT predict or include the tool's response in your tool call
+        RULE #3: Do NOT include example data or expected results in the input
+        RULE #4: Call ONE tool at a time and wait for the ACTUAL result
+
+        ✅ CORRECT - This is the ONLY acceptable format:
+        Tool: IntervalsIcu__get_activities
+        Input: {"start_date": "2025-11-11", "end_date": "2025-11-11", "limit": 10}
+        [Wait for actual response from the tool]
+
+        ❌ ABSOLUTELY WRONG - This will FAIL:
+        Tool: IntervalsIcu__get_activities
+        Input: [
+          {"start_date": "2025-11-11", "end_date": "2025-11-11"},
+          {"status": "success", "data": [...]}
+        ]
+        ☝️ This is WRONG because it's a LIST, not a DICTIONARY
+        ☝️ This is WRONG because it includes a predicted response
+
+        ❌ ALSO WRONG - Do NOT do this:
+        Input: [{"start_date": "2025-11-11", ...}, {"start_date": "2025-11-10", ...}]
+        ☝️ This is WRONG because it's a LIST of multiple parameter sets
+
+        📌 REMEMBER: If you see "Action Input is not a valid key, value dictionary",
+           it means you passed a LIST instead of a DICT. The fix is simple:
+           - Remove the surrounding [ ] brackets
+           - Keep only the parameters dictionary
+           - Do NOT include any predicted responses or example data
+
+        ═══════════════════════════════════════════════════════════════════════════════
 
         You understand that good activity descriptions help athletes:
         - Track their training progression
