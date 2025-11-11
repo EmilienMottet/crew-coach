@@ -35,6 +35,12 @@ from tasks import (
 from mcp_utils import build_mcp_references, load_catalog_tool_names
 from mcp_auth_wrapper import MetaMCPAdapter
 from llm_provider_rotation import create_llm_with_rotation
+from mcp_tool_wrapper import (
+    wrap_mcp_tools,
+    reset_tool_call_counter,
+    get_tool_call_count,
+    get_tool_call_summary,
+)
 
 # Load environment variables from .env file (override shell variables)
 load_dotenv(override=True)
@@ -124,32 +130,37 @@ class StravaDescriptionCrew:
 
         # Create per-agent LLMs with optional overrides
         # This allows each agent to use a different model/endpoint for cost optimization
+        # IMPORTANT: Agents with tools CANNOT use codex endpoints (no tool support)
         self.description_llm = self._create_agent_llm(
             agent_name="DESCRIPTION",
             default_model=complex_model_name,
             default_base=base_url,
-            default_key=api_key
+            default_key=api_key,
+            requires_tools=True,  # Uses Strava, Intervals.icu, Weather, Toolbox tools
         )
 
         self.music_llm = self._create_agent_llm(
             agent_name="MUSIC",
             default_model=simple_model_name,
             default_base=base_url,
-            default_key=api_key
+            default_key=api_key,
+            requires_tools=True,  # Uses Spotify tools
         )
 
         self.privacy_llm = self._create_agent_llm(
             agent_name="PRIVACY",
             default_model=simple_model_name,
             default_base=base_url,
-            default_key=api_key
+            default_key=api_key,
+            requires_tools=False,  # Pure reasoning, no tools
         )
 
         self.translation_llm = self._create_agent_llm(
             agent_name="TRANSLATION",
             default_model=simple_model_name,
             default_base=base_url,
-            default_key=api_key
+            default_key=api_key,
+            requires_tools=False,  # Pure reasoning, no tools
         )
 
         # Initialize MCP adapters with MetaMCP authentication fix
@@ -191,6 +202,10 @@ class StravaDescriptionCrew:
                         print(f"{error_msg} (continuing without this server)", file=sys.stderr)
 
             print(f"\n✅ MCP connection complete! Total tools discovered: {len(self.mcp_tools)}\n", file=sys.stderr)
+
+            # Wrap MCP tools with input validation to fix malformed inputs from LLM
+            print("🛡️  Wrapping MCP tools with input validation...\n", file=sys.stderr)
+            self.mcp_tools = wrap_mcp_tools(self.mcp_tools)
         elif require_mcp:
             error_msg = (
                 "\n❌ Error: MCP configuration missing. "
@@ -216,7 +231,10 @@ class StravaDescriptionCrew:
         if intervals_tools:
             print(f"📊 Found {len(intervals_tools)} Intervals.icu tools\n", file=sys.stderr)
         if spotify_tools:
-            print(f"🎵 Found {len(spotify_tools)} Spotify tools\n", file=sys.stderr)
+            print(f"🎵 Found {len(spotify_tools)} Spotify tools:", file=sys.stderr)
+            for tool in spotify_tools:
+                print(f"   - {tool.name}", file=sys.stderr)
+            print("", file=sys.stderr)
         if weather_tools:
             print(f"🌤️  Found {len(weather_tools)} Weather tools\n", file=sys.stderr)
         if toolbox_tools:
@@ -231,10 +249,12 @@ class StravaDescriptionCrew:
         )
 
         # Music Agent: needs Spotify tools
+        print(f"🎵 Creating Music Agent with {len(spotify_tools) if spotify_tools else 0} tools\n", file=sys.stderr)
         self.music_agent = create_music_agent(
             self.music_llm,
             tools=spotify_tools if spotify_tools else None
         )
+        print(f"   Agent tools attribute: {len(getattr(self.music_agent, 'tools', [])) if hasattr(self.music_agent, 'tools') else 'N/A'}\n", file=sys.stderr)
 
         # Privacy Agent: no MCP tools needed (pure reasoning)
         self.privacy_agent = create_privacy_agent(self.privacy_llm)
@@ -281,6 +301,7 @@ class StravaDescriptionCrew:
         default_model: str,
         default_base: str,
         default_key: str,
+        requires_tools: bool = False,
     ) -> LLM:
         """Create an LLM for a specific agent with optional per-agent overrides.
 
@@ -293,6 +314,7 @@ class StravaDescriptionCrew:
             default_model: Fallback model name
             default_base: Fallback API base URL
             default_key: API key to use
+            requires_tools: If True, reject codex endpoints (they don't support tool calls)
 
         Returns:
             Configured LLM instance
@@ -304,13 +326,39 @@ class StravaDescriptionCrew:
         agent_model = os.getenv(model_key, default_model)
         agent_base = os.getenv(base_key, default_base)
 
+        # CRITICAL: Validate that tool-using agents don't use codex endpoints
+        if requires_tools:
+            base_lower = (agent_base or "").lower()
+            model_lower = (agent_model or "").lower()
+
+            if "/codex/v1" in base_lower and ("gpt-5" in model_lower or "codex" in model_lower):
+                error_msg = (
+                    f"\n❌ ERROR: {agent_name} Agent requires tool calling but is configured with codex endpoint!\n"
+                    f"   Endpoint: {agent_base}\n"
+                    f"   Model: {agent_model}\n"
+                    f"   Codex endpoints do NOT support tool/function calls.\n"
+                    f"   Please use /copilot/v1 or /claude/v1 endpoint instead.\n"
+                    f"   Example: OPENAI_API_BASE=https://ccproxy.emottet.com/copilot/v1\n"
+                )
+                print(error_msg, file=sys.stderr)
+                raise ValueError(f"{agent_name} Agent cannot use codex endpoint (requires tool support)")
+
         # Log configuration for transparency
-        if os.getenv(model_key) or os.getenv(base_key):
-            print(
-                f"🔧 {agent_name} Agent: Using custom config "
-                f"(model={agent_model}, base={agent_base})",
-                file=sys.stderr,
-            )
+        tools_status = "✅ with tools" if requires_tools else "⚪ no tools"
+        endpoint_type = "unknown"
+        if "/copilot/v1" in (agent_base or "").lower():
+            endpoint_type = "copilot"
+        elif "/codex/v1" in (agent_base or "").lower():
+            endpoint_type = "codex"
+        elif "/claude/v1" in (agent_base or "").lower():
+            endpoint_type = "claude"
+
+        print(
+            f"🤖 {agent_name} Agent: {tools_status}\n"
+            f"   Model: {agent_model}\n"
+            f"   Endpoint: {endpoint_type} ({agent_base})\n",
+            file=sys.stderr,
+        )
 
         return self._create_llm(
             agent_model,
@@ -503,6 +551,25 @@ class StravaDescriptionCrew:
 
         print("\n🎧 Step 2: Capturing soundtrack details...\n", file=sys.stderr)
 
+        # Debug: Show activity timing information
+        object_data = activity_data.get("object_data", {})
+        start_date_local = object_data.get("start_date_local", "N/A")
+        moving_time = object_data.get("moving_time", "N/A")
+        print(f"📅 Activity timing:", file=sys.stderr)
+        print(f"   Start: {start_date_local}", file=sys.stderr)
+        print(f"   Duration: {moving_time}s", file=sys.stderr)
+
+        # Debug: Check if music agent has tools
+        music_agent_tools = getattr(self.music_agent, 'tools', None)
+        if music_agent_tools:
+            print(f"   Music agent has {len(music_agent_tools)} tool(s) available:", file=sys.stderr)
+            for tool in music_agent_tools:
+                tool_name = getattr(tool, 'name', str(tool))
+                print(f"      - {tool_name}", file=sys.stderr)
+        else:
+            print(f"   ⚠️  WARNING: Music agent has NO tools available!", file=sys.stderr)
+        print("", file=sys.stderr)
+
         music_tracks: List[str] = []
 
         try:
@@ -512,6 +579,14 @@ class StravaDescriptionCrew:
                 generated_content,
             )
 
+            print("📋 Music task created with following context:", file=sys.stderr)
+            print(f"   Activity ID: {object_data.get('id', 'N/A')}", file=sys.stderr)
+            print(f"   Distance: {object_data.get('distance', 0) / 1000:.2f} km", file=sys.stderr)
+            print("", file=sys.stderr)
+
+            # Reset tool call counter before executing music crew
+            reset_tool_call_counter()
+
             music_crew = Crew(
                 agents=[self.music_agent],
                 tasks=[music_task],
@@ -519,10 +594,61 @@ class StravaDescriptionCrew:
                 verbose=True,
             )
 
+            print("🔄 Executing music crew...\n", file=sys.stderr)
             music_result = music_crew.kickoff()
+
+            # Check if any Spotify tools were called
+            tool_call_summary = get_tool_call_summary()
+            spotify_calls = sum(count for tool_name, count in tool_call_summary.items() if "spotify" in tool_name.lower())
+
+            print(f"\n📊 Tool call summary:", file=sys.stderr)
+            if tool_call_summary:
+                for tool_name, count in tool_call_summary.items():
+                    print(f"   - {tool_name}: {count} call(s)", file=sys.stderr)
+            else:
+                print(f"   ⚠️  WARNING: NO MCP tools were called!", file=sys.stderr)
+            print(f"   Total Spotify calls: {spotify_calls}\n", file=sys.stderr)
+
+            # Debug: Show raw music result
+            print("\n📦 Raw music crew result:", file=sys.stderr)
+            print(f"   Type: {type(music_result)}", file=sys.stderr)
+            if hasattr(music_result, 'raw'):
+                raw_output = music_result.raw
+                print(f"   Raw output (first 500 chars): {str(raw_output)[:500]}", file=sys.stderr)
+            if hasattr(music_result, 'json_dict'):
+                print(f"   JSON dict: {music_result.json_dict}", file=sys.stderr)
+            if hasattr(music_result, 'pydantic'):
+                print(f"   Pydantic: {music_result.pydantic}", file=sys.stderr)
+            print("", file=sys.stderr)
+
             music_model = self._extract_model_from_output(
                 music_result, ActivityMusicSelection
             )
+
+            print(f"🔍 Music model extraction result: {music_model is not None}\n", file=sys.stderr)
+
+            # Validate that Spotify tools were actually called IF tracks were returned
+            if music_model is not None:
+                music_payload_preview = music_model.model_dump()
+                tracks_preview = music_payload_preview.get("music_tracks", [])
+
+                # Only reject if tracks are returned WITHOUT Spotify API calls (hallucination)
+                if tracks_preview and spotify_calls == 0:
+                    print(
+                        "\n❌ VALIDATION FAILED: Music agent returned tracks but made NO Spotify API calls!\n"
+                        "   This indicates the agent hallucinated the music tracks.\n"
+                        f"   Tracks returned: {tracks_preview}\n"
+                        "   Rejecting music result and keeping original description.\n",
+                        file=sys.stderr,
+                    )
+                    music_model = None  # Force rejection of hallucinated result
+                elif not tracks_preview and spotify_calls == 0:
+                    print(
+                        "\n⚠️  Music agent made NO API calls and returned no tracks.\n"
+                        "   This suggests the agent did not attempt to retrieve music data.\n"
+                        "   Possible causes: incorrect provider (codex?), tool routing issue, or agent refusal.\n",
+                        file=sys.stderr,
+                    )
 
             if music_model is None:
                 print(
@@ -531,22 +657,11 @@ class StravaDescriptionCrew:
                 )
             else:
                 music_payload = music_model.model_dump()
-                updated_description = music_payload.get(
-                    "updated_description",
-                    generated_content.get("description", ""),
-                )
-
-                if not isinstance(updated_description, str):
-                    updated_description = generated_content.get("description", "")
-
-                if len(updated_description) > 500:
-                    print(
-                        "\n⚠️  Warning: Music description exceeds 500 characters, trimming to limit.\n",
-                        file=sys.stderr,
-                    )
-                    updated_description = updated_description[:500]
-
-                generated_content["description"] = updated_description
+                print("📄 Parsed music payload:", file=sys.stderr)
+                print(f"   Keys: {list(music_payload.keys())}", file=sys.stderr)
+                print(f"   Updated description length: {len(music_payload.get('updated_description', ''))}", file=sys.stderr)
+                print(f"   Music tracks raw: {music_payload.get('music_tracks', [])}", file=sys.stderr)
+                print("", file=sys.stderr)
 
                 payload_tracks = music_payload.get("music_tracks", [])
                 if isinstance(payload_tracks, list):
@@ -554,17 +669,43 @@ class StravaDescriptionCrew:
                         track for track in payload_tracks if isinstance(track, str) and track
                     ]
 
+                print(f"🎵 Filtered music tracks: {music_tracks}", file=sys.stderr)
+                print(f"   Count: {len(music_tracks)}\n", file=sys.stderr)
+
+                # Only update description if music tracks were found
                 if music_tracks:
+                    updated_description = music_payload.get(
+                        "updated_description",
+                        generated_content.get("description", ""),
+                    )
+
+                    if not isinstance(updated_description, str):
+                        updated_description = generated_content.get("description", "")
+
+                    if len(updated_description) > 500:
+                        print(
+                            "\n⚠️  Warning: Music description exceeds 500 characters, trimming to limit.\n",
+                            file=sys.stderr,
+                        )
+                        updated_description = updated_description[:500]
+
+                    generated_content["description"] = updated_description
+
                     metrics = generated_content.get("key_metrics")
                     if not isinstance(metrics, dict):
                         metrics = {}
                     metrics["playlist_tracks"] = "; ".join(music_tracks)
                     generated_content["key_metrics"] = metrics
 
-                print(
-                    f"\n✅ Music enrichment complete: {len(music_tracks)} track(s) captured.\n",
-                    file=sys.stderr,
-                )
+                    print(
+                        f"\n✅ Music enrichment complete: {len(music_tracks)} track(s) captured.\n",
+                        file=sys.stderr,
+                    )
+                else:
+                    print(
+                        "\n✅ No music detected during activity - keeping original description.\n",
+                        file=sys.stderr,
+                    )
 
         except Exception as exc:  # noqa: BLE001
             print(
