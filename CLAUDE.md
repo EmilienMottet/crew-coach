@@ -376,6 +376,38 @@ The system builds MCP references in `crew.py:_build_intervals_mcp_references()` 
 - `OPENAI_MODEL_NAME`: Model identifier (e.g., `claude-sonnet-4.5`, `gpt-5-mini`)
 - **LiteLLM prefix**: Models are referenced as `openai/{model_name}` internally (except for ccproxy endpoints)
 
+**Model Normalization**:
+
+The system automatically normalizes model names based on the endpoint being used. This ensures compatibility across different ccproxy endpoints:
+
+1. **Copilot Endpoint** (`/copilot/v1`):
+   - Uses short model names: `gpt-5`, `gpt-5-mini`, `claude-sonnet-4.5`, `gemini-2.5-pro`
+   - Example: `claude-sonnet-4.5` → `claude-sonnet-4.5` (unchanged)
+   - System prompts: ✅ Enabled
+
+2. **Codex Endpoint** (`/codex/v1`):
+   - Only accepts: `gpt-5`, `gpt-5-codex`
+   - Example: `claude-sonnet-4.5` → `gpt-5` (fallback)
+   - System prompts: ❌ Disabled (automatically stripped)
+   - Tool calls: ❌ Disabled for GPT-5 models (automatically skipped)
+
+3. **Claude Endpoint** (`/claude/v1`):
+   - Requires full versioned names: `claude-sonnet-4-5-20250929`, `claude-haiku-4-5-20251001`
+   - Example: `claude-sonnet-4.5` → `claude-sonnet-4-5-20250929` (auto-mapped)
+   - System prompts: ✅ Enabled
+
+**Testing Model Normalization**:
+```bash
+# Test model normalization logic
+python test_model_normalization.py
+
+# Test system prompt handling
+python test_system_prompt_handling.py
+
+# Test full provider rotation chain
+python test_provider_rotation.py
+```
+
 ### Error Handling Philosophy
 
 - **Defensive parsing**: All JSON parsing wrapped in try-except with safe defaults
@@ -493,6 +525,29 @@ TRANSLATION_SOURCE_LANGUAGE=English
 - **Cause**: Missing or incorrect `OPENAI_API_BASE` / `OPENAI_MODEL_NAME`
 - **Fix**: Verify environment variables are set and endpoint is reachable
 - **Test**: `curl $OPENAI_API_BASE/models`
+
+### "The requested model is not supported"
+- **Cause**: Model name doesn't match the endpoint's expected format
+- **Solution**: The system now automatically normalizes model names based on endpoint
+- **Verification**:
+  ```bash
+  # Test model normalization
+  python test_model_normalization.py
+
+  # Test provider rotation chain
+  python test_provider_rotation.py
+
+  # Test real endpoint with curl
+  curl -X POST https://ccproxy.emottet.com/copilot/v1/chat/completions \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Basic $OPENAI_API_AUTH_TOKEN" \
+    -d '{"model": "claude-sonnet-4.5", "messages": [{"role": "user", "content": "test"}]}'
+  ```
+- **Manual override**: Set exact model name in `LLM_PROVIDER_ROTATION` if needed
+- **Endpoint requirements**:
+  - Copilot: Use short names (`gpt-5`, `claude-sonnet-4.5`)
+  - Codex: Use `gpt-5` or `gpt-5-codex` only
+  - Claude: Use full versions (`claude-sonnet-4-5-20250929`)
 
 ### MCP Connection Failures
 - **Cause**: Invalid `MCP_SERVER_URL` or network issues
