@@ -163,5 +163,5 @@ def create_nutritional_validation_task(
         description=description,
         agent=agent,
         expected_output="Valid JSON adhering to the NutritionalValidation schema with complete validation assessment",
-        output_json=NutritionalValidation,
+        # output_json=NutritionalValidation,
     )

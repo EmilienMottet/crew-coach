@@ -186,5 +186,5 @@ def create_mealy_integration_task(
         description=description,
         agent=agent,
         expected_output="Valid JSON adhering to the MealyIntegrationResult schema with complete sync status",
-        output_json=MealyIntegrationResult,
+        # output_json=MealyIntegrationResult,
     )

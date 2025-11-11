@@ -65,6 +65,7 @@ Cover all 7 days, no markdown fences.
     return Task(
         description=description,
         agent=agent,
-        expected_output="Valid JSON adhering to the HexisWeeklyAnalysis schema with complete weekly analysis",
-        output_json=HexisWeeklyAnalysis,
+        expected_output="Valid JSON adhering to the HexisWeeklyAnalysis schema with complete weekly analysis. Return ONLY the JSON object, no markdown fences.",
+        # DISABLED: output_json causes auth issues with instructor
+        # output_json=HexisWeeklyAnalysis,
     )

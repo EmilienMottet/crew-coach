@@ -1,6 +1,9 @@
 """Main Crew definition for weekly meal plan generation."""
 from __future__ import annotations
 
+# CRITICAL: Initialize auth BEFORE importing CrewAI to ensure structured outputs work
+import llm_auth_init  # noqa: F401
+
 import json
 import os
 import sys
@@ -47,9 +50,9 @@ class MealPlanningCrew:
 
     def __init__(self):
         """Initialize the crew with LLM and agents."""
-        # Environment already loaded at module level
+        # Environment and auth already configured at module level via llm_auth_init
 
-        # Configure environment variables for LiteLLM/OpenAI
+        # Get configuration
         base_url = os.getenv("OPENAI_API_BASE", "https://ccproxy.emottet.com/copilot/v1")
         default_complex_model = os.getenv("OPENAI_MODEL_NAME") or "claude-sonnet-4-5"
         complex_model_name = os.getenv(
@@ -61,68 +64,8 @@ class MealPlanningCrew:
             "claude-haiku-4.5",
         )
 
-        # Configure authentication - support both API key and Basic Auth
-        auth_token = os.getenv("OPENAI_API_AUTH_TOKEN")  # Base64-encoded Basic Auth
-
-        # Set environment variables that LiteLLM expects
-        os.environ["OPENAI_API_BASE"] = base_url
-
-        # Configure litellm/OpenAI authentication (same pattern as crew.py)
-        if auth_token:
-            basic_token = auth_token
-            if not auth_token.startswith("Basic "):
-                basic_token = f"Basic {auth_token}"
-            os.environ["OPENAI_API_KEY"] = basic_token
-
-            # Patch OpenAI client classes to honour Basic auth tokens
-            from openai import AsyncOpenAI, OpenAI  # type: ignore
-            from litellm.llms.openai.openai import OpenAIConfig  # type: ignore
-
-            def _basic_auth_headers(self: Any) -> Dict[str, str]:
-                key = getattr(self, "api_key", "") or ""
-                if isinstance(key, str) and key.startswith("Basic "):
-                    return {"Authorization": key}
-                return {"Authorization": f"Bearer {key}"}
-
-            if not getattr(OpenAI, "_basic_auth_patched", False):
-                OpenAI.auth_headers = property(_basic_auth_headers)  # type: ignore[assignment]
-                AsyncOpenAI.auth_headers = property(_basic_auth_headers)  # type: ignore[assignment]
-                setattr(OpenAI, "_basic_auth_patched", True)
-                setattr(AsyncOpenAI, "_basic_auth_patched", True)
-
-            if not getattr(OpenAIConfig, "_basic_auth_patched", False):
-                original_validate_env = OpenAIConfig.validate_environment
-
-                def validate_environment_with_basic(
-                    self: Any,
-                    headers: Dict[str, str],
-                    model: str,
-                    messages: List[Any],
-                    optional_params: Dict[str, Any],
-                    api_key: Optional[str] = None,
-                    api_base: Optional[str] = None,
-                ) -> Dict[str, str]:
-                    result = original_validate_env(
-                        self,
-                        headers,
-                        model,
-                        messages,
-                        optional_params,
-                        api_key=api_key,
-                        api_base=api_base,
-                    )
-                    if isinstance(api_key, str) and api_key.startswith("Basic "):
-                        result["Authorization"] = api_key
-                    return result
-
-                OpenAIConfig.validate_environment = validate_environment_with_basic  # type: ignore[assignment]
-                setattr(OpenAIConfig, "_basic_auth_patched", True)
-
-            api_key = basic_token
-        else:
-            # Use standard API key
-            api_key = os.getenv("OPENAI_API_KEY", "dummy-key")
-            os.environ["OPENAI_API_KEY"] = api_key
+        # Get configured API key (already set by llm_auth_init)
+        api_key = os.getenv("OPENAI_API_KEY", "dummy-key")
 
         # Create per-agent LLMs with optional overrides
         # This allows each agent to use a different model/endpoint for cost optimization
@@ -312,6 +255,15 @@ class MealPlanningCrew:
         )
 
     @staticmethod
+    def _clean_json_text(text: str) -> str:
+        """Remove markdown fences and whitespace from JSON text."""
+        import re
+        # Remove markdown code fences
+        text = re.sub(r'^```(?:json)?\s*', '', text, flags=re.MULTILINE)
+        text = re.sub(r'```\s*$', '', text, flags=re.MULTILINE)
+        return text.strip()
+
+    @staticmethod
     def _payloads_from_task_output(task_output: TaskOutput) -> List[Dict[str, Any]]:
         """Extract potential JSON payloads from a task output."""
         payloads: List[Dict[str, Any]] = []
@@ -325,7 +277,9 @@ class MealPlanningCrew:
         raw_value = task_output.raw
         if raw_value:
             try:
-                parsed_raw = json.loads(raw_value)
+                # Clean markdown fences before parsing
+                cleaned = MealPlanningCrew._clean_json_text(raw_value)
+                parsed_raw = json.loads(cleaned)
                 if isinstance(parsed_raw, dict):
                     payloads.append(parsed_raw)
             except json.JSONDecodeError:
@@ -413,11 +367,20 @@ class MealPlanningCrew:
         )
 
         hexis_result = hexis_crew.kickoff()
+
+        # DEBUG: Show raw output length
+        raw_output = hexis_result.raw if hasattr(hexis_result, 'raw') else ""
+        print(f"\n🔍 DEBUG: Raw output length = {len(raw_output)} chars\n", file=sys.stderr)
+        if raw_output:
+            print(f"🔍 DEBUG: First 500 chars:\n{raw_output[:500]}\n", file=sys.stderr)
+            print(f"🔍 DEBUG: Last 500 chars:\n{raw_output[-500:]}\n", file=sys.stderr)
+
         hexis_model = self._extract_model_from_output(hexis_result, HexisWeeklyAnalysis)
 
         if hexis_model is None:
             error_msg = "Hexis analysis failed to return valid JSON"
             print(f"\n❌ {error_msg}\n", file=sys.stderr)
+            print(f"❌ DEBUG: Parsing failed. Candidates found: {len(self._collect_payload_candidates(hexis_result))}\n", file=sys.stderr)
             return {"error": error_msg, "step": "hexis_analysis"}
 
         hexis_analysis = hexis_model.model_dump()
