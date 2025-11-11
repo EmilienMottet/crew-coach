@@ -42,5 +42,5 @@ No markdown fences. Be specific and actionable.
         description=description,
         agent=agent,
         expected_output="Valid JSON adhering to the WeeklyNutritionPlan schema with complete daily targets",
-        output_json=WeeklyNutritionPlan,
+        # output_json=WeeklyNutritionPlan,
     )

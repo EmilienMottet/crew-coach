@@ -114,5 +114,5 @@ No markdown fences. Make delicious and practical.
         description=description,
         agent=agent,
         expected_output="Valid JSON adhering to the WeeklyMealPlan schema with complete daily meal plans, shopping list, and prep tips",
-        output_json=WeeklyMealPlan,
+        # output_json=WeeklyMealPlan,
     )

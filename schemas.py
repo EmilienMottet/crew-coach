@@ -88,21 +88,23 @@ class MacroTargets(BaseModel):
 class HexisWeeklyAnalysis(BaseModel):
     """Analysis output from Hexis training data."""
 
+    model_config = {"extra": "allow"}  # Allow additional fields from LLM
+
     week_start_date: str = Field(..., description="ISO format start date (YYYY-MM-DD)")
     week_end_date: str = Field(..., description="ISO format end date (YYYY-MM-DD)")
-    training_load_summary: str = Field(
-        ..., description="Summary of weekly training load (TSS, hours, intensity)"
+    training_load_summary: str | Dict = Field(
+        ..., description="Summary of weekly training load (TSS, hours, intensity) - can be string or object"
     )
-    recovery_status: str = Field(
-        ..., description="Current recovery status and recommendations"
+    recovery_status: str | Dict = Field(
+        ..., description="Current recovery status and recommendations - can be string or object"
     )
-    daily_energy_needs: Dict[str, int] = Field(
+    daily_energy_needs: Dict = Field(
         ...,
-        description="Calorie needs per day (key=day_name, value=calories)",
+        description="Calorie needs per day (key=date, value=calories or detailed object)",
     )
-    daily_macro_targets: Dict[str, MacroTargets] = Field(
+    daily_macro_targets: Dict = Field(
         ...,
-        description="Macro targets per day (key=day_name, value=MacroTargets)",
+        description="Macro targets per day (key=date, value=MacroTargets object)",
     )
     nutritional_priorities: List[str] = Field(
         ...,
@@ -127,6 +129,8 @@ class DailyNutritionTarget(BaseModel):
 
 class WeeklyNutritionPlan(BaseModel):
     """Structured weekly nutrition plan with daily targets."""
+
+    model_config = {"extra": "allow"}
 
     week_start_date: str = Field(..., description="ISO format start date")
     week_end_date: str = Field(..., description="ISO format end date")
@@ -178,6 +182,8 @@ class DailyMealPlan(BaseModel):
 class WeeklyMealPlan(BaseModel):
     """Complete meal plan for the entire week."""
 
+    model_config = {"extra": "allow"}
+
     week_start_date: str = Field(..., description="ISO format start date")
     week_end_date: str = Field(..., description="ISO format end date")
     daily_plans: List[DailyMealPlan] = Field(
@@ -193,6 +199,8 @@ class WeeklyMealPlan(BaseModel):
 
 class NutritionalValidation(BaseModel):
     """Validation result from the nutritional validation agent."""
+
+    model_config = {"extra": "allow"}
 
     approved: bool = Field(
         ..., description="Whether the meal plan meets nutritional standards"
@@ -237,6 +245,8 @@ class MealySyncStatus(BaseModel):
 
 class MealyIntegrationResult(BaseModel):
     """Result of integrating the weekly meal plan into Mealy."""
+
+    model_config = {"extra": "allow"}
 
     week_start_date: str = Field(..., description="ISO format start date")
     week_end_date: str = Field(..., description="ISO format end date")
