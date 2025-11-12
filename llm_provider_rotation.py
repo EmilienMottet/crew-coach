@@ -18,13 +18,26 @@ from pydantic import BaseModel
 
 
 RATE_LIMIT_KEYWORDS = ("rate limit", "quota", "429")
-PROMPTLESS_ENDPOINT_HINTS = ("codex",)
-PROMPTLESS_MODEL_HINTS = ("o1", "o3")
 
-# Codex GPT-5 endpoints reject tool invocation/function calling, so we only
-# allow them when the agent runs without tools.
-TOOL_FREE_ENDPOINT_HINTS = ("codex",)
-TOOL_FREE_MODEL_HINTS = ("gpt-5",)
+# Codex endpoint requires system prompts to be stripped and merged into user message
+# This is specific to the /codex/v1 endpoint optimization for code generation
+PROMPTLESS_ENDPOINT_HINTS = ("codex",)
+PROMPTLESS_MODEL_HINTS: tuple = ()  # No model-level restrictions on our endpoints
+
+# IMPORTANT: Based on testing (test_function_calling_endpoints.py),
+# ALL our endpoints support function calling (tools/MCP):
+#   ✅ /copilot/v1  - supports tools + system prompts
+#   ✅ /codex/v1    - supports tools (strips system prompts)
+#   ✅ /claude/v1   - supports tools + system prompts
+#
+# Available models ALL support function calling:
+#   - GPT family: gpt-5, gpt-5-mini, gpt-5-codex, gpt-4.1, gpt-4o, etc.
+#   - Claude family: claude-sonnet-4.5, claude-haiku-4.5, claude-3.5-sonnet, etc.
+#   - Other: gemini-2.5-pro, grok-code-fast-1
+#
+# No restrictions needed - all combinations work with CrewAI tools/MCP
+TOOL_FREE_ENDPOINT_HINTS: tuple = ()  # No endpoint blocks tools
+TOOL_FREE_MODEL_HINTS: tuple = ()     # No model blocks tools
 
 
 @dataclass(frozen=True)
@@ -454,13 +467,143 @@ class RotatingLLM(BaseLLM):
     ) -> Any:
         last_error: Exception | None = None
         base_messages = messages
+        
+        # CRITICAL FIX: CrewAI doesn't pass tools parameter, extract from agent
+        if not tools and from_agent:
+            agent_tools = getattr(from_agent, 'tools', None)
+            if agent_tools:
+                # Build available_functions dict from agent tools
+                if not available_functions:
+                    available_functions = {
+                        getattr(tool, 'name', str(tool)): tool 
+                        for tool in agent_tools
+                    }
+                    print(
+                        f"   ℹ️  Extracted {len(available_functions)} tools from agent\n",
+                        file=sys.stderr,
+                    )
+                
+                # ALWAYS try to convert to tools format for function calling
+                try:
+                    from crewai.tools.base_tool import BaseTool as CrewBaseTool
+                    import json
+                    
+                    def clean_schema(schema):
+                        """Recursively clean JSON schema to be Claude/OpenAI compatible"""
+                        if not isinstance(schema, dict):
+                            return schema
+                        
+                        cleaned = {}
+                        for key, value in schema.items():
+                            # Skip unsupported fields
+                            if key in ['title', 'definitions', '$defs', 'allOf', 'anyOf', 'oneOf']:
+                                continue
+                            
+                            # Skip None values
+                            if value is None:
+                                continue
+                            
+                            # Skip empty lists
+                            if isinstance(value, list) and len(value) == 0:
+                                continue
+                            
+                            # Skip empty dicts (except for 'properties' and 'required' which are allowed)
+                            if isinstance(value, dict) and len(value) == 0 and key not in ['properties', 'required']:
+                                continue
+                            
+                            # Recursively clean nested dicts
+                            if isinstance(value, dict):
+                                cleaned[key] = clean_schema(value)
+                            # Recursively clean dicts in lists
+                            elif isinstance(value, list):
+                                cleaned[key] = [clean_schema(item) if isinstance(item, dict) else item for item in value]
+                            # Keep other values as-is
+                            else:
+                                cleaned[key] = value
+                        
+                        return cleaned
+                    
+                    tools = []
+                    for tool in agent_tools:
+                        tool_def = None
+                        
+                        # PRIORITY 1: Use args_schema if available (most reliable)
+                        if hasattr(tool, 'args_schema') and tool.args_schema:
+                            try:
+                                schema = tool.args_schema
+                                if hasattr(schema, 'model_json_schema'):
+                                    json_schema = schema.model_json_schema()
+                                    # Deep clean the schema
+                                    json_schema = clean_schema(json_schema)
+                                    
+                                    # Ensure required fields exist after cleaning
+                                    if 'type' not in json_schema:
+                                        json_schema['type'] = 'object'
+                                    if 'properties' not in json_schema:
+                                        json_schema['properties'] = {}
+                                    
+                                    tool_def = {
+                                        "type": "function",
+                                        "function": {
+                                            "name": getattr(tool, 'name', str(tool)),
+                                            "description": getattr(tool, 'description', ''),
+                                            "parameters": json_schema
+                                        }
+                                    }
+                            except Exception as e:
+                                print(f"⚠️  Failed to use args_schema for {getattr(tool, 'name', 'unknown')}: {e}", file=sys.stderr)
+                        
+                        # FALLBACK: Try to_function if args_schema failed
+                        if not tool_def and hasattr(tool, 'to_function') and callable(tool.to_function):
+                            try:
+                                func_def = tool.to_function()
+                                
+                                # CRITICAL: Clean up schema for Claude/OpenAI compatibility
+                                if 'function' in func_def and 'parameters' in func_def['function']:
+                                    params = func_def['function']['parameters']
+                                    # Deep clean the entire schema
+                                    func_def['function']['parameters'] = clean_schema(params)
+                                    
+                                    # Ensure required fields exist after cleaning
+                                    if 'type' not in func_def['function']['parameters']:
+                                        func_def['function']['parameters']['type'] = 'object'
+                                    if 'properties' not in func_def['function']['parameters']:
+                                        func_def['function']['parameters']['properties'] = {}
+                                
+                                tool_def = func_def
+                            except Exception as e:
+                                print(f"⚠️  Failed to use to_function for {getattr(tool, 'name', 'unknown')}: {e}", file=sys.stderr)
+                        
+                        if tool_def:
+                            tools.append(tool_def)
+                    
+                    if tools:
+                        print(
+                            f"   ℹ️  Converted {len(tools)} tools to function calling format\n",
+                            file=sys.stderr,
+                        )
+                        # Debug: print first tool schema
+                        if tools:
+                            print(
+                                f"   🔍 First tool schema sample:\n"
+                                f"      {json.dumps(tools[0], indent=2)[:500]}...\n",
+                                file=sys.stderr,
+                            )
+                    else:
+                        print(
+                            f"   ⚠️  Failed to convert any of {len(agent_tools)} tools (no to_function or args_schema)\n",
+                            file=sys.stderr,
+                        )
+                except Exception as e:
+                    print(f"   ⚠️  Failed to convert tools: {e}\n", file=sys.stderr)
+        
         has_tools = bool(tools) or bool(available_functions)
         attempted_provider = False
 
         # Log agent call with tool info
         tool_count = len(tools) if tools else (len(available_functions) if available_functions else 0)
         print(
-            f"\n🤖 {self._agent_name} calling LLM (has_tools={has_tools}, tool_count={tool_count})",
+            f"🤖 {self._agent_name} calling LLM (has_tools={has_tools}, tool_count={tool_count})",
             file=sys.stderr,
         )
 
@@ -488,15 +631,261 @@ class RotatingLLM(BaseLLM):
                     provider.disable_system_prompt,
                 )
 
-                response = llm.call(
-                    messages=effective_messages,
-                    tools=tools,
-                    callbacks=callbacks,
-                    available_functions=available_functions,
-                    from_task=from_task,
-                    from_agent=from_agent,
-                    response_model=response_model,
-                )
+                # CRITICAL FIX: When tools are present, call litellm.completion directly
+                # CrewAI's LLM.call() ignores the tools parameter
+                if tools and len(tools) > 0:
+                    print(
+                        f"   🚀 Calling litellm.completion directly with {len(tools)} tools\n"
+                        f"      Model: {provider.model}\n"
+                        f"      API Base: {provider.api_base}\n",
+                        file=sys.stderr
+                    )
+                    
+                    # Ensure messages are in correct format
+                    if isinstance(effective_messages, str):
+                        formatted_messages = [{"role": "user", "content": effective_messages}]
+                    else:
+                        formatted_messages = effective_messages
+                    
+                    # Prepare API key - ensure it's a clean string (Basic Auth format)
+                    # IMPORTANT: We use ONLY Basic Auth, no API key
+                    api_key_str = str(provider.api_key) if provider.api_key else ""
+                    
+                    # Ensure Basic Auth format
+                    if api_key_str and not api_key_str.startswith('Basic '):
+                        api_key_str = f'Basic {api_key_str}'
+                    
+                    # Determine custom_llm_provider based on API base and model
+                    # All our endpoints are OpenAI-compatible
+                    custom_provider = "openai"
+                    
+                    # LiteLLM needs provider prefix for some models
+                    model_for_litellm = provider.model
+                    if "claude" in provider.model.lower():
+                        # Don't add prefix - our proxy handles it
+                        pass
+                    
+                    # Call litellm directly with ONLY the necessary parameters
+                    import litellm
+                    try:
+                        # WORKAROUND: Temporarily remove _basic_auth_patched attribute
+                        # that litellm might try to pass as kwargs
+                        from openai import OpenAI, AsyncOpenAI
+                        from litellm.llms.openai.openai import OpenAIConfig
+                        
+                        # Save patch markers
+                        openai_patched = getattr(OpenAI, '_basic_auth_patched', False)
+                        async_patched = getattr(AsyncOpenAI, '_basic_auth_patched', False)
+                        config_patched = getattr(OpenAIConfig, '_basic_auth_patched', False)
+                        
+                        # Temporarily remove them (but keep the auth_headers property!)
+                        if hasattr(OpenAI, '_basic_auth_patched'):
+                            delattr(OpenAI, '_basic_auth_patched')
+                        if hasattr(AsyncOpenAI, '_basic_auth_patched'):
+                            delattr(AsyncOpenAI, '_basic_auth_patched')
+                        if hasattr(OpenAIConfig, '_basic_auth_patched'):
+                            delattr(OpenAIConfig, '_basic_auth_patched')
+                        
+                        litellm_response = litellm.completion(
+                            model=model_for_litellm,
+                            messages=formatted_messages,
+                            tools=tools,
+                            api_base=provider.api_base,
+                            api_key=api_key_str,
+                            custom_llm_provider=custom_provider,
+                            drop_params=True,
+                            request_timeout=60,  # 60 seconds timeout
+                        )
+                        
+                        # Restore patch markers
+                        if openai_patched:
+                            setattr(OpenAI, '_basic_auth_patched', True)
+                        if async_patched:
+                            setattr(AsyncOpenAI, '_basic_auth_patched', True)
+                        if config_patched:
+                            setattr(OpenAIConfig, '_basic_auth_patched', True)
+                            
+                    except Exception as e:
+                        # Restore patch markers even on error
+                        from openai import OpenAI, AsyncOpenAI
+                        from litellm.llms.openai.openai import OpenAIConfig
+                        if openai_patched:
+                            setattr(OpenAI, '_basic_auth_patched', True)
+                        if async_patched:
+                            setattr(AsyncOpenAI, '_basic_auth_patched', True)
+                        if config_patched:
+                            setattr(OpenAIConfig, '_basic_auth_patched', True)
+                        
+                        print(
+                            f"   ❌ litellm.completion failed: {e}\n"
+                            f"      Falling back to CrewAI LLM.call()\n",
+                            file=sys.stderr
+                        )
+                        # Fall back to CrewAI's normal flow (without tools)
+                        response = llm.call(
+                            messages=effective_messages,
+                            callbacks=callbacks,
+                            from_task=from_task,
+                            from_agent=from_agent,
+                            response_model=response_model,
+                        )
+                        self._last_success_index = index
+                        self._sync_metadata(llm)
+                        print(
+                            f"✅ {self._agent_name}: successfully used {provider.label} ({provider.model}) [fallback]\n",
+                            file=sys.stderr,
+                        )
+                        return response
+                    
+                    # Check for tool calls
+                    choice = litellm_response.choices[0]
+                    if hasattr(choice.message, 'tool_calls') and choice.message.tool_calls:
+                        print(
+                            f"   ✅ LLM returned {len(choice.message.tool_calls)} tool calls!\n",
+                            file=sys.stderr
+                        )
+                        
+                        # Execute each tool call
+                        tool_results = []
+                        for tool_call in choice.message.tool_calls:
+                            tool_name = tool_call.function.name
+                            tool_args_str = tool_call.function.arguments
+                            
+                            print(
+                                f"   🔧 Executing tool: {tool_name}\n"
+                                f"      Arguments: {tool_args_str[:200]}...\n",
+                                file=sys.stderr
+                            )
+                            
+                            # Find the tool in available_functions
+                            if available_functions and tool_name in available_functions:
+                                try:
+                                    # Parse arguments
+                                    tool_args = json.loads(tool_args_str) if isinstance(tool_args_str, str) else tool_args_str
+                                    
+                                    # Get the tool callable
+                                    tool_func = available_functions[tool_name]
+                                    
+                                    # Execute the tool
+                                    if hasattr(tool_func, '_run'):
+                                        tool_result = tool_func._run(tool_args)
+                                    elif hasattr(tool_func, 'run'):
+                                        tool_result = tool_func.run(tool_args)
+                                    elif callable(tool_func):
+                                        tool_result = tool_func(**tool_args) if isinstance(tool_args, dict) else tool_func(tool_args)
+                                    else:
+                                        tool_result = {"error": f"Tool {tool_name} is not callable"}
+                                    
+                                    print(
+                                        f"   ✅ Tool {tool_name} executed successfully\n"
+                                        f"      Result: {str(tool_result)[:200]}...\n",
+                                        file=sys.stderr
+                                    )
+                                    
+                                    tool_results.append({
+                                        "tool_call_id": tool_call.id,
+                                        "role": "tool",
+                                        "name": tool_name,
+                                        "content": json.dumps(tool_result) if not isinstance(tool_result, str) else tool_result
+                                    })
+                                except Exception as tool_error:
+                                    print(
+                                        f"   ❌ Tool {tool_name} failed: {tool_error}\n",
+                                        file=sys.stderr
+                                    )
+                                    tool_results.append({
+                                        "tool_call_id": tool_call.id,
+                                        "role": "tool",
+                                        "name": tool_name,
+                                        "content": json.dumps({"error": str(tool_error)})
+                                    })
+                            else:
+                                print(
+                                    f"   ⚠️  Tool {tool_name} not found in available_functions\n",
+                                    file=sys.stderr
+                                )
+                                tool_results.append({
+                                    "tool_call_id": tool_call.id,
+                                    "role": "tool",
+                                    "name": tool_name,
+                                    "content": json.dumps({"error": f"Tool {tool_name} not available"})
+                                })
+                        
+                        # Add tool results to conversation and call LLM again
+                        if tool_results:
+                            print(
+                                f"   🔁 Sending {len(tool_results)} tool results back to LLM...\n",
+                                file=sys.stderr
+                            )
+                            
+                            # Build new messages with tool results
+                            new_messages = formatted_messages + [
+                                {
+                                    "role": "assistant",
+                                    "content": choice.message.content,
+                                    "tool_calls": [
+                                        {
+                                            "id": tc.id,
+                                            "type": "function",
+                                            "function": {
+                                                "name": tc.function.name,
+                                                "arguments": tc.function.arguments
+                                            }
+                                        }
+                                        for tc in choice.message.tool_calls
+                                    ]
+                                }
+                            ] + tool_results
+                            
+                            # Call LLM again with tool results (same workaround needed)
+                            # Remove _basic_auth_patched again for second call
+                            if hasattr(OpenAI, '_basic_auth_patched'):
+                                delattr(OpenAI, '_basic_auth_patched')
+                            if hasattr(AsyncOpenAI, '_basic_auth_patched'):
+                                delattr(AsyncOpenAI, '_basic_auth_patched')
+                            if hasattr(OpenAIConfig, '_basic_auth_patched'):
+                                delattr(OpenAIConfig, '_basic_auth_patched')
+                            
+                            final_response = litellm.completion(
+                                model=model_for_litellm,
+                                messages=new_messages,
+                                tools=tools,
+                                api_base=provider.api_base,
+                                api_key=api_key_str,
+                                custom_llm_provider=custom_provider,
+                                drop_params=True,
+                                request_timeout=90,  # Longer timeout for second call with tool results
+                            )
+                            
+                            # Restore patch markers after second call
+                            if openai_patched:
+                                setattr(OpenAI, '_basic_auth_patched', True)
+                            if async_patched:
+                                setattr(AsyncOpenAI, '_basic_auth_patched', True)
+                            if config_patched:
+                                setattr(OpenAIConfig, '_basic_auth_patched', True)
+                            
+                            print(
+                                f"   ✅ LLM generated final response with tool results\n",
+                                file=sys.stderr
+                            )
+                            
+                            response = final_response.choices[0].message.content or str(final_response.choices[0].message)
+                        else:
+                            response = choice.message.content or str(choice.message)
+                    else:
+                        response = choice.message.content or str(choice.message)
+                else:
+                    # No tools, use normal CrewAI flow
+                    response = llm.call(
+                        messages=effective_messages,
+                        tools=tools,
+                        callbacks=callbacks,
+                        available_functions=available_functions,
+                        from_task=from_task,
+                        from_agent=from_agent,
+                        response_model=response_model,
+                    )
 
                 self._last_success_index = index
                 self._sync_metadata(llm)
