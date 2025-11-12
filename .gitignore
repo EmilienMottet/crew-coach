@@ -27,7 +27,7 @@ ENV/
 .venv/
 
 # Environment variables
-.env
+# .env
 
 # IDEs
 .vscode/

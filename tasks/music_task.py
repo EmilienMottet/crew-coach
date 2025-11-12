@@ -102,7 +102,10 @@ def create_music_task(
         agent=agent,
         expected_output=(
             "Valid JSON adhering to the ActivityMusicSelection schema with the "
-            "description updated to include a concise music list"
+            "description updated to include a concise music list. "
+            "Return ONLY the raw JSON without markdown fences."
         ),
-        output_json=ActivityMusicSelection,
+        # CRITICAL: output_json disables tool calling! Must parse JSON manually instead.
+        # output_json=ActivityMusicSelection,
+        tools=agent.tools if hasattr(agent, 'tools') and agent.tools else None,
     )

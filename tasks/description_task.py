@@ -86,7 +86,10 @@ def create_description_task(agent, activity_data: Dict[str, Any]) -> Task:
     return Task(
         description=description,
         agent=agent,
-        expected_output=
-        "Valid JSON adhering to the GeneratedActivityContent schema (title, description, workout_type, key_metrics)",
-        output_json=GeneratedActivityContent,
+        expected_output=(
+            "Valid JSON adhering to the GeneratedActivityContent schema (title, description, workout_type, key_metrics). "
+            "Return ONLY the raw JSON without markdown fences."
+        ),
+        # CRITICAL: output_json disables tool calling! Must parse JSON manually instead.
+        # output_json=GeneratedActivityContent,
     )

@@ -326,22 +326,9 @@ class StravaDescriptionCrew:
         agent_model = os.getenv(model_key, default_model)
         agent_base = os.getenv(base_key, default_base)
 
-        # CRITICAL: Validate that tool-using agents don't use codex endpoints
-        if requires_tools:
-            base_lower = (agent_base or "").lower()
-            model_lower = (agent_model or "").lower()
-
-            if "/codex/v1" in base_lower and ("gpt-5" in model_lower or "codex" in model_lower):
-                error_msg = (
-                    f"\n❌ ERROR: {agent_name} Agent requires tool calling but is configured with codex endpoint!\n"
-                    f"   Endpoint: {agent_base}\n"
-                    f"   Model: {agent_model}\n"
-                    f"   Codex endpoints do NOT support tool/function calls.\n"
-                    f"   Please use /copilot/v1 or /claude/v1 endpoint instead.\n"
-                    f"   Example: OPENAI_API_BASE=https://ccproxy.emottet.com/copilot/v1\n"
-                )
-                print(error_msg, file=sys.stderr)
-                raise ValueError(f"{agent_name} Agent cannot use codex endpoint (requires tool support)")
+        # Note: Based on testing (test_function_calling_endpoints.py),
+        # all our endpoints (/copilot/v1, /codex/v1, /claude/v1) support function calling.
+        # The validation below has been removed as it was blocking valid configurations.
 
         # Log configuration for transparency
         tools_status = "✅ with tools" if requires_tools else "⚪ no tools"
