@@ -334,12 +334,114 @@ class StravaDescriptionCrew:
         model_type: Type[BaseModel],
     ) -> Optional[BaseModel]:
         """Safely parse the final task output into a typed model."""
+        # First try structured candidates (json_dict, pydantic)
         for candidate in self._collect_payload_candidates(crew_output):
             try:
                 return model_type.model_validate(candidate)
             except ValidationError:
                 continue
+        
+        # If no structured data found, try to extract JSON from raw text
+        raw_text = self._stringify_output(crew_output)
+        if raw_text:
+            extracted_json = self._extract_json_from_text(raw_text)
+            if extracted_json:
+                try:
+                    return model_type.model_validate(extracted_json)
+                except ValidationError:
+                    pass
+        
         return None
+    
+    @staticmethod
+    def _extract_json_from_text(text: str) -> Optional[Dict[str, Any]]:
+        """Extract JSON object from text that may contain thoughts or explanations.
+        
+        Looks for JSON objects in the text, trying multiple strategies:
+        1. Look for JSON in code fences (```json ... ```)
+        2. Look for standalone JSON objects { ... }
+        3. Parse the entire text as JSON
+        4. Check if JSON values contain nested JSON strings and parse them
+        """
+        import re
+        
+        # Strategy 1: JSON in markdown code fences
+        code_fence_pattern = r'```(?:json)?\s*(\{.*?\})\s*```'
+        matches = re.findall(code_fence_pattern, text, re.DOTALL)
+        for match in matches:
+            try:
+                parsed = json.loads(match)
+                if isinstance(parsed, dict):
+                    # Check for nested JSON strings in values
+                    return StravaDescriptionCrew._unnest_json_strings(parsed)
+            except json.JSONDecodeError:
+                continue
+        
+        # Strategy 2: Find JSON objects in text (look for { ... })
+        # Find all potential JSON objects
+        brace_pattern = r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}'
+        matches = re.findall(brace_pattern, text, re.DOTALL)
+        
+        # Try each match, preferring longer ones (more complete)
+        for match in sorted(matches, key=len, reverse=True):
+            try:
+                parsed = json.loads(match)
+                if isinstance(parsed, dict):
+                    # Check for nested JSON strings in values
+                    return StravaDescriptionCrew._unnest_json_strings(parsed)
+            except json.JSONDecodeError:
+                continue
+        
+        # Strategy 3: Try parsing entire text
+        try:
+            parsed = json.loads(text)
+            if isinstance(parsed, dict):
+                # Check for nested JSON strings in values
+                return StravaDescriptionCrew._unnest_json_strings(parsed)
+        except json.JSONDecodeError:
+            pass
+        
+        return None
+    
+    @staticmethod
+    def _unnest_json_strings(data: Dict[str, Any]) -> Dict[str, Any]:
+        """Recursively parse JSON strings found in dictionary values.
+        
+        Sometimes LLMs return JSON where some values are themselves JSON strings.
+        This function detects and parses those nested JSON strings.
+        
+        Example:
+            Input:  {"description": "{\"title\": \"Test\", \"value\": 123}"}
+            Output: {"description": {"title": "Test", "value": 123}}
+        """
+        result = {}
+        for key, value in data.items():
+            if isinstance(value, str):
+                # Try to parse as JSON
+                try:
+                    parsed = json.loads(value)
+                    if isinstance(parsed, dict):
+                        # Recursively unnest
+                        result[key] = StravaDescriptionCrew._unnest_json_strings(parsed)
+                    else:
+                        result[key] = parsed
+                except (json.JSONDecodeError, ValueError):
+                    # Not JSON, keep as string
+                    result[key] = value
+            elif isinstance(value, dict):
+                # Recursively process nested dicts
+                result[key] = StravaDescriptionCrew._unnest_json_strings(value)
+            elif isinstance(value, list):
+                # Process list items
+                result[key] = [
+                    StravaDescriptionCrew._unnest_json_strings(item) if isinstance(item, dict)
+                    else item
+                    for item in value
+                ]
+            else:
+                result[key] = value
+        
+        return result
 
     @staticmethod
     def _stringify_output(crew_output: CrewOutput) -> str:
