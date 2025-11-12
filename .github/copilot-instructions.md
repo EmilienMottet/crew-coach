@@ -56,16 +56,75 @@ Translation Agent → Translate to French (MANDATORY - audience is French-speaki
 Final JSON output (stdout) → n8n → Update Strava
 ```
 
-### MCP Tools (CrewAI DSL)
+### MCP Tools Integration
+
+**IMPORTANT: We use MetaMCPAdapter, NOT CrewAI's native `mcps` DSL**
+
+#### Why MetaMCPAdapter?
+
+We attempted to migrate to CrewAI's native `mcps` DSL but encountered a **critical compatibility issue**:
+
+- **CrewAI's native DSL** expects standard MCP transports (`stdio`, `sse`, `streamable-http`)
+- **MetaMCP uses a custom protocol** not recognized by CrewAI's auto-discovery
+- **Result with native DSL**: `0 tools discovered`, complete failure ❌
+
+**Current working approach** (DO NOT CHANGE without testing):
+```python
+# ✅ WORKING: MetaMCPAdapter (custom adapter)
+from mcp_auth_wrapper import MetaMCPAdapter
+from mcp_tool_wrapper import wrap_mcp_tools
+
+adapter = MetaMCPAdapter(server_url, mcp_api_key, connect_timeout=30)
+adapter.start()
+tools = adapter.tools  # ✅ All tools discovered
+
+# Pass to agents via 'tools' parameter, NOT 'mcps'
+agent = create_description_agent(llm, tools=tools)
+```
+
+**What does NOT work**:
+```python
+# ❌ BROKEN: CrewAI native DSL
+agent = Agent(
+    mcps=["https://mcp.emottet.com/metamcp/..."]  # ❌ 0 tools discovered
+)
+```
+
+#### Available MCP Tools
 - `IntervalsIcu__get_activity_details`: Full activity metrics
 - `IntervalsIcu__get_activity_intervals`: Interval/segment breakdowns
 - `IntervalsIcu__get_activities`: Recent activity list
+- `Spotify__get_recently_played`: Music playback history
+- `Strava__*`: Strava API operations
+- Weather and Toolbox utilities
 
-> These tools are exposed to the description agent via CrewAI's `mcps` field. Configure `MCP_SERVER_URL` (optionally comma-separated). Auto-discovery is used by default; set `INTERVALS_MCP_TOOL_NAMES` if you need to lock the set of tools to a specific subset.
-> The deployment relies on metaMCP, which exposes Intervals.icu, Spotify, and other providers behind a single endpoint—leave the tool lists unset to benefit from automatic discovery for all agents.
+#### MCP Server Configuration
+```bash
+# Individual server URLs (recommended)
+STRAVA_MCP_SERVER_URL=https://mcp.emottet.com/metamcp/SocialNetworkSport/mcp
+INTERVALS_MCP_SERVER_URL=https://mcp.emottet.com/metamcp/IntervalsIcu/mcp
+MUSIC_MCP_SERVER_URL=https://mcp.emottet.com/metamcp/Music/mcp
+METEO_MCP_SERVER_URL=https://mcp.emottet.com/metamcp/meteo/mcp
+TOOLBOX_MCP_SERVER_URL=https://mcp.emottet.com/metamcp/toolbox/mcp
+MCP_API_KEY=your-mcp-api-key
+```
 
-### Legacy Wrappers (`tools/`)
-Legacy helper modules have been removed; rely on MCP references directly within agents.
+#### Tool Discovery Process
+1. **Connection**: `MetaMCPAdapter` connects to each configured MCP server
+2. **Discovery**: Automatically discovers all available tools
+3. **Filtering**: Tools are filtered by name pattern (e.g., "intervals", "spotify", "strava")
+4. **Validation**: `wrap_mcp_tools()` adds input validation to prevent LLM errors
+5. **Distribution**: Tools are distributed to appropriate agents based on their needs
+
+**Do NOT remove** these files (required for MetaMCP integration):
+- `mcp_auth_wrapper.py` - MetaMCP connection adapter
+- `mcp_tool_wrapper.py` - Input validation wrapper
+- `mcp_utils.py` - Utility functions (may be unused but kept for compatibility)
+
+#### Future Migration to Native DSL
+If CrewAI adds support for MetaMCP's custom protocol, or if MetaMCP implements standard transports, we can migrate to the native `mcps` DSL. Until then, **MetaMCPAdapter is the only working solution**.
+
+Reference: See `DSL_COMPATIBILITY_ISSUE.md` for detailed technical analysis.
 
 ## Coding Conventions
 
@@ -102,30 +161,25 @@ except json.JSONDecodeError as e:
 ## LLM Configuration
 
 ### Authentication Methods
-The system supports **two authentication patterns**:
+The system uses **API Key Bearer Token** authentication:
 
-1. **Basic Authentication** (preferred for custom endpoints):
-   ```python
-   OPENAI_API_AUTH_TOKEN=base64_encoded_credentials
-   # Results in: Authorization: Basic <token>
-   ```
+```python
+OPENAI_API_KEY=your-api-key
+# Results in: Authorization: Bearer <key>
+```
 
-2. **API Key** (standard OpenAI):
-   ```python
-   OPENAI_API_KEY=your-api-key
-   # Results in: Authorization: Bearer <key>
-   ```
+**Legacy Basic Auth (REMOVED)**: Previous versions used `OPENAI_API_AUTH_TOKEN` with Basic Authentication. This has been **removed** for simplicity and better compatibility with standard OpenAI-compatible endpoints.
 
 ### LLM Endpoint Setup
 - Use `OPENAI_API_BASE` for custom endpoints (e.g., `https://ccproxy.emottet.com/copilot/v1`)
 - Use `OPENAI_MODEL_NAME` for model selection (e.g., `claude-sonnet-4.5`, `gpt-5-mini`)
-- CrewAI uses **LiteLLM**, which requires the `openai/` prefix for model names (except ccproxy endpoints)
+- CrewAI uses **LiteLLM**, which provides abstraction over multiple LLM providers
 - Set `drop_params=True` to ignore unsupported parameters
 
 ### Important Notes
-- The `api_key` parameter in LLM initialization may be a dummy value when using Basic Auth
-- LiteLLM's `completion` function is monkey-patched to inject custom headers
-- Always test endpoint connectivity before deploying changes
+- Always use `OPENAI_API_KEY` (Bearer token), not Basic Auth
+- Test endpoint connectivity before deploying changes
+- Different agents can use different models/endpoints via per-agent environment variables
 
 ## CrewAI Best Practices
 
@@ -152,13 +206,15 @@ The system supports **two authentication patterns**:
 # LLM Configuration
 OPENAI_API_BASE=https://your-endpoint.com/v1
 OPENAI_MODEL_NAME=claude-sonnet-4.5
-OPENAI_API_AUTH_TOKEN=base64_token  # OR OPENAI_API_KEY
+OPENAI_API_KEY=your-api-key  # Bearer token authentication
 
-# MCP Server (metaMCP regroupe Intervals.icu, Spotify, etc.)
-MCP_SERVER_URL=https://mcp.emottet.com/metamcp/.../mcp?api_key=...
-# Auto-discovery is enabled by default; comment values below only if you need to restrict the toolset.
-# INTERVALS_MCP_TOOL_NAMES=IntervalsIcu__get_activity_details,IntervalsIcu__get_activity_intervals
-# SPOTIFY_MCP_TOOL_NAMES=Spotify__get_recently_played
+# MCP Server Configuration (individual servers)
+STRAVA_MCP_SERVER_URL=https://mcp.emottet.com/metamcp/SocialNetworkSport/mcp
+INTERVALS_MCP_SERVER_URL=https://mcp.emottet.com/metamcp/IntervalsIcu/mcp
+MUSIC_MCP_SERVER_URL=https://mcp.emottet.com/metamcp/Music/mcp
+METEO_MCP_SERVER_URL=https://mcp.emottet.com/metamcp/meteo/mcp
+TOOLBOX_MCP_SERVER_URL=https://mcp.emottet.com/metamcp/toolbox/mcp
+MCP_API_KEY=your-mcp-api-key
 
 # Privacy Policy
 WORK_START_MORNING=08:30
@@ -173,7 +229,13 @@ TRANSLATION_SOURCE_LANGUAGE=English  # Source language from Description Agent
 ```
 
 ### Optional
-- `OPENAI_API_KEY`: Alternative to `OPENAI_API_AUTH_TOKEN`
+- Per-agent model configuration (e.g., `DESCRIPTION_AGENT_MODEL`, `MUSIC_AGENT_MODEL`)
+- Provider rotation: `ENABLE_LLM_PROVIDER_ROTATION=true`
+
+### Removed/Deprecated
+- `OPENAI_API_AUTH_TOKEN` ❌ (replaced by `OPENAI_API_KEY`)
+- `INTERVALS_MCP_TOOL_NAMES` ❌ (auto-discovery used)
+- `SPOTIFY_MCP_TOOL_NAMES` ❌ (auto-discovery used)
 
 ### Translation Requirements
 - **CRITICAL**: `TRANSLATION_ENABLED` MUST be set to `true` in production
@@ -344,6 +406,118 @@ deactivate
 
 ### Important Notes
 - **Never commit** the `venv/` directory to git (should be in `.gitignore`)
+- **Always activate** the venv before running the crew or installing packages
+- **Document** the Python version used (e.g., Python 3.10+)
+- Use `pip freeze > requirements.txt` to update dependencies list
+
+### Verifying Installation
+```bash
+# Check Python version (should be 3.10+)
+python --version
+
+# Verify CrewAI installation
+python -c "import crewai; print(crewai.__version__)"
+
+# List installed packages
+pip list
+```
+
+## Technical Decisions & Architecture Choices
+
+### Why MetaMCPAdapter instead of CrewAI Native DSL?
+
+**Date**: November 2025  
+**Decision**: Use `MetaMCPAdapter` custom wrapper instead of CrewAI's native `mcps` DSL
+
+#### Context
+CrewAI 0.86.0+ introduced a native DSL for MCP integration via the `mcps` agent parameter. We attempted migration to align with CrewAI best practices and simplify the codebase.
+
+#### Problem Encountered
+```
+[WARNING]: Failed to get MCP tool schemas from https://mcp.emottet.com/metamcp/...
+[WARNING]: No tools discovered from MCP server
+[INFO]: Successfully loaded 0 tools  ← Complete failure
+```
+
+#### Root Cause
+- **CrewAI's native DSL** expects standard MCP transports:
+  - `stdio`: Local processes via stdin/stdout
+  - `sse`: Server-Sent Events (EventSource)
+  - `streamable-http`: HTTP with streaming
+
+- **MetaMCP uses a custom protocol** not recognized by CrewAI's transport auto-detection
+- CrewAI's MCP client attempts to negotiate protocol but fails with MetaMCP endpoints
+- Result: Zero tools discovered, agents have no access to external data
+
+#### Solution
+Maintain `MetaMCPAdapter` custom wrapper:
+```python
+# ✅ Works with MetaMCP
+from mcp_auth_wrapper import MetaMCPAdapter
+
+adapter = MetaMCPAdapter(server_url, mcp_api_key, connect_timeout=30)
+adapter.start()
+tools = adapter.tools  # All tools successfully discovered
+
+agent = create_agent(llm, tools=tools)  # Via 'tools', NOT 'mcps'
+```
+
+#### Trade-offs
+
+| Aspect | Native DSL `mcps` | MetaMCPAdapter |
+|--------|-------------------|----------------|
+| **Compatibility** | ❌ 0 tools with MetaMCP | ✅ Full compatibility |
+| **Maintenance** | ✅ Official CrewAI | ⚠️ Custom code |
+| **Simplicity** | ✅ Declarative config | ⚠️ Imperative setup |
+| **Status** | ❌ Broken for MetaMCP | ✅ Production-ready |
+
+#### Future Path
+1. **Monitor CrewAI updates**: Check if future versions support MetaMCP protocol
+2. **Coordinate with MetaMCP**: Consider implementing standard transport
+3. **Migrate when ready**: Switch to native DSL if/when compatible
+
+**References**:
+- `DSL_COMPATIBILITY_ISSUE.md` - Technical deep-dive
+- `PROBLEM_RESOLVED.md` - Migration attempt and rollback
+- CrewAI MCP docs: https://docs.crewai.com/en/mcp/overview
+
+### Why API Key instead of Basic Auth?
+
+**Date**: November 2025  
+**Decision**: Use `OPENAI_API_KEY` (Bearer token) instead of `OPENAI_API_AUTH_TOKEN` (Basic Auth)
+
+#### Rationale
+1. **Standard compatibility**: Bearer tokens are the standard for OpenAI-compatible APIs
+2. **Simpler code**: No need for custom header patching (~60 lines removed)
+3. **Better curl compatibility**: Direct alignment with endpoint requirements
+4. **Industry standard**: Most LLM providers use Bearer authentication
+
+#### Implementation
+```bash
+# Old (removed)
+OPENAI_API_AUTH_TOKEN=base64_credentials
+
+# New (current)
+OPENAI_API_KEY=your-api-key
+```
+
+**Impact**: ~60 lines of OpenAI client patching code removed, cleaner LLM initialization.
+
+---
+
+## Quick Reference for AI Assistants
+
+When helping with this project:
+1. **Always check** existing code patterns before suggesting new approaches
+2. **Respect** the four-agent architecture (Description → Music → Privacy → Translation)
+3. **Follow** error handling patterns (try-except, fallback values, stderr logging)
+4. **Test** MCP and LLM connectivity before debugging agent logic
+5. **Document** any new environment variables or configuration options
+6. **Maintain** compatibility with n8n workflow expectations (stdin/stdout JSON)
+7. **CRITICAL**: Ensure translation to French is ALWAYS enabled (TRANSLATION_ENABLED=true)
+8. **Remember**: The Strava audience is French-speaking, so final output MUST be in French
+9. **Do NOT migrate to `mcps` DSL**: MetaMCPAdapter is the only working solution for MetaMCP
+````
 - **Always activate** the venv before running the crew or installing packages
 - **Document** the Python version used (e.g., Python 3.10+)
 - Use `pip freeze > requirements.txt` to update dependencies list

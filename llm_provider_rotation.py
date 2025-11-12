@@ -24,8 +24,7 @@ RATE_LIMIT_KEYWORDS = ("rate limit", "quota", "429")
 PROMPTLESS_ENDPOINT_HINTS = ("codex",)
 PROMPTLESS_MODEL_HINTS: tuple = ()  # No model-level restrictions on our endpoints
 
-# IMPORTANT: Based on testing (test_function_calling_endpoints.py),
-# ALL our endpoints support function calling (tools/MCP):
+# IMPORTANT: ALL our endpoints support function calling (tools/MCP):
 #   ✅ /copilot/v1  - supports tools + system prompts
 #   ✅ /codex/v1    - supports tools (strips system prompts)
 #   ✅ /claude/v1   - supports tools + system prompts
