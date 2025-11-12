@@ -646,13 +646,8 @@ class RotatingLLM(BaseLLM):
                     else:
                         formatted_messages = effective_messages
                     
-                    # Prepare API key - ensure it's a clean string (Basic Auth format)
-                    # IMPORTANT: We use ONLY Basic Auth, no API key
+                    # Prepare API key - use Bearer token format (standard for OpenAI-compatible APIs)
                     api_key_str = str(provider.api_key) if provider.api_key else ""
-                    
-                    # Ensure Basic Auth format
-                    if api_key_str and not api_key_str.startswith('Basic '):
-                        api_key_str = f'Basic {api_key_str}'
                     
                     # Determine custom_llm_provider based on API base and model
                     # All our endpoints are OpenAI-compatible
@@ -664,27 +659,9 @@ class RotatingLLM(BaseLLM):
                         # Don't add prefix - our proxy handles it
                         pass
                     
-                    # Call litellm directly with ONLY the necessary parameters
+                    # Call litellm directly with the necessary parameters
                     import litellm
                     try:
-                        # WORKAROUND: Temporarily remove _basic_auth_patched attribute
-                        # that litellm might try to pass as kwargs
-                        from openai import OpenAI, AsyncOpenAI
-                        from litellm.llms.openai.openai import OpenAIConfig
-                        
-                        # Save patch markers
-                        openai_patched = getattr(OpenAI, '_basic_auth_patched', False)
-                        async_patched = getattr(AsyncOpenAI, '_basic_auth_patched', False)
-                        config_patched = getattr(OpenAIConfig, '_basic_auth_patched', False)
-                        
-                        # Temporarily remove them (but keep the auth_headers property!)
-                        if hasattr(OpenAI, '_basic_auth_patched'):
-                            delattr(OpenAI, '_basic_auth_patched')
-                        if hasattr(AsyncOpenAI, '_basic_auth_patched'):
-                            delattr(AsyncOpenAI, '_basic_auth_patched')
-                        if hasattr(OpenAIConfig, '_basic_auth_patched'):
-                            delattr(OpenAIConfig, '_basic_auth_patched')
-                        
                         litellm_response = litellm.completion(
                             model=model_for_litellm,
                             messages=formatted_messages,
@@ -695,26 +672,8 @@ class RotatingLLM(BaseLLM):
                             drop_params=True,
                             request_timeout=60,  # 60 seconds timeout
                         )
-                        
-                        # Restore patch markers
-                        if openai_patched:
-                            setattr(OpenAI, '_basic_auth_patched', True)
-                        if async_patched:
-                            setattr(AsyncOpenAI, '_basic_auth_patched', True)
-                        if config_patched:
-                            setattr(OpenAIConfig, '_basic_auth_patched', True)
                             
                     except Exception as e:
-                        # Restore patch markers even on error
-                        from openai import OpenAI, AsyncOpenAI
-                        from litellm.llms.openai.openai import OpenAIConfig
-                        if openai_patched:
-                            setattr(OpenAI, '_basic_auth_patched', True)
-                        if async_patched:
-                            setattr(AsyncOpenAI, '_basic_auth_patched', True)
-                        if config_patched:
-                            setattr(OpenAIConfig, '_basic_auth_patched', True)
-                        
                         print(
                             f"   ❌ litellm.completion failed: {e}\n"
                             f"      Falling back to CrewAI LLM.call()\n",
@@ -836,15 +795,7 @@ class RotatingLLM(BaseLLM):
                                 }
                             ] + tool_results
                             
-                            # Call LLM again with tool results (same workaround needed)
-                            # Remove _basic_auth_patched again for second call
-                            if hasattr(OpenAI, '_basic_auth_patched'):
-                                delattr(OpenAI, '_basic_auth_patched')
-                            if hasattr(AsyncOpenAI, '_basic_auth_patched'):
-                                delattr(AsyncOpenAI, '_basic_auth_patched')
-                            if hasattr(OpenAIConfig, '_basic_auth_patched'):
-                                delattr(OpenAIConfig, '_basic_auth_patched')
-                            
+                            # Call LLM again with tool results
                             final_response = litellm.completion(
                                 model=model_for_litellm,
                                 messages=new_messages,
@@ -855,14 +806,6 @@ class RotatingLLM(BaseLLM):
                                 drop_params=True,
                                 request_timeout=90,  # Longer timeout for second call with tool results
                             )
-                            
-                            # Restore patch markers after second call
-                            if openai_patched:
-                                setattr(OpenAI, '_basic_auth_patched', True)
-                            if async_patched:
-                                setattr(AsyncOpenAI, '_basic_auth_patched', True)
-                            if config_patched:
-                                setattr(OpenAIConfig, '_basic_auth_patched', True)
                             
                             print(
                                 f"   ✅ LLM generated final response with tool results\n",

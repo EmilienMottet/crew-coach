@@ -95,15 +95,27 @@ def create_music_task(
     - Return valid JSON following the ActivityMusicSelection schema.
     - Do not wrap the JSON in markdown fences.
     - Ensure the appended section is suitable for later French translation and keeps emoji intact.
+
+    CRITICAL FINAL ACTION:
+    After retrieving and analyzing the Spotify data, you MUST output a JSON object with this exact structure:
+    {{
+        "updated_description": "description text with optional music section",
+        "music_tracks": ["Artist – Track", ...]
+    }}
+    
+    Do NOT include any explanatory text, thoughts, or reasoning in your final output.
+    Your final message must be ONLY the JSON object, nothing else.
     """
 
     return Task(
         description=description,
         agent=agent,
         expected_output=(
-            "Valid JSON adhering to the ActivityMusicSelection schema with the "
-            "description updated to include a concise music list. "
-            "Return ONLY the raw JSON without markdown fences."
+            "A JSON object (not wrapped in markdown) with exactly two fields:\n"
+            "1. 'updated_description': the activity description with optional music section appended\n"
+            "2. 'music_tracks': array of track strings in format 'Artist – Track'\n"
+            "Example: {\"updated_description\": \"...\", \"music_tracks\": [\"Artist – Track\"]}\n"
+            "IMPORTANT: Your FINAL response must be ONLY this JSON object, no explanatory text."
         ),
         # CRITICAL: output_json disables tool calling! Must parse JSON manually instead.
         # output_json=ActivityMusicSelection,
