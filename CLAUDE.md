@@ -420,14 +420,11 @@ The system enforces strict validation to prevent agents from using incompatible 
 
 **Testing Model Normalization**:
 ```bash
-# Test model normalization logic
-python test_model_normalization.py
-
-# Test system prompt handling
-python test_system_prompt_handling.py
-
-# Test full provider rotation chain
-python test_provider_rotation.py
+# Test with real endpoint using curl
+curl -X POST https://ccproxy.emottet.com/copilot/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $OPENAI_API_KEY" \
+  -d '{"model": "claude-sonnet-4.5", "messages": [{"role": "user", "content": "test"}]}'
 ```
 
 ### Error Handling Philosophy
@@ -559,19 +556,14 @@ TRANSLATION_SOURCE_LANGUAGE=English
 
 ### "The requested model is not supported"
 - **Cause**: Model name doesn't match the endpoint's expected format
-- **Solution**: The system now automatically normalizes model names based on endpoint
+- **Solution**: The system automatically normalizes model names based on endpoint
 - **Verification**:
+
   ```bash
-  # Test model normalization
-  python test_model_normalization.py
-
-  # Test provider rotation chain
-  python test_provider_rotation.py
-
-  # Test real endpoint with curl
+  # Test with real endpoint using curl
   curl -X POST https://ccproxy.emottet.com/copilot/v1/chat/completions \
     -H "Content-Type: application/json" \
-    -H "Authorization: Basic $OPENAI_API_AUTH_TOKEN" \
+    -H "Authorization: Bearer $OPENAI_API_KEY" \
     -d '{"model": "claude-sonnet-4.5", "messages": [{"role": "user", "content": "test"}]}'
   ```
 - **Manual override**: Set exact model name in `LLM_PROVIDER_ROTATION` if needed

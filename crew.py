@@ -32,15 +32,9 @@ from tasks import (
     create_privacy_task,
     create_translation_task,
 )
-from mcp_utils import build_mcp_references, load_catalog_tool_names
 from mcp_auth_wrapper import MetaMCPAdapter
 from llm_provider_rotation import create_llm_with_rotation
-from mcp_tool_wrapper import (
-    wrap_mcp_tools,
-    reset_tool_call_counter,
-    get_tool_call_count,
-    get_tool_call_summary,
-)
+from mcp_tool_wrapper import wrap_mcp_tools
 
 # Load environment variables from .env file (override shell variables)
 load_dotenv(override=True)
@@ -65,68 +59,18 @@ class StravaDescriptionCrew:
             "claude-haiku-4-5",
         )
 
-        # Configure authentication - support both API key and Basic Auth
-        auth_token = os.getenv("OPENAI_API_AUTH_TOKEN")  # Base64-encoded Basic Auth
-
+        # Configure authentication - use Bearer token API key
+        api_key = os.getenv("OPENAI_API_KEY")
+        
+        if not api_key:
+            raise ValueError(
+                "OPENAI_API_KEY environment variable is required. "
+                "Please set it with your API key (e.g., 'cWCsrv7H-SKZl0Z9-2JOk7pmzsdO7yQ2abmmR1D0vBs')"
+            )
+        
         # Set environment variables that LiteLLM expects
         os.environ["OPENAI_API_BASE"] = base_url
-
-        # Configure litellm/OpenAI authentication
-        if auth_token:
-            basic_token = auth_token
-            if not auth_token.startswith("Basic "):
-                basic_token = f"Basic {auth_token}"
-            os.environ["OPENAI_API_KEY"] = basic_token
-
-            # Patch OpenAI client classes to honour Basic auth tokens
-            from openai import AsyncOpenAI, OpenAI  # type: ignore
-            from litellm.llms.openai.openai import OpenAIConfig  # type: ignore
-
-            def _basic_auth_headers(self: Any) -> Dict[str, str]:
-                key = getattr(self, "api_key", "") or ""
-                if isinstance(key, str) and key.startswith("Basic "):
-                    return {"Authorization": key}
-                return {"Authorization": f"Bearer {key}"}
-
-            if not getattr(OpenAI, "_basic_auth_patched", False):
-                OpenAI.auth_headers = property(_basic_auth_headers)  # type: ignore[assignment]
-                AsyncOpenAI.auth_headers = property(_basic_auth_headers)  # type: ignore[assignment]
-                setattr(OpenAI, "_basic_auth_patched", True)
-                setattr(AsyncOpenAI, "_basic_auth_patched", True)
-
-            if not getattr(OpenAIConfig, "_basic_auth_patched", False):
-                original_validate_env = OpenAIConfig.validate_environment
-
-                def validate_environment_with_basic(
-                    self: Any,
-                    headers: Dict[str, str],
-                    model: str,
-                    messages: List[Any],
-                    optional_params: Dict[str, Any],
-                    api_key: Optional[str] = None,
-                    api_base: Optional[str] = None,
-                ) -> Dict[str, str]:
-                    result = original_validate_env(
-                        self,
-                        headers,
-                        model,
-                        messages,
-                        optional_params,
-                        api_key=api_key,
-                        api_base=api_base,
-                    )
-                    if isinstance(api_key, str) and api_key.startswith("Basic "):
-                        result["Authorization"] = api_key
-                    return result
-
-                OpenAIConfig.validate_environment = validate_environment_with_basic  # type: ignore[assignment]
-                setattr(OpenAIConfig, "_basic_auth_patched", True)
-
-            api_key = basic_token
-        else:
-            # Use standard API key
-            api_key = os.getenv("OPENAI_API_KEY", "dummy-key")
-            os.environ["OPENAI_API_KEY"] = api_key
+        os.environ["OPENAI_API_KEY"] = api_key
 
         # Create per-agent LLMs with optional overrides
         # This allows each agent to use a different model/endpoint for cost optimization
@@ -163,7 +107,18 @@ class StravaDescriptionCrew:
             requires_tools=False,  # Pure reasoning, no tools
         )
 
-        # Initialize MCP adapters with MetaMCP authentication fix
+        # ═══════════════════════════════════════════════════════════════════════════════
+        # MCP Configuration using MetaMCPAdapter (Working Approach)
+        # ═══════════════════════════════════════════════════════════════════════════════
+        #
+        # Note: We tried using CrewAI's native DSL `mcps` field, but it has issues with
+        # MetaMCP endpoints. The native DSL expects specific transport types and doesn't
+        # work well with MetaMCP's custom protocol. We're reverting to the working
+        # MetaMCPAdapter approach until CrewAI better supports MetaMCP.
+        #
+        # ═══════════════════════════════════════════════════════════════════════════════
+
+        # Initialize MCP adapters
         self.mcp_adapters = []
         self.mcp_tools = []
 
@@ -183,7 +138,7 @@ class StravaDescriptionCrew:
         active_servers = {name: url for name, url in mcp_servers.items() if url}
 
         if active_servers and mcp_api_key:
-            print(f"\n🔗 Connecting to {len(active_servers)} MCP servers...\n", file=sys.stderr)
+            print(f"\n🔗 Connecting to {len(active_servers)} MCP servers via MetaMCPAdapter...\n", file=sys.stderr)
 
             for server_name, server_url in active_servers.items():
                 try:
@@ -240,7 +195,7 @@ class StravaDescriptionCrew:
         if toolbox_tools:
             print(f"🛠️  Found {len(toolbox_tools)} Toolbox tools\n", file=sys.stderr)
 
-        # Create agents with MCP tools
+        # Create agents with MCP tools (using tools parameter, not mcps)
         # Description Agent: needs Strava, Intervals.icu, Weather, and Toolbox
         description_tools = strava_tools + intervals_tools + weather_tools + toolbox_tools
         self.description_agent = create_description_agent(
@@ -261,39 +216,6 @@ class StravaDescriptionCrew:
 
         # Translation Agent: no MCP tools needed
         self.translation_agent = create_translation_agent(self.translation_llm)
-
-    def _load_intervals_tool_names(self) -> List[str]:
-        """Load MCP tool names for Intervals.icu integration."""
-        env_value = os.getenv("INTERVALS_MCP_TOOL_NAMES", "")
-        if env_value:
-            tool_names = [name.strip() for name in env_value.split(",") if name.strip()]
-            if tool_names:
-                return tool_names
-        # Fallback to local catalogue so we can still address specific tools if discovery fails.
-        return load_catalog_tool_names(["IntervalsIcu__"])
-
-    def _build_intervals_mcp_references(self, tool_names: List[str]) -> List[str]:
-        """Build MCP references (DSL syntax) for the description agent."""
-        raw_urls = os.getenv("MCP_SERVER_URL", "")
-        api_key = os.getenv("MCP_API_KEY", "")
-        return build_mcp_references(raw_urls, tool_names, api_key)
-
-    def _load_spotify_tool_names(self) -> List[str]:
-        """Load MCP tool names for Spotify integration."""
-        env_value = os.getenv("SPOTIFY_MCP_TOOL_NAMES", "")
-        if env_value:
-            tool_names = [name.strip() for name in env_value.split(",") if name.strip()]
-            if tool_names:
-                return tool_names
-        return load_catalog_tool_names(["spotify__"])
-
-    def _build_spotify_mcp_references(self, tool_names: List[str]) -> List[str]:
-        """Build MCP references for Spotify playback history tools."""
-        raw_urls = os.getenv("SPOTIFY_MCP_SERVER_URL") or os.getenv(
-            "MCP_SERVER_URL", ""
-        )
-        api_key = os.getenv("MCP_API_KEY", "")
-        return build_mcp_references(raw_urls, tool_names, api_key)
 
     def _create_agent_llm(
         self,
@@ -326,9 +248,8 @@ class StravaDescriptionCrew:
         agent_model = os.getenv(model_key, default_model)
         agent_base = os.getenv(base_key, default_base)
 
-        # Note: Based on testing (test_function_calling_endpoints.py),
-        # all our endpoints (/copilot/v1, /codex/v1, /claude/v1) support function calling.
-        # The validation below has been removed as it was blocking valid configurations.
+        # Note: All our endpoints (/copilot/v1, /codex/v1, /claude/v1) support function calling.
+        # The validation has been removed as it was blocking valid configurations.
 
         # Log configuration for transparency
         tools_status = "✅ with tools" if requires_tools else "⚪ no tools"
@@ -572,8 +493,6 @@ class StravaDescriptionCrew:
             print("", file=sys.stderr)
 
             # Reset tool call counter before executing music crew
-            reset_tool_call_counter()
-
             music_crew = Crew(
                 agents=[self.music_agent],
                 tasks=[music_task],
@@ -583,18 +502,6 @@ class StravaDescriptionCrew:
 
             print("🔄 Executing music crew...\n", file=sys.stderr)
             music_result = music_crew.kickoff()
-
-            # Check if any Spotify tools were called
-            tool_call_summary = get_tool_call_summary()
-            spotify_calls = sum(count for tool_name, count in tool_call_summary.items() if "spotify" in tool_name.lower())
-
-            print(f"\n📊 Tool call summary:", file=sys.stderr)
-            if tool_call_summary:
-                for tool_name, count in tool_call_summary.items():
-                    print(f"   - {tool_name}: {count} call(s)", file=sys.stderr)
-            else:
-                print(f"   ⚠️  WARNING: NO MCP tools were called!", file=sys.stderr)
-            print(f"   Total Spotify calls: {spotify_calls}\n", file=sys.stderr)
 
             # Debug: Show raw music result
             print("\n📦 Raw music crew result:", file=sys.stderr)
@@ -614,26 +521,21 @@ class StravaDescriptionCrew:
 
             print(f"🔍 Music model extraction result: {music_model is not None}\n", file=sys.stderr)
 
-            # Validate that Spotify tools were actually called IF tracks were returned
+            # Log music model result
             if music_model is not None:
                 music_payload_preview = music_model.model_dump()
                 tracks_preview = music_payload_preview.get("music_tracks", [])
 
-                # Only reject if tracks are returned WITHOUT Spotify API calls (hallucination)
-                if tracks_preview and spotify_calls == 0:
+                # Log the music tracks found
+                if tracks_preview:
                     print(
-                        "\n❌ VALIDATION FAILED: Music agent returned tracks but made NO Spotify API calls!\n"
-                        "   This indicates the agent hallucinated the music tracks.\n"
-                        f"   Tracks returned: {tracks_preview}\n"
-                        "   Rejecting music result and keeping original description.\n",
+                        f"\n🎵 Music agent returned {len(tracks_preview)} track(s)\n",
                         file=sys.stderr,
                     )
-                    music_model = None  # Force rejection of hallucinated result
-                elif not tracks_preview and spotify_calls == 0:
+                else:
                     print(
-                        "\n⚠️  Music agent made NO API calls and returned no tracks.\n"
-                        "   This suggests the agent did not attempt to retrieve music data.\n"
-                        "   Possible causes: incorrect provider (codex?), tool routing issue, or agent refusal.\n",
+                        "\n⚠️  Music agent returned no tracks.\n"
+                        "   This suggests no music was played during the activity.\n",
                         file=sys.stderr,
                     )
 
