@@ -601,10 +601,59 @@ TRANSLATION_SOURCE_LANGUAGE=English
 ## Integration Notes
 
 ### n8n Workflow Integration
+
+#### Strava Description Workflow
 - **Command**: Use absolute path to venv Python: `/path/to/venv/bin/python crew.py`
 - **Input**: Pass Strava webhook JSON via stdin
 - **Output**: Parse stdout JSON for title, description, privacy settings
 - **Error handling**: Check exit code (1 on failure) and `error` field in JSON
+
+#### Weekly Meal Plan Workflow (with Intervals.icu Integration)
+- **Workflow File**: `n8n/workflows/meal-planning-weekly.json`
+- **Workflow ID**: `VSOAzIak3SfoMqVR`
+- **Schedule**: Every Sunday at 20:00 (Europe/Paris)
+
+**Workflow Steps**:
+1. **Calculate Week Dates**: Computes next week's Monday-Sunday range
+2. **Fetch Training Events**: Retrieves planned workouts from intervals.icu API
+3. **Calculate New Training Times**: Applies scheduling rules:
+   - **Monday**: Running → 12:00-14:00, Cycling → 18:00
+   - **Tuesday/Wednesday**: Longest workout → 12:00-14:00, 2nd workout → 18:00
+   - **Thursday/Friday**: Same as Monday
+   - **Saturday/Sunday**: Longest workout → 09:00, 2nd workout → 17:00
+4. **Check Updates Needed**: Skips update step if no changes required
+5. **Update Training Time**: Updates intervals.icu via PUT API calls
+6. **Merge & Continue**: Aggregates results
+7. **Generate Meal Plan**: Calls `crew_mealy.py` via HTTP (crew:8000)
+8. **Notifications**: Telegram notifications on success/failure
+
+**Required Environment Variables**:
+```bash
+# Intervals.icu Configuration
+INTERVALS_ICU_ATHLETE_ID=i55249
+INTERVALS_ICU_API_KEY=QVBJX0tFWTpyMjl1Mnppamxlcjh4ZzJlNm5lazRnOGw=  # Base64 encoded
+
+# Meal Plan Service
+# Ensure crew_mealy.py is running on crew:8000
+```
+
+**Note**: Telegram chat ID (258732739) is hardcoded in the workflow for simplicity.
+
+**API Authentication**:
+- The `INTERVALS_ICU_API_KEY` is a Base64-encoded string in format: `API_KEY:your_api_key`
+- Used with Basic Auth header: `Authorization: Basic QVBJX0tFWTpyMjl1Mnppamxlcjh4ZzJlNm5lazRnOGw=`
+
+**Importing Workflow to n8n**:
+```bash
+# Option 1: Import via n8n UI
+# Settings → Import from File → Select n8n/workflows/meal-planning-weekly.json
+
+# Option 2: Import via n8n API
+curl -X POST http://localhost:5678/api/v1/workflows \
+  -H "Content-Type: application/json" \
+  -H "X-N8N-API-KEY: $N8N_API_KEY" \
+  -d @n8n/workflows/meal-planning-weekly.json
+```
 
 ### Strava API Constraints
 - **Title length**: Max 50 characters (enforced by API)
