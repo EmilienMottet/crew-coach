@@ -1,17 +1,7 @@
 {
-  "id": "MealPlanWeekly2025",
   "name": "Weekly Meal Plan Generator",
-  "active": true,
-  "settings": {
-    "executionOrder": "v1"
-  },
   "nodes": [
     {
-      "id": "schedule-trigger-sunday-evening",
-      "name": "Schedule Trigger - Sunday 20:00",
-      "type": "n8n-nodes-base.scheduleTrigger",
-      "typeVersion": 1.2,
-      "position": [250, 300],
       "parameters": {
         "rule": {
           "interval": [
@@ -20,16 +10,158 @@
               "expression": "0 20 * * 0"
             }
           ]
-        },
-        "timezone": "Europe/Paris"
-      }
+        }
+      },
+      "id": "91f79534-0142-499f-a2b1-cc865545bd40",
+      "name": "Schedule Trigger - Sunday 20:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        112,
+        304
+      ]
     },
     {
-      "id": "http-request-meal-plan",
-      "name": "HTTP Request - Generate Meal Plan",
+      "parameters": {
+        "jsCode": "// Calculate the target week (Monday to Sunday)\n// If today is Saturday or Sunday, use NEXT week\n// Otherwise, use CURRENT week\n\nconst now = new Date();\nconst today = now.getDay(); // 0=Sunday, 6=Saturday\n\nlet targetMonday;\n\nif (today === 0 || today === 6) {\n  // Weekend: get next Monday\n  const daysUntilNextMonday = today === 0 ? 1 : 2; // Sunday=1 day, Saturday=2 days\n  targetMonday = new Date(now);\n  targetMonday.setDate(now.getDate() + daysUntilNextMonday);\n} else {\n  // Weekday: get this week's Monday\n  const daysSinceMonday = today === 0 ? 6 : today - 1; // Sunday counts as 6 days after Monday\n  targetMonday = new Date(now);\n  targetMonday.setDate(now.getDate() - daysSinceMonday);\n}\n\ntargetMonday.setHours(0, 0, 0, 0);\n\nconst targetSunday = new Date(targetMonday);\ntargetSunday.setDate(targetMonday.getDate() + 6);\ntargetSunday.setHours(23, 59, 59, 999);\n\nconst formatDate = (date) => date.toISOString().split('T')[0];\n\nreturn { \n  json: { \n    week_start: formatDate(targetMonday), \n    week_end: formatDate(targetSunday),\n    week_start_timestamp: targetMonday.toISOString(),\n    week_end_timestamp: targetSunday.toISOString()\n  } \n};"
+      },
+      "id": "get-week-dates",
+      "name": "Calculate Week Dates",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        304,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://intervals.icu/api/v1/athlete/i55249/events?oldest={{ $json.week_start }}&newest={{ $json.week_end }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Basic YOUR_BASE64_KEY"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "autoDetect"
+            }
+          }
+        }
+      },
+      "id": "fetch-training-events",
+      "name": "Fetch Training Events",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.3,
-      "position": [450, 300],
+      "position": [
+        512,
+        304
+      ],
+      "alwaysOutputData": true,
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Debug: Log API response\nconst events = $input.item.json;\n\nconsole.log('=== DEBUG API RESPONSE ===');\nconsole.log('Response type:', typeof events);\nconsole.log('Is Array:', Array.isArray(events));\n\nif (Array.isArray(events)) {\n  console.log('Total events:', events.length);\n  console.log('Event types:', events.map(e => ({ id: e.id, name: e.name, type: e.type, category: e.category })));\n} else {\n  console.log('Single event:', events);\n}\n\n// Return the events array for the next node\nreturn { json: events };"
+      },
+      "id": "debug-response",
+      "name": "Debug API Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        608,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "has-updates",
+              "leftValue": "={{ $json.has_updates }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-updates-needed",
+      "name": "Check Updates Needed",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        912,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "=https://intervals.icu/api/v1/athlete/i55249/events/{{ $json.id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Basic YOUR_BASE64_KEY"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={ \"start_date_local\": \"{{ $json.new_time }}\" }",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "update-training-time",
+      "name": "Update Training Time",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        1104,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const allItems = $input.all();\nif (allItems.length === 0) return { json: { training_updates: [], total_updates: 0, message: 'No training schedule updates needed' } };\nconst updates = allItems.map(item => ({ event_id: item.json.id, event_name: item.json.name, original_time: item.json.original_time, new_time: item.json.new_time, activity_type: item.json.activity_type }));\nreturn { json: { training_updates: updates, total_updates: updates.length, message: `Successfully updated ${updates.length} training event(s)` } };"
+      },
+      "id": "merge-updated-events",
+      "name": "Merge & Continue",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1312,
+        208
+      ]
+    },
+    {
       "parameters": {
         "method": "POST",
         "url": "http://crew:8000/meal-plan",
@@ -37,30 +169,33 @@
         "specifyBody": "json",
         "jsonBody": "={}",
         "options": {
-          "response": {
-            "responseFormat": "json"
-          },
+          "response": {},
           "timeout": 600000
         }
-      }
+      },
+      "id": "0e89dfe1-61ae-4df2-982d-b24e466a50dd",
+      "name": "Generate Meal Plan",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        1104,
+        400
+      ]
     },
     {
-      "id": "parse-crew-output",
+      "parameters": {
+        "jsCode": "// Extract relevant fields from the HTTP response\nconst result = $input.item.json;\n\nreturn {\n  json: {\n    success: !result.error,\n    week_start_date: result.week_start_date,\n    total_meals: result.integration?.total_meals_created || 0,\n    mealy_url: result.integration?.mealy_week_url || null,\n    summary: result.summary || 'No summary available',\n    validation_approved: result.validation?.approved || false,\n    error: result.error || null\n  }\n};"
+      },
+      "id": "503d0909-db9f-4ca6-8d11-e7e5c725ac7d",
       "name": "Parse Crew Output",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [650, 300],
-      "parameters": {
-        "language": "javaScript",
-        "jsCode": "// Extract relevant fields from the HTTP response\nconst result = $input.item.json;\n\nreturn {\n  json: {\n    success: !result.error,\n    week_start_date: result.week_start_date,\n    total_meals: result.integration?.total_meals_created || 0,\n    mealy_url: result.integration?.mealy_week_url || null,\n    summary: result.summary || 'No summary available',\n    validation_approved: result.validation?.approved || false,\n    error: result.error || null\n  }\n};"
-      }
+      "position": [
+        1312,
+        400
+      ]
     },
     {
-      "id": "check-success",
-      "name": "Check Success",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2,
-      "position": [850, 300],
       "parameters": {
         "conditions": {
           "options": {
@@ -80,80 +215,182 @@
             }
           ],
           "combinator": "and"
-        }
-      }
+        },
+        "options": {}
+      },
+      "id": "b152d81e-d26a-4b23-9b17-19400d004801",
+      "name": "Check Success",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1504,
+        400
+      ]
     },
     {
-      "id": "success-notification-telegram",
-      "name": "Success Notification",
-      "type": "n8n-nodes-base.telegram",
-      "typeVersion": 1.2,
-      "position": [1050, 200],
       "parameters": {
-        "operation": "sendMessage",
-        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
         "text": "=🍽️ *Meal Planning Success!*\n\n✅ Week starting: {{ $json.week_start_date }}\n✅ Meals created: {{ $json.total_meals }}\n✅ Validation: {{ $json.validation_approved ? '✅ Approved' : '⚠️ Needs Review' }}\n\n📋 Summary:\n{{ $json.summary }}\n\n{{ $json.mealy_url ? '🔗 View your meals: ' + $json.mealy_url : '📱 Check Mealy app for your meals' }}\n\n_Generated by CrewAI at {{ $now.toISO() }}_",
         "additionalFields": {
-          "parseMode": "Markdown",
           "disable_notification": false,
           "disable_web_page_preview": false
         }
       },
+      "id": "4eafbb75-026d-4c9f-864a-6a72ee84e6be",
+      "name": "Success Notification",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1712,
+        304
+      ],
+      "webhookId": "d83a558b-75c2-4755-bc7b-394b4b5d997f",
       "credentials": {
         "telegramApi": {
-          "id": "telegram-bot-credentials",
-          "name": "Telegram Bot"
+          "id": "YOUR_TELEGRAM_CREDENTIAL_ID",
+          "name": "Telegram account"
         }
       }
     },
     {
-      "id": "error-notification-telegram",
-      "name": "Error Notification",
-      "type": "n8n-nodes-base.telegram",
-      "typeVersion": 1.2,
-      "position": [1050, 400],
       "parameters": {
-        "operation": "sendMessage",
-        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
         "text": "=❌ *Meal Planning Failed*\n\nWeek starting: {{ $json.week_start_date }}\n\n🔴 Error: {{ $json.error || 'Unknown error' }}\n\n📝 Retry manually:\n```\npython crew_mealy.py {{ $json.week_start_date }}\n```\n\n🔍 Check logs for details.\n\n_Failed at {{ $now.toISO() }}_",
         "additionalFields": {
-          "parseMode": "Markdown",
           "disable_notification": false,
           "disable_web_page_preview": true
         }
       },
+      "id": "73630412-68da-477a-8292-0681b3d70501",
+      "name": "Error Notification",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1712,
+        512
+      ],
+      "webhookId": "28a0cccf-8dc9-432b-9c40-871b6468e739",
       "credentials": {
         "telegramApi": {
-          "id": "telegram-bot-credentials",
-          "name": "Telegram Bot"
+          "id": "YOUR_TELEGRAM_CREDENTIAL_ID",
+          "name": "Telegram account"
         }
       }
     },
     {
-      "id": "log-execution-result",
+      "parameters": {
+        "jsCode": "// Log execution details for debugging\nconst result = {\n  workflow: 'meal-planning-weekly',\n  execution_id: $execution.id,\n  timestamp: new Date().toISOString(),\n  week_start_date: $json.week_start_date,\n  success: $json.success,\n  total_meals: $json.total_meals,\n  validation_approved: $json.validation_approved,\n  error: $json.error || null\n};\n\nconsole.log('Meal Planning Execution:', JSON.stringify(result, null, 2));\n\nreturn { json: result };"
+      },
+      "id": "c46cc28c-9466-49d8-bc02-f9984ab30342",
       "name": "Log Execution Result",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1250, 300],
+      "position": [
+        1904,
+        400
+      ]
+    },
+    {
       "parameters": {
-        "language": "javaScript",
-        "jsCode": "// Log execution details for debugging\nconst result = {\n  workflow: 'meal-planning-weekly',\n  execution_id: $execution.id,\n  timestamp: new Date().toISOString(),\n  week_start_date: $json.week_start_date,\n  success: $json.success,\n  total_meals: $json.total_meals,\n  validation_approved: $json.validation_approved,\n  error: $json.error || null\n};\n\nconsole.log('Meal Planning Execution:', JSON.stringify(result, null, 2));\n\nreturn { json: result };"
-      }
+        "jsCode": "// Get events array from previous node\nconst allEvents = $input.item.json;\n\n// Filter to only keep WORKOUT events (exclude NOTE events)\nconst events = Array.isArray(allEvents) \n  ? allEvents.filter(event => event && event.category === 'WORKOUT' && event.id)\n  : [];\n\nconsole.log('Total events received:', Array.isArray(allEvents) ? allEvents.length : 0);\nconsole.log('Workout events to process:', events.length);\n\nconst noUpdatesItem = () => ({\n  json: {\n    has_updates: false,\n    events_checked: events.length,\n    message: 'No training updates required'\n  }\n});\n\nif (events.length === 0) {\n  console.log('No events to process');\n  return [noUpdatesItem()];\n}\n\nconst getDayOfWeek = (dateStr) => new Date(dateStr).getDay();\nconst setTime = (dateStr, hours, minutes = 0) => { \n  const date = new Date(dateStr); \n  date.setHours(hours, minutes, 0, 0); \n  return date.toISOString(); \n};\nconst getActivityType = (event) => { \n  const type = (event.type || '').toLowerCase(); \n  const name = (event.name || '').toLowerCase(); \n  if (type.includes('run') || name.includes('course') || name.includes('run')) return 'run'; \n  if (type.includes('ride') || type.includes('bike') || name.includes('vélo') || name.includes('cyclisme')) return 'ride'; \n  return 'other'; \n};\n\n// Group events by day of week\nconst eventsByDay = {};\nevents.forEach(event => { \n  if (!event.start_date_local) return; \n  const dayOfWeek = getDayOfWeek(event.start_date_local); \n  if (!eventsByDay[dayOfWeek]) eventsByDay[dayOfWeek] = []; \n  eventsByDay[dayOfWeek].push(event); \n});\n\nconst updates = [];\nObject.keys(eventsByDay).forEach(dayOfWeek => { \n  const dayEvents = eventsByDay[dayOfWeek]; \n  const day = parseInt(dayOfWeek); \n  \n  // Sort by duration (longest first)\n  dayEvents.sort((a, b) => (b.moving_time || 0) - (a.moving_time || 0)); \n  \n  dayEvents.forEach((event, index) => { \n    const activityType = getActivityType(event); \n    let newTime; \n    \n    // Monday (1)\n    if (day === 1) { \n      if (activityType === 'run') newTime = setTime(event.start_date_local, 12, 0); \n      else if (activityType === 'ride') newTime = setTime(event.start_date_local, 18, 0); \n    } \n    // Tuesday/Wednesday (2,3)\n    else if (day === 2 || day === 3) { \n      if (index === 0) newTime = setTime(event.start_date_local, 12, 0); \n      else if (index === 1) newTime = setTime(event.start_date_local, 18, 0); \n    } \n    // Thursday/Friday (4,5)\n    else if (day === 4 || day === 5) { \n      if (activityType === 'run') newTime = setTime(event.start_date_local, 12, 0); \n      else if (activityType === 'ride') newTime = setTime(event.start_date_local, 18, 0); \n    } \n    // Saturday/Sunday (6,0)\n    else if (day === 6 || day === 0) { \n      if (index === 0) newTime = setTime(event.start_date_local, 9, 0); \n      else if (index === 1) newTime = setTime(event.start_date_local, 17, 0); \n    } \n    \n    if (newTime && newTime !== event.start_date_local) {\n      updates.push({ \n        id: event.id, \n        original_time: event.start_date_local, \n        new_time: newTime, \n        activity_type: activityType, \n        day_of_week: day, \n        name: event.name \n      }); \n    }\n  }); \n});\n\nconsole.log('Generated', updates.length, 'updates');\n\nif (updates.length === 0) {\n  console.log('No timing adjustments needed');\n  return [noUpdatesItem()];\n}\n\nreturn updates.map(update => ({ json: { ...update, has_updates: true } }));"
+      },
+      "id": "calculate-training-times",
+      "name": "Calculate New Training Times",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        704,
+        304
+      ]
     }
   ],
+  "pinData": {},
   "connections": {
     "Schedule Trigger - Sunday 20:00": {
       "main": [
         [
           {
-            "node": "HTTP Request - Generate Meal Plan",
+            "node": "Calculate Week Dates",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "HTTP Request - Generate Meal Plan": {
+    "Calculate Week Dates": {
+      "main": [
+        [
+          {
+            "node": "Fetch Training Events",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Training Events": {
+      "main": [
+        [
+          {
+            "node": "Debug API Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Debug API Response": {
+      "main": [
+        [
+          {
+            "node": "Calculate New Training Times",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Updates Needed": {
+      "main": [
+        [
+          {
+            "node": "Update Training Time",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Generate Meal Plan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Training Time": {
+      "main": [
+        [
+          {
+            "node": "Merge & Continue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge & Continue": {
+      "main": [
+        [
+          {
+            "node": "Generate Meal Plan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Meal Plan": {
       "main": [
         [
           {
@@ -202,23 +439,42 @@
           }
         ]
       ]
+    },
+    "Calculate New Training Times": {
+      "main": [
+        [
+          {
+            "node": "Check Updates Needed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "versionId": "fcd547fa-3577-4961-b7fe-d9360fd01076",
   "meta": {
     "templateCredsSetupCompleted": true,
-    "instanceId": "meal-planning-system-v1"
+    "instanceId": "089593b0375f52cffd2e682594e43cdd96459883230a04bef809490471c267bb"
   },
+  "id": "VSOAzIak3SfoMqVR",
   "tags": [
     {
-      "createdAt": "2025-01-03T00:00:00.000Z",
-      "updatedAt": "2025-01-03T00:00:00.000Z",
-      "id": "meal-planning",
+      "updatedAt": "2025-11-03T21:19:27.930Z",
+      "createdAt": "2025-11-03T21:19:27.930Z",
+      "id": "iQ5VAWKF1stNmolK",
       "name": "meal-planning"
     },
     {
-      "createdAt": "2025-01-03T00:00:00.000Z",
-      "updatedAt": "2025-01-03T00:00:00.000Z",
-      "id": "automation",
+      "updatedAt": "2025-11-03T21:19:27.932Z",
+      "createdAt": "2025-11-03T21:19:27.932Z",
+      "id": "SvfwsMIdMU4Mcssi",
       "name": "automation"
     }
   ]

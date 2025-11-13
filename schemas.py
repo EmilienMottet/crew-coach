@@ -1,7 +1,7 @@
 """Pydantic models for structured task outputs."""
 from __future__ import annotations
 
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from pydantic import BaseModel, Field
 
@@ -106,9 +106,10 @@ class HexisWeeklyAnalysis(BaseModel):
         ...,
         description="Macro targets per day (key=date, value=MacroTargets object)",
     )
-    nutritional_priorities: List[str] = Field(
+    # Accept both simple strings and rich objects with priority/rationale/implementation
+    nutritional_priorities: List[Union[str, Dict[str, Any]]] = Field(
         ...,
-        description="Key nutritional priorities for the week (e.g., 'High carbs pre-race', 'Recovery focus')",
+        description="Key nutritional priorities for the week - can be simple strings or objects with priority/rationale/implementation",
     )
 
 

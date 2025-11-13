@@ -310,11 +310,34 @@ class MealPlanningCrew:
         model_type: Type[BaseModel],
     ) -> Optional[BaseModel]:
         """Safely parse the final task output into a typed model."""
-        for candidate in self._collect_payload_candidates(crew_output):
+        validation_errors = []
+        for idx, candidate in enumerate(self._collect_payload_candidates(crew_output)):
             try:
                 return model_type.model_validate(candidate)
-            except ValidationError:
+            except ValidationError as e:
+                # Log validation error for debugging
+                error_summary = {
+                    "candidate_index": idx,
+                    "error_count": len(e.errors()),
+                    "errors": [
+                        {
+                            "field": ".".join(str(loc) for loc in err["loc"]),
+                            "type": err["type"],
+                            "message": err["msg"],
+                        }
+                        for err in e.errors()[:5]  # Show first 5 errors
+                    ],
+                }
+                validation_errors.append(error_summary)
                 continue
+
+        # Log all validation errors if parsing failed
+        if validation_errors:
+            print(
+                f"\n❌ DEBUG: All validation attempts failed:\n{json.dumps(validation_errors, indent=2)}\n",
+                file=sys.stderr,
+            )
+
         return None
 
     @staticmethod
@@ -380,7 +403,14 @@ class MealPlanningCrew:
         if hexis_model is None:
             error_msg = "Hexis analysis failed to return valid JSON"
             print(f"\n❌ {error_msg}\n", file=sys.stderr)
-            print(f"❌ DEBUG: Parsing failed. Candidates found: {len(self._collect_payload_candidates(hexis_result))}\n", file=sys.stderr)
+            candidates = self._collect_payload_candidates(hexis_result)
+            print(f"❌ DEBUG: Parsing failed. Candidates found: {len(candidates)}\n", file=sys.stderr)
+
+            # Show candidate structure (truncated)
+            if candidates:
+                candidate_json = json.dumps(candidates[0], indent=2)[:2000]
+                print(f"❌ DEBUG: First candidate structure:\n{candidate_json}...\n", file=sys.stderr)
+
             return {"error": error_msg, "step": "hexis_analysis"}
 
         hexis_analysis = hexis_model.model_dump()
