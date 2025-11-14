@@ -389,8 +389,7 @@ The system automatically normalizes model names based on the endpoint being used
    - Only accepts: `gpt-5`, `gpt-5-codex`
    - Example: `claude-sonnet-4.5` → `gpt-5` (fallback)
    - System prompts: ❌ Disabled (automatically stripped)
-   - Tool calls: ❌ Disabled for GPT-5 models (automatically skipped)
-   - **⚠️ CRITICAL**: Cannot be used with agents that require MCP tools (Description, Music)
+   - Tool calls: ✅ Enabled (GPT-5 supports MCP tool calls)
 
 3. **Claude Endpoint** (`/claude/v1`):
    - Requires full versioned names: `claude-sonnet-4-5-20250929`, `claude-haiku-4-5-20251001`
@@ -399,18 +398,18 @@ The system automatically normalizes model names based on the endpoint being used
 
 **Agent Tool Requirements & Endpoint Compatibility**:
 
-The system enforces strict validation to prevent agents from using incompatible endpoints:
+All endpoints support tool calling with MCP tools:
 
-| Agent | Requires Tools | Compatible Endpoints | Incompatible |
-|-------|---------------|---------------------|--------------|
-| Description | ✅ Yes (Strava, Intervals.icu, Weather) | Copilot, Claude | ❌ Codex |
-| Music | ✅ Yes (Spotify) | Copilot, Claude | ❌ Codex |
-| Privacy | ⚪ No | Copilot, Claude, Codex | - |
-| Translation | ⚪ No | Copilot, Claude, Codex | - |
+| Agent | Requires Tools | Compatible Endpoints |
+|-------|---------------|---------------------|
+| Description | ✅ Yes (Strava, Intervals.icu, Weather) | Copilot, Claude, Codex |
+| Music | ✅ Yes (Spotify) | Copilot, Claude, Codex |
+| Privacy | ⚪ No | Copilot, Claude, Codex |
+| Translation | ⚪ No | Copilot, Claude, Codex |
 
-**Error Prevention**:
-- If you configure `OPENAI_API_BASE=https://ccproxy.emottet.com/codex/v1` with `OPENAI_MODEL_NAME=gpt-5`, the system will **REJECT** this configuration for Description and Music agents at startup with a clear error message.
-- The provider rotation system (in `llm_provider_rotation.py`) automatically **skips** codex providers when an agent needs to make tool calls.
+**Note**: The Codex endpoint strips system prompts but fully supports tool calls.
+
+**Startup Logs**:
 - On startup, you'll see logs like:
   ```
   🤖 MUSIC Agent: ✅ with tools

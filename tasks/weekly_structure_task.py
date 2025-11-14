@@ -34,13 +34,40 @@ TASKS:
 3. Training context examples: "Hard intervals 90min", "Easy run 45min", "Rest day", "Long run 2h tempo"
 4. Weekly summary: training focus, nutritional themes (carb cycling/recovery), special considerations, expected outcomes
 
-Return JSON: week_start_date, week_end_date, daily_targets (array with day_name/date/calories/macros/training_context/meal_timing_notes for all 7 days), weekly_summary.
-No markdown fences. Be specific and actionable.
+CRITICAL JSON STRUCTURE:
+Return JSON with this EXACT structure (all 7 days):
+{{
+  "week_start_date": "YYYY-MM-DD",
+  "week_end_date": "YYYY-MM-DD",
+  "daily_targets": [
+    {{
+      "day_name": "Monday",
+      "date": "YYYY-MM-DD",
+      "calories": 1885,
+      "macros": {{
+        "protein_g": 115,
+        "carbs_g": 225,
+        "fat_g": 63,
+        "calories": 1885
+      }},
+      "training_context": "Rest Day - Complete recovery...",
+      "meal_timing_notes": "Breakfast at 7:00 AM..."
+    }},
+    ... (6 more days)
+  ],
+  "weekly_summary": "Overall weekly strategy..."
+}}
+
+IMPORTANT: "macros" is a nested object containing protein_g, carbs_g, fat_g, and calories.
+Do NOT put protein_g/carbs_g/fat_g directly in daily_targets - they MUST be inside the "macros" object.
+No markdown fences. Return ONLY the JSON object.
 """
 
     return Task(
         description=description,
         agent=agent,
-        expected_output="Valid JSON adhering to the WeeklyNutritionPlan schema with complete daily targets",
+        expected_output="""Valid JSON adhering to WeeklyNutritionPlan schema with complete daily targets.
+Structure: {{"week_start_date": "...", "week_end_date": "...", "daily_targets": [{{"day_name": "...", "date": "...", "calories": N, "macros": {{"protein_g": N, "carbs_g": N, "fat_g": N, "calories": N}}, "training_context": "...", "meal_timing_notes": "..."}}, ...], "weekly_summary": "..."}}
+NO markdown fences, ONLY JSON.""",
         # output_json=WeeklyNutritionPlan,
     )

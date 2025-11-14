@@ -57,6 +57,11 @@ def create_meal_generation_agent(
         - Shopping list optimization
         - Storage and reheating guidance
 
+        DIETARY RESTRICTIONS & PREFERENCES:
+        - AVOID: Smoked salmon (saumon fumé) - user does not enjoy this ingredient
+        - When planning meals with fish, use fresh salmon or other fish varieties instead
+        - If a recipe traditionally calls for smoked salmon, substitute with fresh salmon, trout, or other fish
+
         YOUR APPROACH TO MEAL GENERATION:
 
         1. VARIETY FIRST

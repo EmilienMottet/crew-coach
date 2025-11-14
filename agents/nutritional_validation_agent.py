@@ -66,6 +66,11 @@ def create_nutritional_validation_agent(llm: Any, tools: Any = None) -> Agent:
            - Glycogen replenishment adequacy
            - Muscle protein synthesis optimization
 
+        6. DIETARY RESTRICTIONS & PREFERENCES COMPLIANCE
+           - CRITICAL: Verify NO smoked salmon (saumon fumé) is included in ANY meal
+           - If smoked salmon is found, FLAG as a critical issue requiring regeneration
+           - Acceptable substitutes: fresh salmon, trout, tuna, or other fish varieties
+
         YOUR VALIDATION APPROACH:
 
         STEP 1: Quantitative Analysis

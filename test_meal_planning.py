@@ -11,13 +11,9 @@ from crew_mealy import MealPlanningCrew
 
 def test_meal_planning():
     """Test the meal planning crew with a sample week."""
-    # Calculate next Monday
-    today = datetime.now()
-    days_until_monday = (7 - today.weekday()) % 7
-    if days_until_monday == 0:
-        days_until_monday = 7
-    next_monday = today + timedelta(days=days_until_monday)
-    week_start_date = next_monday.strftime("%Y-%m-%d")
+    # Use current week (Nov 10-16, 2025 = Monday to Sunday)
+    # Note: Hexis server may be out of sync (thinks it's Jan 2025)
+    week_start_date = "2025-11-10"  # Monday, November 10, 2025
 
     print(f"\n{'='*70}")
     print(f"🧪 Testing Meal Planning Crew")
