@@ -28,44 +28,43 @@ def create_hexis_analysis_task(agent: Any, week_start_date: str) -> Task:
     description = f"""
 Analyze Hexis training data for week {week_start_date} to {week_end_date}.
 
-STEPS:
-1. Fetch Hexis data using `hexis_get_weekly_plan` (or related tools):
-   - Training schedule: workouts (type/duration/TSS)
-   - Recovery metrics: HRV, sleep quality, readiness scores
-   - Load trends: CTL, ATL, TSB, training stress
-   - **Nutritional data**: daily macro targets (protein/carbs/fat), calorie recommendations, meal plans
-   
-2. Analyze each day considering:
-   - Workout intensity and energy expenditure
-   - Expected glycogen depletion from training
-   - Recovery needs based on HRV and sleep data
-   - **Hexis-provided nutritional targets** (if available, use these as primary source)
-   
-3. Calculate daily nutrition requirements (for 70kg athlete, BMR 1800 kcal):
-   - TDEE (BMR + exercise calories)
-   - Carbs: 3-5 g/kg (rest), 5-7 (low), 6-8 (moderate), 8-12 (high intensity)
-   - Protein: 1.6-2.2 g/kg
-   - Fat: remainder (min 0.8 g/kg)
-   - **PRIORITY**: Use Hexis nutritional targets when available, fall back to calculations if needed
-   
-4. Identify nutritional priorities:
-   - Pre/post workout fueling strategies
-   - Training adaptation goals (e.g., low-carb training, carb-loading)
-   - Special considerations (race prep, recovery weeks)
+WORKFLOW:
+1. Call `hexis_get_weekly_plan` with start_date="{week_start_date}", end_date="{week_end_date}"
+   to retrieve training and nutrition data
 
-CRITICAL: The `hexis_get_weekly_plan` tool returns BOTH workout AND nutrition data.
-Make sure to extract and include nutritional targets from Hexis in your analysis.
+2. AFTER receiving the tool results, analyze the data and construct a complete JSON response
 
-Return JSON: week_start_date, week_end_date, training_load_summary, recovery_status, 
-daily_energy_needs (dict with days), daily_macro_targets (dict with protein_g/carbs_g/fat_g/calories per day), 
-nutritional_priorities (list).
-Cover all 7 days, no markdown fences.
+ANALYZE THE FOLLOWING from the tool results:
+- Training schedule: workouts (type/duration/TSS)
+- Recovery metrics: HRV, sleep quality, readiness scores
+- Load trends: CTL, ATL, TSB, training stress
+- **Nutritional data**: daily macro targets (protein/carbs/fat), calorie recommendations, meal plans
+
+CONSTRUCT JSON OUTPUT with these fields (cover all 7 days):
+- week_start_date: "{week_start_date}"
+- week_end_date: "{week_end_date}"
+- training_load_summary: {{total_weekly_tss, total_training_time_minutes, training_days, rest_days, key_sessions[], weekly_load_classification, ctl_trend, atl_trend, tsb_trend}}
+- recovery_status: {{overall_assessment, key_observations[], recovery_recommendations[], readiness_indicators[]}}
+- daily_energy_needs: {{"YYYY-MM-DD": {{bmr, exercise_calories, neat_calories, tdee, hexis_target, energy_balance, workout_energy_expenditure}}, ...}}
+- daily_macro_targets: {{"YYYY-MM-DD": {{protein_g, carbs_g, fat_g, calories, carbs_per_kg, protein_per_kg, fat_per_kg, hexis_source}}, ...}}
+- nutritional_priorities: [priority descriptions based on training load and goals]
+
+CRITICAL INSTRUCTIONS:
+1. You MUST call the tool first to get real data
+2. After receiving tool results, you MUST analyze and generate the complete JSON
+3. Return ONLY the final JSON object - no "Thought:", no "Action:", no markdown fences
+4. Use actual data from Hexis where available (macros, meals, energy targets)
+5. Calculate estimated values only where Hexis data is missing
+
+DO NOT return the action format - return the analysis JSON directly.
 """
 
     return Task(
         description=description,
         agent=agent,
-        expected_output="Valid JSON adhering to the HexisWeeklyAnalysis schema with complete weekly analysis. Return ONLY the JSON object, no markdown fences.",
+        expected_output="""Complete JSON object with all required fields populated from Hexis data analysis.
+Format: {{"week_start_date": "{week_start_date}", "week_end_date": "{week_end_date}", "training_load_summary": {{}}, ...}}
+NO markdown fences, NO explanatory text, ONLY the JSON object.""".format(week_start_date=week_start_date, week_end_date=week_end_date),
         # DISABLED: output_json causes auth issues with instructor
         # output_json=HexisWeeklyAnalysis,
     )

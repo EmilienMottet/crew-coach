@@ -157,6 +157,7 @@ def patch_crewai_llm_call() -> None:
                     api_base=getattr(self, 'base_url', None),
                     api_key=getattr(self, 'api_key', None),
                     drop_params=True,  # Ignore unsupported params
+                    max_tokens=16000,  # Allow longer responses for complex JSON outputs
                     **{k: v for k, v in kwargs.items() if k not in ['from_agent', 'from_task', 'tools', 'available_functions']}
                 )
                 

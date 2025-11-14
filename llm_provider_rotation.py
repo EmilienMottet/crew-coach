@@ -670,7 +670,8 @@ class RotatingLLM(BaseLLM):
                             api_key=api_key_str,
                             custom_llm_provider=custom_provider,
                             drop_params=True,
-                            request_timeout=60,  # 60 seconds timeout
+                            request_timeout=180,  # 180 seconds timeout (increased from 60)
+                            max_tokens=16000,  # Allow longer responses for complex JSON outputs
                         )
                             
                     except Exception as e:
@@ -804,7 +805,8 @@ class RotatingLLM(BaseLLM):
                                 api_key=api_key_str,
                                 custom_llm_provider=custom_provider,
                                 drop_params=True,
-                                request_timeout=90,  # Longer timeout for second call with tool results
+                                request_timeout=240,  # Longer timeout for second call with tool results (increased from 90)
+                                max_tokens=16000,  # Allow longer responses for complex JSON outputs
                             )
                             
                             print(
