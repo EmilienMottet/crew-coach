@@ -11,6 +11,19 @@ from dotenv import load_dotenv
 # Load environment immediately
 load_dotenv(override=True)
 
+# CRITICAL: Disable CrewAI telemetry BEFORE any crewai imports
+# This must be set explicitly because CrewAI initializes OpenTelemetry on import
+os.environ["OTEL_SDK_DISABLED"] = "true"
+os.environ["OTEL_TRACES_EXPORTER"] = "none"
+os.environ["OTEL_METRICS_EXPORTER"] = "none"
+os.environ["OTEL_LOGS_EXPORTER"] = "none"
+# Disable CrewAI telemetry (prevents "Trace batch finalized" messages)
+# Reference: https://docs.crewai.com/en/telemetry
+os.environ["CREWAI_DISABLE_TELEMETRY"] = "true"
+# Prevent trace batch finalization UI messages
+# This marks the environment as "test" to suppress rich console output
+os.environ["CREWAI_TESTING"] = "true"
+
 
 def initialize_basic_auth() -> str:
     """
@@ -157,7 +170,7 @@ def patch_crewai_llm_call() -> None:
                     api_base=getattr(self, 'base_url', None),
                     api_key=getattr(self, 'api_key', None),
                     drop_params=True,  # Ignore unsupported params
-                    max_tokens=16000,  # Allow longer responses for complex JSON outputs
+                    max_tokens=32000,  # Increased for weekly meal plans (7 days with full recipes)
                     **{k: v for k, v in kwargs.items() if k not in ['from_agent', 'from_task', 'tools', 'available_functions']}
                 )
                 

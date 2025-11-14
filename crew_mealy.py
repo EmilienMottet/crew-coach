@@ -340,6 +340,132 @@ class MealPlanningCrew:
 
         return None
 
+    def _generate_meals_in_chunks(
+        self, nutrition_plan: Dict[str, Any]
+    ) -> tuple[Optional[Dict], Optional[Dict]]:
+        """
+        Generate meals in chunks to avoid JSON truncation issues.
+
+        Splits the week into 2 chunks (4 days + 3 days) and generates meals
+        separately for each chunk, then merges the results.
+
+        Returns:
+            tuple: (meal_plan, validation) or (None, None) on failure
+        """
+        daily_targets = nutrition_plan.get('daily_targets', [])
+
+        if len(daily_targets) != 7:
+            print(f"\n⚠️  Expected 7 daily targets, got {len(daily_targets)}\n", file=sys.stderr)
+            return None, None
+
+        # Split into chunks: 4 days + 3 days
+        chunk1_targets = daily_targets[:4]  # Monday-Thursday
+        chunk2_targets = daily_targets[4:]  # Friday-Sunday
+
+        chunks = [
+            {"targets": chunk1_targets, "name": "Chunk 1 (Mon-Thu)", "days": 4},
+            {"targets": chunk2_targets, "name": "Chunk 2 (Fri-Sun)", "days": 3},
+        ]
+
+        all_daily_plans = []
+        all_shopping_lists = []
+        all_meal_prep_tips = []
+
+        # Generate meals for each chunk
+        for chunk_idx, chunk in enumerate(chunks, 1):
+            print(f"\n📦 Generating {chunk['name']} ({chunk['days']} days)...\n", file=sys.stderr)
+
+            # Create a partial nutrition plan for this chunk
+            chunk_plan = nutrition_plan.copy()
+            chunk_plan['daily_targets'] = chunk['targets']
+
+            # Generate meals for this chunk
+            max_attempts = 3
+            chunk_meal_plan = None
+
+            for attempt in range(1, max_attempts + 1):
+                print(f"\n🔄 {chunk['name']} - Attempt {attempt}/{max_attempts}...\n", file=sys.stderr)
+
+                meal_task = create_meal_generation_task(
+                    self.meal_generation_agent, chunk_plan
+                )
+                meal_crew = Crew(
+                    agents=[self.meal_generation_agent],
+                    tasks=[meal_task],
+                    process=Process.sequential,
+                    verbose=True,
+                )
+
+                meal_result = meal_crew.kickoff()
+                meal_model = self._extract_model_from_output(meal_result, WeeklyMealPlan)
+
+                if meal_model is None:
+                    print(f"\n⚠️  {chunk['name']} - Attempt {attempt}: Invalid JSON\n", file=sys.stderr)
+                    continue
+
+                chunk_meal_plan = meal_model.model_dump()
+                print(
+                    f"\n✅ {chunk['name']} - Attempt {attempt}: Generated {len(chunk_meal_plan.get('daily_plans', []))} days\n",
+                    file=sys.stderr,
+                )
+                break  # Success
+
+            if chunk_meal_plan is None:
+                print(f"\n❌ {chunk['name']}: Failed after {max_attempts} attempts\n", file=sys.stderr)
+                return None, None
+
+            # Collect results from this chunk
+            all_daily_plans.extend(chunk_meal_plan.get('daily_plans', []))
+            all_shopping_lists.extend(chunk_meal_plan.get('shopping_list', []))
+            all_meal_prep_tips.extend(chunk_meal_plan.get('meal_prep_tips', []))
+
+        # Merge chunks into complete weekly meal plan
+        print(f"\n🔗 Merging {len(all_daily_plans)} days into complete meal plan...\n", file=sys.stderr)
+
+        merged_meal_plan = {
+            "week_start_date": nutrition_plan.get('week_start_date'),
+            "week_end_date": nutrition_plan.get('week_end_date'),
+            "daily_plans": all_daily_plans,
+            "shopping_list": list(set(all_shopping_lists)),  # Deduplicate
+            "meal_prep_tips": all_meal_prep_tips,
+        }
+
+        print(f"\n✅ Merged meal plan: {len(merged_meal_plan['daily_plans'])} days, {len(merged_meal_plan['shopping_list'])} items\n", file=sys.stderr)
+
+        # Validate the merged plan
+        print(f"\n🔍 Validating merged meal plan...\n", file=sys.stderr)
+
+        validation_task = create_nutritional_validation_task(
+            self.nutritional_validation_agent, merged_meal_plan, nutrition_plan
+        )
+        validation_crew = Crew(
+            agents=[self.nutritional_validation_agent],
+            tasks=[validation_task],
+            process=Process.sequential,
+            verbose=True,
+        )
+
+        validation_result = validation_crew.kickoff()
+        validation_model = self._extract_model_from_output(
+            validation_result, NutritionalValidation
+        )
+
+        if validation_model is None:
+            print(f"\n⚠️  Validation returned invalid JSON\n", file=sys.stderr)
+            # Continue anyway with the merged plan
+            validation = {"approved": False, "validation_summary": "Validation failed"}
+        else:
+            validation = validation_model.model_dump()
+
+        is_approved = validation.get('approved', False)
+        if is_approved:
+            print(f"\n✅ SUCCESS: Merged meal plan APPROVED by validator!\n", file=sys.stderr)
+        else:
+            issues = validation.get('issues_found', [])
+            print(f"\n⚠️  Merged meal plan has {len(issues)} issues (proceeding anyway)\n", file=sys.stderr)
+
+        return merged_meal_plan, validation
+
     @staticmethod
     def _stringify_output(crew_output: CrewOutput) -> str:
         """Convert a crew output into a string for debugging/fallbacks."""
@@ -451,97 +577,13 @@ class MealPlanningCrew:
         )
 
         # ===================================================================
-        # STEP 3: Meal Generation with Validation Loop
-        # Keep regenerating meals until the validator approves
+        # STEP 3: Meal Generation in Chunks (to avoid JSON truncation)
+        # Generate 4 days, then 3 days, then merge results
         # ===================================================================
-        print("\n👨‍🍳 Step 3: Generating weekly meals with validation loop...\n", file=sys.stderr)
-        
-        max_attempts = 3
-        meal_plan = None
-        validation = None
-        
-        for attempt in range(1, max_attempts + 1):
-            print(f"\n🔄 Attempt {attempt}/{max_attempts}: Generating meals...\n", file=sys.stderr)
-            
-            # Generate meals
-            meal_task = create_meal_generation_task(
-                self.meal_generation_agent, nutrition_plan
-            )
-            meal_crew = Crew(
-                agents=[self.meal_generation_agent],
-                tasks=[meal_task],
-                process=Process.sequential,
-                verbose=True,
-            )
+        print("\n👨‍🍳 Step 3: Generating weekly meals in chunks...\n", file=sys.stderr)
 
-            meal_result = meal_crew.kickoff()
-            meal_model = self._extract_model_from_output(meal_result, WeeklyMealPlan)
+        meal_plan, validation = self._generate_meals_in_chunks(nutrition_plan)
 
-            if meal_model is None:
-                print(f"\n⚠️  Attempt {attempt}: Meal generation returned invalid JSON\n", file=sys.stderr)
-                continue
-
-            meal_plan = meal_model.model_dump()
-            print(
-                f"\n✅ Attempt {attempt}: Meal plan generated ({len(meal_plan.get('daily_plans', []))} days)\n",
-                file=sys.stderr,
-            )
-
-            # Validate the generated meals
-            print(f"\n🔍 Validating meal plan (attempt {attempt})...\n", file=sys.stderr)
-            
-            validation_task = create_nutritional_validation_task(
-                self.nutritional_validation_agent, meal_plan, nutrition_plan
-            )
-            validation_crew = Crew(
-                agents=[self.nutritional_validation_agent],
-                tasks=[validation_task],
-                process=Process.sequential,
-                verbose=True,
-            )
-
-            validation_result = validation_crew.kickoff()
-            validation_model = self._extract_model_from_output(
-                validation_result, NutritionalValidation
-            )
-
-            if validation_model is None:
-                print(f"\n⚠️  Attempt {attempt}: Validation returned invalid JSON\n", file=sys.stderr)
-                continue
-
-            validation = validation_model.model_dump()
-            is_approved = validation.get('approved', False)
-            
-            if is_approved:
-                print(
-                    f"\n✅ SUCCESS (Attempt {attempt}): Meal plan APPROVED by validator!\n",
-                    file=sys.stderr,
-                )
-                break
-            else:
-                issues = validation.get('issues', [])
-                print(
-                    f"\n❌ Attempt {attempt}: Meal plan REJECTED ({len(issues)} issues found)\n",
-                    file=sys.stderr,
-                )
-                print(f"   Issues summary:\n", file=sys.stderr)
-                for i, issue in enumerate(issues[:3], 1):  # Show first 3 issues
-                    print(f"   {i}. {issue[:100]}...\n", file=sys.stderr)
-                
-                if attempt < max_attempts:
-                    print(f"\n🔄 Regenerating meals with validator feedback...\n", file=sys.stderr)
-                    # Update nutrition_plan with feedback for next iteration
-                    nutrition_plan['validation_feedback'] = {
-                        'attempt': attempt,
-                        'issues': issues,
-                        'recommendations': validation.get('recommendations', [])
-                    }
-                else:
-                    print(
-                        f"\n⚠️  Maximum attempts ({max_attempts}) reached. Using last generated plan.\n",
-                        file=sys.stderr,
-                    )
-        
         # Check if we have valid results
         if meal_plan is None or validation is None:
             error_msg = "Meal generation and validation failed after all attempts"

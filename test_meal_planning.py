@@ -11,8 +11,7 @@ from crew_mealy import MealPlanningCrew
 
 def test_meal_planning():
     """Test the meal planning crew with a sample week."""
-    # Use current week (Nov 10-16, 2025 = Monday to Sunday)
-    # Note: Hexis server may be out of sync (thinks it's Jan 2025)
+    # Use the requested week (user confirmed Hexis has data for this week)
     week_start_date = "2025-11-10"  # Monday, November 10, 2025
 
     print(f"\n{'='*70}")
