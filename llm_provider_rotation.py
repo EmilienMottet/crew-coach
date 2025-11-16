@@ -900,7 +900,7 @@ def _is_rate_limit_error(exc: Exception) -> bool:
         return True
 
     status_code = getattr(exc, "status_code", None) or getattr(exc, "http_status", None)
-    if status_code == 429:
+    if status_code in {402, 429}:  # 402 = quota exceeded, 429 = rate limit
         return True
 
     try:

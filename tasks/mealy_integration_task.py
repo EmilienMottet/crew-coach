@@ -51,44 +51,53 @@ def create_mealy_integration_task(
         - Count total meals to sync (typically 21-28 meals: 3 meals + snacks × 7 days)
         - Initialize tracking for sync results
 
-    3. USE MEALY MCP TOOLS TO SYNC MEALS
-        For each day in daily_plans (Monday through Sunday):
-          For each meal in the day's meals list:
+    3. USE MEALY BULK UPLOAD TO SYNC ALL MEALS AT ONCE
 
-            A. Format meal data for Mealy
-               - Extract: day_name, date, meal_type, meal_name, description
-               - Extract: calories, protein_g, carbs_g, fat_g
-               - Extract: ingredients, recipe_notes, preparation_time_min
+        A. Convert WeeklyMealPlan to Mealy bulk format
+           Build an entries array with ALL meals from the week:
 
-            B. Call Mealy MCP tool to create meal
-               Example: create_meal(
-                 date="2025-01-06",
-                 meal_type="Breakfast",
-                 name="Greek Yogurt Parfait with Berries",
-                 description="Protein-rich breakfast...",
-                 calories=450,
-                 protein_g=30,
-                 carbs_g=55,
-                 fat_g=10,
-                 ingredients=["200g Greek yogurt", "1 cup mixed berries", ...],
-                 recipe_notes="Layer yogurt with berries and granola...",
-                 preparation_time_min=10
-               )
+           entries = []
+           For each day in daily_plans:
+             For each meal in day.meals:
+               entry = {{
+                 "date": day.date,  # ISO format "YYYY-MM-DD"
+                 "title": f"{{meal.meal_type}}: {{meal.meal_name}}",
+                 "entry_type": map_meal_type_to_mealy(meal.meal_type)
+               }}
+               entries.append(entry)
 
-            C. Capture result
-               - On success: Record mealy_id from response
-               - On failure: Capture error message
-               - Create MealySyncStatus entry:
-                 {{
-                   "day_name": "Monday",
-                   "date": "2025-01-06",
-                   "meal_type": "Breakfast",
-                   "success": true,
-                   "mealy_id": "meal_12345",
-                   "error_message": null
-                 }}
+           Meal type mapping:
+           - "Breakfast" → "breakfast"
+           - "Lunch" → "lunch"
+           - "Dinner" → "dinner"
+           - "Afternoon Snack" or "Snack" → "side"
 
-            D. Continue with next meal (don't stop on errors)
+        B. Call mealy__create_mealplan_bulk ONCE with all entries
+           Example:
+           result = mealy__create_mealplan_bulk(entries=entries)
+
+           This sends all 28 meals (7 days × 4 meals) in a single API call.
+
+        C. Parse bulk response and create sync statuses
+           The tool returns a response indicating success/failure.
+           For each entry in your entries list:
+             - If bulk call succeeded: Mark as success
+             - If bulk call failed: Mark all as failed with error message
+
+           Create MealySyncStatus for each meal:
+           {{
+             "day_name": "Monday",
+             "date": "2025-01-06",
+             "meal_type": "Breakfast",
+             "success": true/false,
+             "mealy_id": null,  # Bulk doesn't return individual IDs
+             "error_message": error if failed
+           }}
+
+        D. FALLBACK: If bulk upload fails, consider individual upload
+           If mealy__create_mealplan_bulk is not available or fails,
+           you can fall back to individual meal creation (if available).
+           However, bulk is preferred for efficiency.
 
     4. HANDLE ERRORS GRACEFULLY
         Common errors and how to handle:

@@ -4,9 +4,11 @@ from __future__ import annotations
 # CRITICAL: Initialize auth BEFORE importing CrewAI to ensure structured outputs work
 import llm_auth_init  # noqa: F401
 
+import copy
 import json
 import os
 import sys
+from collections import Counter
 from typing import Any, Dict, List, Optional, Type
 
 from dotenv import load_dotenv
@@ -20,12 +22,14 @@ from agents import (
     create_hexis_analysis_agent,
     create_weekly_structure_agent,
     create_meal_generation_agent,
+    create_meal_compilation_agent,
     create_nutritional_validation_agent,
     create_mealy_integration_agent,
 )
 from schemas import (
     HexisWeeklyAnalysis,
     WeeklyNutritionPlan,
+    DailyMealPlan,
     WeeklyMealPlan,
     NutritionalValidation,
     MealyIntegrationResult,
@@ -34,9 +38,11 @@ from tasks import (
     create_hexis_analysis_task,
     create_weekly_structure_task,
     create_meal_generation_task,
+    create_meal_compilation_task,
     create_nutritional_validation_task,
     create_mealy_integration_task,
 )
+# NOTE: load_catalog_tool_names kept for compatibility but currently unused
 from mcp_utils import build_mcp_references, load_catalog_tool_names
 from mcp_auth_wrapper import MetaMCPAdapter
 from llm_provider_rotation import create_llm_with_rotation
@@ -90,6 +96,13 @@ class MealPlanningCrew:
             default_key=api_key
         )
 
+        self.meal_compilation_llm = self._create_agent_llm(
+            agent_name="MEAL_COMPILATION",
+            default_model=simple_model_name,
+            default_base=base_url,
+            default_key=api_key
+        )
+
         self.nutritional_validation_llm = self._create_agent_llm(
             agent_name="NUTRITIONAL_VALIDATION",
             default_model=complex_model_name,
@@ -116,6 +129,7 @@ class MealPlanningCrew:
             "Food": os.getenv("FOOD_MCP_SERVER_URL", ""),
             "Intervals.icu": os.getenv("INTERVALS_MCP_SERVER_URL", ""),
             "Toolbox": os.getenv("TOOLBOX_MCP_SERVER_URL", ""),
+            "Mealy": os.getenv("MEALY_MCP_SERVER_URL", ""),
         }
 
         # Filter out empty URLs
@@ -157,6 +171,7 @@ class MealPlanningCrew:
         food_data_tools = [t for t in self.mcp_tools if "food" in t.name.lower() and "hexis" not in t.name.lower()]
         intervals_tools = [t for t in self.mcp_tools if "intervals" in t.name.lower()]
         toolbox_tools = [t for t in self.mcp_tools if any(keyword in t.name.lower() for keyword in ["fetch", "time", "task"])]
+        mealy_tools = [t for t in self.mcp_tools if "mealy" in t.name.lower()]
 
         if hexis_tools:
             print(f"✅ Found {len(hexis_tools)} Hexis tools\n", file=sys.stderr)
@@ -166,6 +181,8 @@ class MealPlanningCrew:
             print(f"📊 Found {len(intervals_tools)} Intervals.icu tools\n", file=sys.stderr)
         if toolbox_tools:
             print(f"🛠️  Found {len(toolbox_tools)} Toolbox tools\n", file=sys.stderr)
+        if mealy_tools:
+            print(f"🍽️ Found {len(mealy_tools)} Mealy tools\n", file=sys.stderr)
 
         # Create agents with MCP tools
         # Hexis Analysis Agent: needs Hexis, Intervals.icu, and Toolbox
@@ -183,6 +200,8 @@ class MealPlanningCrew:
             self.meal_generation_llm, tools=meal_generation_tools if meal_generation_tools else None
         )
 
+        self.meal_compilation_agent = create_meal_compilation_agent(self.meal_compilation_llm)
+
         # Nutritional Validation Agent: needs food data for validation
         validation_tools = food_data_tools + hexis_tools
         self.nutritional_validation_agent = create_nutritional_validation_agent(
@@ -191,7 +210,7 @@ class MealPlanningCrew:
 
         # Mealy Integration Agent: needs Hexis tools for meal creation
         self.mealy_integration_agent = create_mealy_integration_agent(
-            self.mealy_integration_llm, tools=hexis_tools if hexis_tools else None
+            self.mealy_integration_llm, tools=mealy_tools if mealy_tools else None
         )
 
     def _create_agent_llm(
@@ -279,9 +298,37 @@ class MealPlanningCrew:
             try:
                 # Clean markdown fences before parsing
                 cleaned = MealPlanningCrew._clean_json_text(raw_value)
-                parsed_raw = json.loads(cleaned)
-                if isinstance(parsed_raw, dict):
-                    payloads.append(parsed_raw)
+                candidate_texts = []
+
+                if cleaned:
+                    candidate_texts.append(cleaned)
+                    first_brace = cleaned.find("{")
+                    if first_brace > 0:
+                        candidate_texts.append(cleaned[first_brace:])
+
+                decoder = json.JSONDecoder()
+
+                for candidate in candidate_texts:
+                    normalized = candidate.strip()
+                    if not normalized:
+                        continue
+
+                    parsed_raw: Dict[str, Any] | None = None
+
+                    try:
+                        potential = json.loads(normalized)
+                        if isinstance(potential, dict):
+                            parsed_raw = potential
+                    except json.JSONDecodeError:
+                        try:
+                            potential, _ = decoder.raw_decode(normalized)
+                            if isinstance(potential, dict):
+                                parsed_raw = potential
+                        except json.JSONDecodeError:
+                            continue
+
+                    if parsed_raw is not None:
+                        payloads.append(parsed_raw)
             except json.JSONDecodeError:
                 pass
 
@@ -340,54 +387,41 @@ class MealPlanningCrew:
 
         return None
 
-    def _generate_meals_in_chunks(
-        self, nutrition_plan: Dict[str, Any]
-    ) -> tuple[Optional[Dict], Optional[Dict]]:
-        """
-        Generate meals in chunks to avoid JSON truncation issues.
+    def _generate_daily_meal_plans(
+        self,
+        nutrition_plan: Dict[str, Any],
+    ) -> Optional[List[Dict[str, Any]]]:
+        """Generate daily meal plans sequentially to keep tasks focused."""
+        daily_targets = nutrition_plan.get("daily_targets", [])
 
-        Splits the week into 2 chunks (4 days + 3 days) and generates meals
-        separately for each chunk, then merges the results.
+        if not daily_targets:
+            print("\n❌ No daily targets provided in nutrition plan\n", file=sys.stderr)
+            return None
 
-        Returns:
-            tuple: (meal_plan, validation) or (None, None) on failure
-        """
-        daily_targets = nutrition_plan.get('daily_targets', [])
+        generated_daily_plans: List[Dict[str, Any]] = []
 
-        if len(daily_targets) != 7:
-            print(f"\n⚠️  Expected 7 daily targets, got {len(daily_targets)}\n", file=sys.stderr)
-            return None, None
+        for target in daily_targets:
+            day_name = target.get("day_name", "Unknown day")
+            day_date = target.get("date", "?")
+            print(
+                f"\n📆 Generating meals for {day_name} ({day_date})...\n",
+                file=sys.stderr,
+            )
 
-        # Split into chunks: 4 days + 3 days
-        chunk1_targets = daily_targets[:4]  # Monday-Thursday
-        chunk2_targets = daily_targets[4:]  # Friday-Sunday
-
-        chunks = [
-            {"targets": chunk1_targets, "name": "Chunk 1 (Mon-Thu)", "days": 4},
-            {"targets": chunk2_targets, "name": "Chunk 2 (Fri-Sun)", "days": 3},
-        ]
-
-        all_daily_plans = []
-        all_shopping_lists = []
-        all_meal_prep_tips = []
-
-        # Generate meals for each chunk
-        for chunk_idx, chunk in enumerate(chunks, 1):
-            print(f"\n📦 Generating {chunk['name']} ({chunk['days']} days)...\n", file=sys.stderr)
-
-            # Create a partial nutrition plan for this chunk
-            chunk_plan = nutrition_plan.copy()
-            chunk_plan['daily_targets'] = chunk['targets']
-
-            # Generate meals for this chunk
             max_attempts = 3
-            chunk_meal_plan = None
+            daily_plan: Optional[Dict[str, Any]] = None
 
             for attempt in range(1, max_attempts + 1):
-                print(f"\n🔄 {chunk['name']} - Attempt {attempt}/{max_attempts}...\n", file=sys.stderr)
+                print(
+                    f"\n🔄 {day_name} - Attempt {attempt}/{max_attempts}...\n",
+                    file=sys.stderr,
+                )
 
                 meal_task = create_meal_generation_task(
-                    self.meal_generation_agent, chunk_plan
+                    self.meal_generation_agent,
+                    daily_target=target,
+                    weekly_context=nutrition_plan,
+                    previous_days=generated_daily_plans,
                 )
                 meal_crew = Crew(
                     agents=[self.meal_generation_agent],
@@ -397,74 +431,280 @@ class MealPlanningCrew:
                 )
 
                 meal_result = meal_crew.kickoff()
-                meal_model = self._extract_model_from_output(meal_result, WeeklyMealPlan)
+                meal_model = self._extract_model_from_output(meal_result, DailyMealPlan)
 
                 if meal_model is None:
-                    print(f"\n⚠️  {chunk['name']} - Attempt {attempt}: Invalid JSON\n", file=sys.stderr)
+                    print(
+                        f"\n⚠️  {day_name} - Attempt {attempt}: Invalid JSON, retrying\n",
+                        file=sys.stderr,
+                    )
                     continue
 
-                chunk_meal_plan = meal_model.model_dump()
+                daily_plan = meal_model.model_dump()
                 print(
-                    f"\n✅ {chunk['name']} - Attempt {attempt}: Generated {len(chunk_meal_plan.get('daily_plans', []))} days\n",
+                    f"\n✅ {day_name} - Attempt {attempt}: Generated {len(daily_plan.get('meals', []))} meals\n",
                     file=sys.stderr,
                 )
-                break  # Success
+                break
 
-            if chunk_meal_plan is None:
-                print(f"\n❌ {chunk['name']}: Failed after {max_attempts} attempts\n", file=sys.stderr)
-                return None, None
+            if daily_plan is None:
+                print(
+                    f"\n❌ {day_name}: Failed to produce a valid daily plan after {max_attempts} attempts\n",
+                    file=sys.stderr,
+                )
+                return None
 
-            # Collect results from this chunk
-            all_daily_plans.extend(chunk_meal_plan.get('daily_plans', []))
-            all_shopping_lists.extend(chunk_meal_plan.get('shopping_list', []))
-            all_meal_prep_tips.extend(chunk_meal_plan.get('meal_prep_tips', []))
+            generated_daily_plans.append(daily_plan)
 
-        # Merge chunks into complete weekly meal plan
-        print(f"\n🔗 Merging {len(all_daily_plans)} days into complete meal plan...\n", file=sys.stderr)
+        print(
+            f"\n✅ Generated {len(generated_daily_plans)} daily plans successfully\n",
+            file=sys.stderr,
+        )
+        return generated_daily_plans
 
-        merged_meal_plan = {
-            "week_start_date": nutrition_plan.get('week_start_date'),
-            "week_end_date": nutrition_plan.get('week_end_date'),
-            "daily_plans": all_daily_plans,
-            "shopping_list": list(set(all_shopping_lists)),  # Deduplicate
-            "meal_prep_tips": all_meal_prep_tips,
+    def _compile_weekly_plan(
+        self,
+        nutrition_plan: Dict[str, Any],
+        daily_plans: List[Dict[str, Any]],
+    ) -> Optional[Dict[str, Any]]:
+        """Merge daily plans into a weekly plan using the compilation agent when possible."""
+
+        if self.meal_compilation_agent:
+            print("\n🔗 Compiling weekly meal plan from daily outputs...\n", file=sys.stderr)
+
+            try:
+                compilation_task = create_meal_compilation_task(
+                    self.meal_compilation_agent,
+                    nutrition_plan,
+                    daily_plans,
+                )
+                compilation_crew = Crew(
+                    agents=[self.meal_compilation_agent],
+                    tasks=[compilation_task],
+                    process=Process.sequential,
+                    verbose=True,
+                )
+
+                compilation_result = compilation_crew.kickoff()
+                weekly_model = self._extract_model_from_output(compilation_result, WeeklyMealPlan)
+
+                if weekly_model is not None:
+                    compiled_plan = weekly_model.model_dump()
+                    print(
+                        f"\n✅ Weekly plan compiled with {len(compiled_plan.get('daily_plans', []))} days\n",
+                        file=sys.stderr,
+                    )
+                    return compiled_plan
+
+                print("\n⚠️  Weekly compilation returned invalid JSON. Falling back to deterministic merge.\n", file=sys.stderr)
+            except Exception as exc:
+                print(
+                    f"\n⚠️  Weekly compilation agent failed ({exc}). Falling back to deterministic merge.\n",
+                    file=sys.stderr,
+                )
+
+        return self._fallback_compile_weekly_plan(nutrition_plan, daily_plans)
+
+    def _fallback_compile_weekly_plan(
+        self,
+        nutrition_plan: Dict[str, Any],
+        daily_plans: List[Dict[str, Any]],
+    ) -> Optional[Dict[str, Any]]:
+        """Deterministically merge daily plans into a WeeklyMealPlan-compliant structure."""
+
+        print("\n🧮 Fallback: Merging daily plans without LLM assistance...\n", file=sys.stderr)
+
+        if not daily_plans:
+            print("\n❌ Fallback merge aborted: no daily plans supplied\n", file=sys.stderr)
+            return None
+
+        try:
+            normalized_daily_plans: List[Dict[str, Any]] = []
+            ingredient_counter: Counter[str] = Counter()
+
+            for raw_plan in daily_plans:
+                plan = copy.deepcopy(raw_plan)
+                meals = plan.get("meals", []) or []
+
+                totals = {
+                    "calories": 0,
+                    "protein_g": 0.0,
+                    "carbs_g": 0.0,
+                    "fat_g": 0.0,
+                }
+
+                for meal in meals:
+                    totals["calories"] += int(meal.get("calories", 0) or 0)
+                    totals["protein_g"] += float(meal.get("protein_g", 0.0) or 0.0)
+                    totals["carbs_g"] += float(meal.get("carbs_g", 0.0) or 0.0)
+                    totals["fat_g"] += float(meal.get("fat_g", 0.0) or 0.0)
+
+                    for ingredient in meal.get("ingredients", []) or []:
+                        ingredient_str = ingredient.strip()
+                        if ingredient_str:
+                            ingredient_counter[ingredient_str] += 1
+
+                plan["daily_totals"] = {
+                    "calories": int(round(totals["calories"])),
+                    "protein_g": round(totals["protein_g"], 1),
+                    "carbs_g": round(totals["carbs_g"], 1),
+                    "fat_g": round(totals["fat_g"], 1),
+                }
+
+                normalized_daily_plans.append(plan)
+
+            shopping_list = self._build_shopping_list(ingredient_counter)
+            meal_prep_tips = self._build_meal_prep_tips(nutrition_plan, normalized_daily_plans, ingredient_counter)
+
+            fallback_plan = {
+                "week_start_date": nutrition_plan.get("week_start_date"),
+                "week_end_date": nutrition_plan.get("week_end_date"),
+                "daily_plans": normalized_daily_plans,
+                "shopping_list": shopping_list,
+                "meal_prep_tips": meal_prep_tips,
+            }
+
+            validated = WeeklyMealPlan.model_validate(fallback_plan)
+            print(
+                f"\n✅ Fallback merge produced weekly plan with {len(normalized_daily_plans)} days\n",
+                file=sys.stderr,
+            )
+            return validated.model_dump()
+
+        except ValidationError as exc:
+            print(
+                f"\n❌ Fallback merge failed validation: {exc}\n",
+                file=sys.stderr,
+            )
+        except Exception as exc:  # pylint: disable=broad-except
+            print(
+                f"\n❌ Unexpected error during fallback merge: {exc}\n",
+                file=sys.stderr,
+            )
+
+        return None
+
+    @staticmethod
+    def _simplify_ingredient_name(raw: str) -> str:
+        """Return a simplified ingredient label without leading quantities/units."""
+        import re
+
+        if not raw:
+            return ""
+
+        text = raw.strip()
+        pattern = r"^[0-9]+(?:[.,][0-9]+)?\s*(?:g|kg|mg|ml|l|cl|oz|lb|lbs|cups?|cup|tbsp|tablespoons?|tsp|teaspoons?|scoops?|pieces?|slices?|slice|whole|large|small|medium)\b"
+        simplified = re.sub(pattern, "", text, flags=re.IGNORECASE).lstrip("-×x· *")
+        return simplified.strip()
+
+    def _build_shopping_list(self, ingredient_counter: Counter[str]) -> List[str]:
+        """Aggregate ingredients into a shopping list with simple deduplication."""
+
+        if not ingredient_counter:
+            return []
+
+        shopping_entries: List[str] = []
+        for ingredient, count in ingredient_counter.most_common():
+            label = ingredient
+            if count > 1:
+                label = f"{count}× {ingredient}"
+            shopping_entries.append(label)
+
+        return sorted(shopping_entries, key=str.lower)
+
+    def _build_meal_prep_tips(
+        self,
+        nutrition_plan: Dict[str, Any],
+        daily_plans: List[Dict[str, Any]],
+        ingredient_counter: Counter[str],
+    ) -> List[str]:
+        """Generate practical prep tips based on the week's structure."""
+
+        tips: List[str] = []
+
+        grain_keywords = ["rice", "quinoa", "couscous", "pasta", "noodle", "oat", "polenta", "grits"]
+        roast_keywords = ["sweet potato", "potato", "carrot", "brussels", "squash", "broccolini", "broccoli"]
+
+        grains = {
+            self._simplify_ingredient_name(item)
+            for item in ingredient_counter
+            if any(keyword in item.lower() for keyword in grain_keywords)
+        }
+        roasted_items = {
+            self._simplify_ingredient_name(item)
+            for item in ingredient_counter
+            if any(keyword in item.lower() for keyword in roast_keywords)
         }
 
-        print(f"\n✅ Merged meal plan: {len(merged_meal_plan['daily_plans'])} days, {len(merged_meal_plan['shopping_list'])} items\n", file=sys.stderr)
+        training_context = {
+            target.get("day_name", ""): target.get("training_context", "")
+            for target in nutrition_plan.get("daily_targets", [])
+        }
 
-        # Validate the merged plan
-        print(f"\n🔍 Validating merged meal plan...\n", file=sys.stderr)
+        intense_keywords = ["interval", "vo2", "threshold", "long", "tempo"]
+        intense_days = [
+            day
+            for day, context in training_context.items()
+            if any(keyword in context.lower() for keyword in intense_keywords)
+        ]
 
-        validation_task = create_nutritional_validation_task(
-            self.nutritional_validation_agent, merged_meal_plan, nutrition_plan
+        snack_names = [
+            meal.get("meal_name", "Snack")
+            for plan in daily_plans
+            for meal in plan.get("meals", []) or []
+            if "snack" in meal.get("meal_type", "").lower()
+        ]
+
+        if grains:
+            tips.append(
+                "Batch-cook grains such as "
+                + ", ".join(sorted(grains))
+                + " on Sunday evening to cover quick lunches through mid-week."
+            )
+
+        if roasted_items:
+            tips.append(
+                "Roast vegetables like "
+                + ", ".join(sorted(roasted_items))
+                + " together on large trays to reuse across dinners."
+            )
+
+        if intense_days:
+            window = ", ".join(intense_days[:4])
+            tips.append(
+                f"Prepare protein marinades ahead of {window} to speed up recovery dinners after hard sessions."
+            )
+
+        if snack_names:
+            sampled = ", ".join(sorted(set(snack_names))[:4])
+            tips.append(
+                f"Portion snacks such as {sampled} into grab-and-go containers for consistent fueling."
+            )
+
+        tips.append(
+            "Chop aromatics (garlic, ginger, onions) and store in airtight jars to streamline stir-fries and sauces."
         )
-        validation_crew = Crew(
-            agents=[self.nutritional_validation_agent],
-            tasks=[validation_task],
-            process=Process.sequential,
-            verbose=True,
+
+        tips.append(
+            "Label leftovers with day and meal type so you can double-check Mealy sync status each evening."
         )
 
-        validation_result = validation_crew.kickoff()
-        validation_model = self._extract_model_from_output(
-            validation_result, NutritionalValidation
+        tips.append(
+            "Set calendar reminders to initiate Mealy sync immediately after validation to avoid missed updates."
         )
 
-        if validation_model is None:
-            print(f"\n⚠️  Validation returned invalid JSON\n", file=sys.stderr)
-            # Continue anyway with the merged plan
-            validation = {"approved": False, "validation_summary": "Validation failed"}
-        else:
-            validation = validation_model.model_dump()
+        # Ensure at least six tips by adding generic guidance if needed
+        default_tips = [
+            "Prepare breakfast bases (overnight oats, pancake batters) the night before early workouts.",
+            "Keep a hydration station with electrolytes ready for long ride and interval days.",
+        ]
 
-        is_approved = validation.get('approved', False)
-        if is_approved:
-            print(f"\n✅ SUCCESS: Merged meal plan APPROVED by validator!\n", file=sys.stderr)
-        else:
-            issues = validation.get('issues_found', [])
-            print(f"\n⚠️  Merged meal plan has {len(issues)} issues (proceeding anyway)\n", file=sys.stderr)
+        for tip in default_tips:
+            if len(tips) >= 6:
+                break
+            tips.append(tip)
 
-        return merged_meal_plan, validation
+        return tips[:8]
 
     @staticmethod
     def _stringify_output(crew_output: CrewOutput) -> str:
@@ -577,25 +817,58 @@ class MealPlanningCrew:
         )
 
         # ===================================================================
-        # STEP 3: Meal Generation in Chunks (to avoid JSON truncation)
-        # Generate 4 days, then 3 days, then merge results
+        # STEP 3: Daily Meal Generation and Weekly Compilation
         # ===================================================================
-        print("\n👨‍🍳 Step 3: Generating weekly meals in chunks...\n", file=sys.stderr)
+        print("\n👨‍🍳 Step 3: Generating meals day by day...\n", file=sys.stderr)
 
-        meal_plan, validation = self._generate_meals_in_chunks(nutrition_plan)
+        daily_plans = self._generate_daily_meal_plans(nutrition_plan)
 
-        # Check if we have valid results
-        if meal_plan is None or validation is None:
-            error_msg = "Meal generation and validation failed after all attempts"
+        if daily_plans is None:
+            error_msg = "Daily meal generation failed after all attempts"
             print(f"\n❌ {error_msg}\n", file=sys.stderr)
-            return {"error": error_msg, "step": "meal_generation_validation_loop"}
-        
+            return {"error": error_msg, "step": "daily_meal_generation"}
+
+        meal_plan = self._compile_weekly_plan(nutrition_plan, daily_plans)
+
+        if meal_plan is None:
+            error_msg = "Meal compilation failed to produce a valid weekly plan"
+            print(f"\n❌ {error_msg}\n", file=sys.stderr)
+            return {"error": error_msg, "step": "meal_compilation"}
+
+        # ===================================================================
+        # STEP 3B: Nutritional validation of compiled plan
+        # ===================================================================
+        print("\n🔍 Step 3b: Validating compiled meal plan...\n", file=sys.stderr)
+
+        validation_task = create_nutritional_validation_task(
+            self.nutritional_validation_agent, meal_plan, nutrition_plan
+        )
+        validation_crew = Crew(
+            agents=[self.nutritional_validation_agent],
+            tasks=[validation_task],
+            process=Process.sequential,
+            verbose=True,
+        )
+
+        validation_result = validation_crew.kickoff()
+        validation_model = self._extract_model_from_output(
+            validation_result, NutritionalValidation
+        )
+
+        if validation_model is None:
+            print("\n⚠️  Validation returned invalid JSON\n", file=sys.stderr)
+            validation = {
+                "approved": False,
+                "validation_summary": "Validation failed",
+            }
+        else:
+            validation = validation_model.model_dump()
+
         print(
             f"\n✅ Final validation status: Approved={validation.get('approved', False)}\n",
             file=sys.stderr,
         )
 
-        
         # ===================================================================
         # STEP 4: Mealy Integration - Sync to Mealy (only if approved)
         # ===================================================================

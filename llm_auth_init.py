@@ -17,12 +17,9 @@ os.environ["OTEL_SDK_DISABLED"] = "true"
 os.environ["OTEL_TRACES_EXPORTER"] = "none"
 os.environ["OTEL_METRICS_EXPORTER"] = "none"
 os.environ["OTEL_LOGS_EXPORTER"] = "none"
-# Disable CrewAI telemetry (prevents "Trace batch finalized" messages)
+# Disable CrewAI telemetry (prevents basic telemetry)
 # Reference: https://docs.crewai.com/en/telemetry
 os.environ["CREWAI_DISABLE_TELEMETRY"] = "true"
-# Prevent trace batch finalization UI messages
-# This marks the environment as "test" to suppress rich console output
-os.environ["CREWAI_TESTING"] = "true"
 
 
 def initialize_basic_auth() -> str:
@@ -199,6 +196,47 @@ def patch_crewai_llm_call() -> None:
     print("✅ CrewAI LLM.call() patched for tool calling support\n", file=sys.stderr)
 
 
+def patch_trace_message_suppression() -> None:
+    """
+    Monkey-patch Rich Console to suppress "Trace Batch Finalization" messages.
+
+    This patches the Console.print method to silently drop any Panel objects
+    with the title "Trace Batch Finalization".
+    """
+    import sys
+
+    try:
+        from rich.console import Console
+        from rich.panel import Panel
+        from functools import wraps
+    except ImportError:
+        return
+
+    # Store original print method
+    _original_print = Console.print
+
+    @wraps(_original_print)
+    def _print_without_trace_panels(self, *args, **kwargs):
+        """Wrapper that filters out trace batch finalization panels."""
+        # Check if first argument is a Panel with the trace title
+        if args and isinstance(args[0], Panel):
+            panel = args[0]
+            # Access the title attribute (might be a Text object or string)
+            title = getattr(panel, 'title', None)
+            if title:
+                title_str = str(title)
+                if "Trace Batch Finalization" in title_str:
+                    # Silently drop this panel
+                    return
+
+        # Not a trace panel, print normally
+        return _original_print(self, *args, **kwargs)
+
+    # Apply the patch
+    Console.print = _print_without_trace_panels
+    print("✅ CrewAI trace batch messages suppressed\n", file=sys.stderr)
+
+
 # Initialize authentication on module import
 API_KEY = initialize_basic_auth()
 
@@ -207,3 +245,6 @@ patch_litellm_for_tools()
 
 # Apply CrewAI LLM.call() patch
 patch_crewai_llm_call()
+
+# Suppress trace batch finalization messages
+patch_trace_message_suppression()

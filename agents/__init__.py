@@ -8,6 +8,7 @@ from .translation_agent import create_translation_agent
 from .hexis_analysis_agent import create_hexis_analysis_agent
 from .weekly_structure_agent import create_weekly_structure_agent
 from .meal_generation_agent import create_meal_generation_agent
+from .meal_compilation_agent import create_meal_compilation_agent
 from .nutritional_validation_agent import create_nutritional_validation_agent
 from .mealy_integration_agent import create_mealy_integration_agent
 
@@ -19,6 +20,7 @@ __all__ = [
     "create_hexis_analysis_agent",
     "create_weekly_structure_agent",
     "create_meal_generation_agent",
+    "create_meal_compilation_agent",
     "create_nutritional_validation_agent",
     "create_mealy_integration_agent",
 ]
