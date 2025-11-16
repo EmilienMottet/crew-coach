@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class GeneratedActivityContent(BaseModel):
@@ -161,9 +161,20 @@ class MealItem(BaseModel):
         ..., description="Estimated preparation time in minutes"
     )
     ingredients: List[str] = Field(..., description="List of ingredients")
-    recipe_notes: Optional[str] = Field(
-        default=None, description="Optional cooking instructions or tips"
+    recipe_notes: Optional[Union[str, List[str]]] = Field(
+        default=None, description="Optional cooking instructions or tips (can be string or list)"
     )
+
+    @field_validator('recipe_notes', mode='before')
+    @classmethod
+    def normalize_recipe_notes(cls, v):
+        """Convert recipe_notes from list to string if needed."""
+        if v is None:
+            return None
+        if isinstance(v, list):
+            # Join list items with newlines or periods
+            return " ".join(str(item) for item in v if item)
+        return v
 
 
 class DailyMealPlan(BaseModel):
