@@ -21,6 +21,7 @@ def create_music_agent(
             "MANDATORY: Call Spotify MCP tools to retrieve REAL playback data and deliver a concise list "
             "of ACTUAL tracks played during the workout. Never invent or guess music tracks."
         ),
+        "max_iter": 5,  # Limit tool usage iterations to prevent infinite loops
         "backstory": (
             "You are a data retrieval specialist who MUST use the available Spotify MCP tools to fetch "
             "real playback history. You never invent, guess, or hallucinate music tracks.\n\n"
