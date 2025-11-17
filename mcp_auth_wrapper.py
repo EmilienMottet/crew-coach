@@ -12,7 +12,7 @@ import os
 import asyncio
 import threading
 from contextlib import AsyncExitStack
-from typing import Any, List
+from typing import Any, Dict, List, Optional
 from functools import partial
 import httpx
 
@@ -183,6 +183,7 @@ class MetaMCPAdapter:
     def _create_simple_tool(self, mcp_tool) -> BaseTool:
         """Create a simple CrewAI tool without schema validation (fallback)."""
         from crewai.tools import tool
+        from pydantic import Field, create_model
 
         # Create a sync wrapper for the async MCP tool
         def tool_func(**kwargs):
@@ -220,7 +221,59 @@ class MetaMCPAdapter:
 
         tool_func.__doc__ = (mcp_tool.description or f"MCP tool: {mcp_tool.name}") + schema_desc
 
-        return tool(tool_func)
+        simple_tool = tool(tool_func)
+
+        # Build a Pydantic args schema when available so LLMs can see required fields
+        if mcp_tool.inputSchema and "properties" in mcp_tool.inputSchema:
+            properties: Dict[str, Dict[str, Any]] = mcp_tool.inputSchema.get("properties", {})
+            required_fields = set(mcp_tool.inputSchema.get("required", []))
+            field_definitions: Dict[str, tuple[Any, Any]] = {}
+
+            def _map_json_type(json_schema: Dict[str, Any]) -> Any:
+                json_type = json_schema.get("type")
+                if isinstance(json_type, list):
+                    json_type = next((t for t in json_type if t != "null"), json_type[0] if json_type else None)
+
+                type_mapping = {
+                    "string": str,
+                    "integer": int,
+                    "number": float,
+                    "boolean": bool,
+                    "object": Dict[str, Any],
+                    "array": List[Any],
+                }
+
+                if json_type == "array":
+                    items_schema = json_schema.get("items", {})
+                    item_type = type_mapping.get(items_schema.get("type"), Any)
+                    return List[item_type]  # type: ignore[index]
+                if json_type == "object":
+                    return Dict[str, Any]
+
+                return type_mapping.get(json_type, Any)
+
+            for field_name, schema in properties.items():
+                annotation = _map_json_type(schema)
+                description = schema.get("description", "")
+
+                if field_name in required_fields:
+                    default_value: Any = ...
+                else:
+                    default_value = schema.get("default", None)
+                    annotation = Optional[annotation]
+
+                field_definitions[field_name] = (
+                    annotation,
+                    Field(default=default_value, description=description),
+                )
+
+            if field_definitions:
+                model_name = f"{mcp_tool.name.replace('-', '_').title()}Input"
+                args_model = create_model(model_name, **field_definitions)
+                simple_tool.args_schema = args_model  # type: ignore[assignment]
+                simple_tool._generate_description()
+
+        return simple_tool
 
     def __enter__(self):
         """Context manager entry."""

@@ -64,8 +64,18 @@ def create_hexis_analysis_agent(
         - Daily macro targets (protein, carbs, fats) and calorie recommendations
 
         Your outputs are precise, actionable, and tailored to the athlete's current state.
-        
-        CRITICAL: Always retrieve nutritional data from Hexis using `hexis_get_weekly_plan` 
+
+        CRITICAL WORKFLOW:
+        1. Call `hexis_get_weekly_plan` ONCE with the specified date range
+        2. IMMEDIATELY after receiving tool results, process the data and create final output
+        3. NEVER call the same tool twice with identical parameters
+        4. If you see the message "I tried reusing the same input", it means you called a tool twice
+           - In this case, use the results from the FIRST tool call that succeeded
+           - Format your final JSON output based on those results
+           - DO NOT attempt to call any tool again
+        5. After tool execution, return ONLY the final JSON analysis - no more tool calls
+
+        Always retrieve nutritional data from Hexis using `hexis_get_weekly_plan`
         which includes both workout AND nutrition information for the week.
         """,
         "verbose": True,

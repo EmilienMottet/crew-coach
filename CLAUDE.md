@@ -426,6 +426,88 @@ curl -X POST https://ccproxy.emottet.com/copilot/v1/chat/completions \
   -d '{"model": "claude-sonnet-4.5", "messages": [{"role": "user", "content": "test"}]}'
 ```
 
+### Provider Rotation and Automatic Disabling
+
+**Automatic Quota Error Handling**:
+
+When a provider reaches its quota or rate limit (HTTP 402/429 or rate limit error), the system automatically:
+1. **Disables the provider** to prevent repeated failed attempts
+2. **Rotates to the next available provider** in the chain
+3. **Shares the disabled state** across all agents (class-level tracking)
+4. **Re-enables automatically** after a configurable TTL
+
+**Configuration**:
+```bash
+# Enable/disable provider rotation (default: true)
+ENABLE_LLM_PROVIDER_ROTATION=true
+
+# Time-to-live before re-enabling disabled providers
+# Default: 0 = disabled for entire execution, re-enabled on next process start
+# Set to >0 (e.g., 3600) to re-enable after X seconds during the same execution
+PROVIDER_DISABLED_TTL_SECONDS=0
+
+# Define rotation chain (optional)
+LLM_PROVIDER_ROTATION="fallback1|gpt-5-mini|https://endpoint1.com/v1|OPENAI_API_KEY; fallback2|gpt-5|https://endpoint2.com/v1|OPENAI_API_KEY"
+```
+
+**How it works (TTL=0, default)**:
+```
+Execution 1:
+  Call 1: Primary provider → 429 error → DISABLED (permanent for this execution)
+  Call 2: Primary provider SKIPPED → Fallback used
+  Call 3: Primary provider SKIPPED → Fallback used
+
+Execution 2 (new process):
+  Call 1: Primary provider available again → Try primary first
+```
+
+**How it works (TTL>0, e.g., 3600)**:
+```
+Call 1: Primary provider → 429 error → DISABLED for 1 hour → Rotate to fallback
+Call 2: Primary provider SKIPPED (disabled) → Fallback used directly
+Call 3 (after 1h): Primary provider RE-ENABLED automatically
+```
+
+**Detected error types**:
+- HTTP status codes: `402` (quota exceeded), `429` (rate limit)
+- Exception classes: `RateLimitError`, `RateLimitException`
+- Error message keywords: `"rate limit"`, `"quota"`, `"429"`
+
+**Logs (TTL=0, default)**:
+```
+🚫 DESCRIPTION: provider primary DISABLED due to quota/rate limit
+   Disabled for the remainder of this execution
+   Will be available again on next execution (next process start)
+   (Configure TTL via PROVIDER_DISABLED_TTL_SECONDS env var, 0 = permanent)
+
+⏭️  DESCRIPTION: SKIPPING primary (gpt-5-mini)
+   Reason: Provider is temporarily disabled due to quota/rate limit
+```
+
+**Logs (TTL>0, e.g., 3600)**:
+```
+🚫 DESCRIPTION: provider primary DISABLED due to quota/rate limit
+   Will be re-enabled after 60 minutes
+   (Configure via PROVIDER_DISABLED_TTL_SECONDS env var)
+
+⏭️  DESCRIPTION: SKIPPING primary (gpt-5-mini)
+   Reason: Provider is temporarily disabled due to quota/rate limit
+
+✅ DESCRIPTION: provider primary re-enabled after 60min TTL
+```
+
+**Testing**:
+```bash
+# Test the automatic disabling system
+python test_provider_rotation_disable.py
+
+# Expected output:
+# ✅ All rate limit detection tests passed!
+# ✅ All provider disabling tests passed!
+# ✅ All TTL re-enablement tests passed!
+# ✅ All shared state tests passed!
+```
+
 ### Error Handling Philosophy
 
 - **Defensive parsing**: All JSON parsing wrapped in try-except with safe defaults
@@ -442,6 +524,10 @@ curl -X POST https://ccproxy.emottet.com/copilot/v1/chat/completions \
 OPENAI_API_BASE=https://your-endpoint.com/v1
 OPENAI_MODEL_NAME=claude-sonnet-4.5
 OPENAI_API_AUTH_TOKEN=base64_token  # OR OPENAI_API_KEY=key
+
+# LLM Provider Rotation (optional, default: true)
+ENABLE_LLM_PROVIDER_ROTATION=true
+PROVIDER_DISABLED_TTL_SECONDS=0  # 0 = disabled for entire execution (default)
 
 # MCP Server (required for Intervals.icu data)
 MCP_SERVER_URL=https://mcp.emottet.com/metamcp/.../mcp?api_key=...
