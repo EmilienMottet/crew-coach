@@ -10,7 +10,7 @@
       "typeVersion": 1,
       "position": [
         -128,
-        -80
+        -8
       ],
       "id": "0c4caafa-8e2c-4b19-9c57-ccfbc3ca42e2",
       "name": "Strava Trigger",
@@ -27,24 +27,22 @@
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
       "position": [
-        -128,
-        140
+        320,
+        328
       ],
       "id": "a1b2c3d4-5e6f-7g8h-9i0j-k1l2m3n4o5p6",
       "name": "Manual Trigger"
     },
     {
       "parameters": {
-        "resource": "activity",
         "operation": "getAll",
-        "returnAll": false,
         "limit": 5
       },
       "type": "n8n-nodes-base.strava",
       "typeVersion": 1.1,
       "position": [
-        80,
-        140
+        544,
+        232
       ],
       "id": "b2c3d4e5-6f7g-8h9i-0j1k-l2m3n4o5p6q7",
       "name": "Get Recent Activities",
@@ -57,22 +55,19 @@
     },
     {
       "parameters": {
-        "batchSize": 1,
         "options": {}
       },
       "type": "n8n-nodes-base.splitInBatches",
       "typeVersion": 3,
       "position": [
-        304,
-        140
+        1216,
+        -80
       ],
       "id": "c3d4e5f6-7g8h-9i0j-1k2l-m3n4o5p6q7r8",
       "name": "Loop Over Activities"
     },
     {
       "parameters": {
-        "mode": "manual",
-        "duplicateItem": false,
         "assignments": {
           "assignments": [
             {
@@ -100,8 +95,8 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        528,
-        140
+        1440,
+        -8
       ],
       "id": "d4e5f6g7-8h9i-0j1k-2l3m-n4o5p6q7r8s9",
       "name": "Transform to Webhook Format"
@@ -121,8 +116,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.3,
       "position": [
-        80,
-        -80
+        768,
+        -8
       ],
       "id": "8d4efa51-0788-4503-9c37-8cde03ff992f",
       "name": "HTTP Request"
@@ -139,7 +134,7 @@
       "type": "n8n-nodes-base.strava",
       "typeVersion": 1.1,
       "position": [
-        304,
+        992,
         -80
       ],
       "id": "aed76cd0-6c81-4d28-95a8-19a29d0e5848",
@@ -150,6 +145,164 @@
           "name": "Strava account"
         }
       }
+    },
+    {
+      "parameters": {
+        "operation": "recentlyPlayed"
+      },
+      "id": "spotify-recently-played",
+      "name": "Get Recently Played",
+      "type": "n8n-nodes-base.spotify",
+      "typeVersion": 1,
+      "position": [
+        96,
+        64
+      ],
+      "credentials": {
+        "spotifyOAuth2Api": {
+          "id": "yiaksNUDI8zRr12v",
+          "name": "Spotify account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "mergeByFields": {
+          "values": [
+            {}
+          ]
+        },
+        "options": {}
+      },
+      "id": "merge-data",
+      "name": "Merge Activity and Spotify",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2.1,
+      "position": [
+        320,
+        -8
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "format-1",
+              "name": "object_type",
+              "type": "string",
+              "value": "activity"
+            },
+            {
+              "id": "format-2",
+              "name": "object_id",
+              "type": "number",
+              "value": "={{ $json.1.id }}"
+            },
+            {
+              "id": "format-3",
+              "name": "object_data",
+              "type": "object",
+              "value": "={{ $json.1 }}"
+            },
+            {
+              "id": "format-4",
+              "name": "spotify_recently_played",
+              "type": "object",
+              "value": "={{ $json.2 }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "format-data",
+      "name": "Format Data for CrewAI",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        544,
+        -8
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "recentlyPlayed"
+      },
+      "id": "spotify-manual",
+      "name": "Get Recently Played - Manual",
+      "type": "n8n-nodes-base.spotify",
+      "typeVersion": 1,
+      "position": [
+        544,
+        424
+      ],
+      "credentials": {
+        "spotifyOAuth2Api": {
+          "id": "yiaksNUDI8zRr12v",
+          "name": "Spotify account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "mergeByFields": {
+          "values": [
+            {}
+          ]
+        },
+        "options": {}
+      },
+      "id": "merge-manual",
+      "name": "Merge Manual Activity and Spotify",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2.1,
+      "position": [
+        768,
+        328
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "manual-format-1",
+              "name": "object_type",
+              "type": "string",
+              "value": "activity"
+            },
+            {
+              "id": "manual-format-2",
+              "name": "object_id",
+              "type": "number",
+              "value": "={{ $json.0.id }}"
+            },
+            {
+              "id": "manual-format-3",
+              "name": "object_data",
+              "type": "object",
+              "value": "={{ $json.0 }}"
+            },
+            {
+              "id": "manual-format-4",
+              "name": "spotify_recently_played",
+              "type": "object",
+              "value": "={{ $json.1 }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "format-manual",
+      "name": "Format Manual Data for CrewAI",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        992,
+        328
+      ]
     }
   ],
   "pinData": {},
@@ -158,9 +311,14 @@
       "main": [
         [
           {
-            "node": "HTTP Request",
+            "node": "Get Recently Played",
             "type": "main",
             "index": 0
+          },
+          {
+            "node": "Merge Activity and Spotify",
+            "type": "main",
+            "index": 1
           }
         ]
       ]
@@ -172,15 +330,9 @@
             "node": "Get Recent Activities",
             "type": "main",
             "index": 0
-          }
-        ]
-      ]
-    },
-    "Get Recent Activities": {
-      "main": [
-        [
+          },
           {
-            "node": "Loop Over Activities",
+            "node": "Get Recently Played - Manual",
             "type": "main",
             "index": 0
           }
@@ -231,17 +383,94 @@
           }
         ]
       ]
+    },
+    "Get Recently Played": {
+      "main": [
+        [
+          {
+            "node": "Merge Activity and Spotify",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Merge Activity and Spotify": {
+      "main": [
+        [
+          {
+            "node": "Format Data for CrewAI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Data for CrewAI": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Recently Played - Manual": {
+      "main": [
+        [
+          {
+            "node": "Merge Manual Activity and Spotify",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Get Recent Activities": {
+      "main": [
+        [
+          {
+            "node": "Merge Manual Activity and Spotify",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge Manual Activity and Spotify": {
+      "main": [
+        [
+          {
+            "node": "Format Manual Data for CrewAI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Manual Data for CrewAI": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Activities",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "active": true,
   "settings": {
-    "executionOrder": "v1",
+    "errorWorkflow": "HuCluxoEh7V3plO5",
     "timezone": "Europe/Paris",
+    "executionOrder": "v1",
     "callerPolicy": "workflowsFromSameOwner",
-    "availableInMCP": false,
-    "errorWorkflow": "HuCluxoEh7V3plO5"
+    "availableInMCP": false
   },
-  "versionId": "28fc3925-7b36-47c5-b9e2-458f9c498c33",
+  "versionId": "ae7453bc-75da-44fa-8f1c-3214159b445c",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "089593b0375f52cffd2e682594e43cdd96459883230a04bef809490471c267bb"
