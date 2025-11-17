@@ -89,8 +89,8 @@ STRAVA_MCP_SERVER_URL=https://mcp.emottet.com/metamcp/SocialNetworkSport/mcp
 # Intervals.icu (9 tools): Training data, activity intervals, wellness
 INTERVALS_MCP_SERVER_URL=https://mcp.emottet.com/metamcp/IntervalsIcu/mcp
 
-# Music/Spotify (19 tools): Music playback history, recently played tracks
-MUSIC_MCP_SERVER_URL=https://mcp.emottet.com/metamcp/Music/mcp
+# Music/Spotify: Now provided by n8n (spotify_recently_played field)
+# Note: MUSIC_MCP_SERVER_URL is no longer needed - n8n fetches Spotify data
 
 # Weather/OpenWeatherMap (11 tools): Weather context during activities
 METEO_MCP_SERVER_URL=https://mcp.emottet.com/metamcp/meteo/mcp
@@ -126,7 +126,7 @@ from mcp_auth_wrapper import MetaMCPAdapter
 mcp_servers = {
     "Strava": os.getenv("STRAVA_MCP_SERVER_URL", ""),
     "Intervals.icu": os.getenv("INTERVALS_MCP_SERVER_URL", ""),
-    "Music": os.getenv("MUSIC_MCP_SERVER_URL", ""),
+    # Note: Music data now comes from n8n (spotify_recently_played field)
     # ... etc
 }
 
@@ -194,10 +194,9 @@ Strava Description Crew (crew.py) connects to:
     │   ├── IntervalsIcu__get_activity_details
     │   ├── IntervalsIcu__get_activity_intervals
     │   └── ...
-    ├── Music (19 Spotify tools)
-    │   ├── spotify__getRecentlyPlayed
-    │   ├── spotify__getNowPlaying
-    │   └── ...
+    ├── Music/Spotify (n8n integration)
+    │   └── Data provided via spotify_recently_played field
+    │       No MCP server needed - n8n fetches directly from Spotify API
     ├── Meteo (11 OpenWeatherMap tools)
     │   ├── OpenWeatherMap__get-current-weather
     │   ├── OpenWeatherMap__get-daily-forecast
@@ -233,9 +232,10 @@ Meal Planning Crew (crew_mealy.py) connects to:
   - Needs comprehensive data to generate descriptions
   - Weather context enriches activity narratives
   - Toolbox for time/date utilities
-- **Music Agent**: Spotify
-  - Fetches recently played tracks during activity
+- **Music Agent**: No MCP tools (data from n8n)
+  - Analyzes spotify_recently_played data from n8n
   - Enriches description with soundtrack information
+  - n8n fetches Spotify data before calling CrewAI
 - **Privacy Agent**: No MCP tools (pure reasoning)
 - **Translation Agent**: No MCP tools (pure reasoning)
 
@@ -556,9 +556,9 @@ TRANSLATION_SOURCE_LANGUAGE=English
 
 ## Input/Output Contracts
 
-### Input (stdin): Strava Webhook Format
+### Input (stdin): n8n Enhanced Format
 ```json
-[{
+{
   "object_type": "activity",
   "object_id": 16284886069,
   "object_data": {
@@ -570,9 +570,22 @@ TRANSLATION_SOURCE_LANGUAGE=English
     "start_date_local": "2025-10-27T11:54:41Z",
     "average_heartrate": 141.6,
     "average_watts": 405.2
+  },
+  "spotify_recently_played": {
+    "items": [
+      {
+        "track": {
+          "name": "Track Name",
+          "artists": [{"name": "Artist Name"}]
+        },
+        "played_at": "2025-10-27T11:55:00Z"
+      }
+    ]
   }
-}]
+}
 ```
+
+**Note**: n8n merges Strava activity data with Spotify playback history before sending to CrewAI.
 
 ### Output (stdout): Final Result JSON
 ```json

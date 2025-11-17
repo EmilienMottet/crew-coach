@@ -129,7 +129,7 @@ class StravaDescriptionCrew:
         mcp_servers = {
             "Strava": os.getenv("STRAVA_MCP_SERVER_URL", ""),
             "Intervals.icu": os.getenv("INTERVALS_MCP_SERVER_URL", ""),
-            "Music": os.getenv("MUSIC_MCP_SERVER_URL", ""),
+            # Note: Music data now comes from n8n (spotify_recently_played field)
             "Meteo": os.getenv("METEO_MCP_SERVER_URL", ""),
             "Toolbox": os.getenv("TOOLBOX_MCP_SERVER_URL", ""),
         }
@@ -166,7 +166,9 @@ class StravaDescriptionCrew:
                 "\n❌ Error: MCP configuration missing. "
                 "The Description Agent requires MCP tools to fetch workout data.\n"
                 "Please set MCP server URLs and MCP_API_KEY environment variables.\n"
-                "Required: STRAVA_MCP_SERVER_URL, INTERVALS_MCP_SERVER_URL, MUSIC_MCP_SERVER_URL\n"
+                "Required: STRAVA_MCP_SERVER_URL, INTERVALS_MCP_SERVER_URL\n"
+                "Optional: METEO_MCP_SERVER_URL, TOOLBOX_MCP_SERVER_URL\n"
+                "Note: Music data is now provided by n8n (no MCP server needed)\n"
                 "To disable this check, set REQUIRE_MCP=false (not recommended).\n"
             )
             print(error_msg, file=sys.stderr)
@@ -175,9 +177,9 @@ class StravaDescriptionCrew:
             print("\n⚠️  Warning: No MCP configuration. Agents will operate without live data.\n", file=sys.stderr)
 
         # Filter tools by type for different agents
+        # Note: Spotify tools are no longer needed - music data comes from n8n
         strava_tools = [t for t in self.mcp_tools if "strava" in t.name.lower()]
         intervals_tools = [t for t in self.mcp_tools if "intervals" in t.name.lower()]
-        spotify_tools = [t for t in self.mcp_tools if "spotify" in t.name.lower()]
         weather_tools = [t for t in self.mcp_tools if "weather" in t.name.lower() or "openweathermap" in t.name.lower()]
         toolbox_tools = [t for t in self.mcp_tools if any(keyword in t.name.lower() for keyword in ["fetch", "time", "task"])]
 
@@ -185,15 +187,11 @@ class StravaDescriptionCrew:
             print(f"🏃 Found {len(strava_tools)} Strava tools\n", file=sys.stderr)
         if intervals_tools:
             print(f"📊 Found {len(intervals_tools)} Intervals.icu tools\n", file=sys.stderr)
-        if spotify_tools:
-            print(f"🎵 Found {len(spotify_tools)} Spotify tools:", file=sys.stderr)
-            for tool in spotify_tools:
-                print(f"   - {tool.name}", file=sys.stderr)
-            print("", file=sys.stderr)
         if weather_tools:
             print(f"🌤️  Found {len(weather_tools)} Weather tools\n", file=sys.stderr)
         if toolbox_tools:
             print(f"🛠️  Found {len(toolbox_tools)} Toolbox tools\n", file=sys.stderr)
+        print(f"🎵 Music: Using n8n Spotify data (no MCP tools)\n", file=sys.stderr)
 
         # Create agents with MCP tools (using tools parameter, not mcps)
         # Description Agent: needs Strava, Intervals.icu, Weather, and Toolbox
@@ -203,13 +201,10 @@ class StravaDescriptionCrew:
             tools=description_tools if description_tools else None
         )
 
-        # Music Agent: needs Spotify tools
-        print(f"🎵 Creating Music Agent with {len(spotify_tools) if spotify_tools else 0} tools\n", file=sys.stderr)
-        self.music_agent = create_music_agent(
-            self.music_llm,
-            tools=spotify_tools if spotify_tools else None
-        )
-        print(f"   Agent tools attribute: {len(getattr(self.music_agent, 'tools', [])) if hasattr(self.music_agent, 'tools') else 'N/A'}\n", file=sys.stderr)
+        # Music Agent: analyzes Spotify data from n8n (no MCP tools needed)
+        print(f"🎵 Creating Music Agent (using n8n Spotify data, no MCP tools)\n", file=sys.stderr)
+        self.music_agent = create_music_agent(self.music_llm)
+        print(f"   Data source: n8n (spotify_recently_played field)\n", file=sys.stderr)
 
         # Privacy Agent: no MCP tools needed (pure reasoning)
         self.privacy_agent = create_privacy_agent(self.privacy_llm)
@@ -569,15 +564,10 @@ class StravaDescriptionCrew:
         print(f"   Start: {start_date_local}", file=sys.stderr)
         print(f"   Duration: {moving_time}s", file=sys.stderr)
 
-        # Debug: Check if music agent has tools
-        music_agent_tools = getattr(self.music_agent, 'tools', None)
-        if music_agent_tools:
-            print(f"   Music agent has {len(music_agent_tools)} tool(s) available:", file=sys.stderr)
-            for tool in music_agent_tools:
-                tool_name = getattr(tool, 'name', str(tool))
-                print(f"      - {tool_name}", file=sys.stderr)
-        else:
-            print(f"   ⚠️  WARNING: Music agent has NO tools available!", file=sys.stderr)
+        # Check if n8n provided Spotify data
+        spotify_data = activity_data.get("spotify_recently_played", {})
+        spotify_items_count = len(spotify_data.get("items", [])) if isinstance(spotify_data, dict) else 0
+        print(f"   Spotify data from n8n: {spotify_items_count} track(s)", file=sys.stderr)
         print("", file=sys.stderr)
 
         music_tracks: List[str] = []

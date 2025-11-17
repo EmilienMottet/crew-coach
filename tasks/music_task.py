@@ -16,8 +16,9 @@ def create_music_task(
     activity_data: Dict[str, Any],
     generated_content: Dict[str, Any],
 ) -> Task:
-    """Create a task that fetches Spotify tracks and appends them to the description."""
+    """Create a task that analyzes Spotify data from n8n and appends tracks to the description."""
     object_data = activity_data.get("object_data", {})
+    spotify_data = activity_data.get("spotify_recently_played", {})
 
     activity_id = object_data.get("id")
     start_date_local = object_data.get("start_date_local", "")
@@ -43,6 +44,11 @@ def create_music_task(
 
     distance_km = object_data.get("distance", 0) / 1000 if object_data else 0
 
+    # Extract Spotify track count for logging
+    spotify_items = spotify_data.get("items", []) if isinstance(spotify_data, dict) else []
+    print(f"🎵 Spotify data from n8n:", file=sys.stderr)
+    print(f"   Tracks available: {len(spotify_items)}", file=sys.stderr)
+
     snapshot = {
         "activity_id": activity_id,
         "distance_km": round(distance_km, 2),
@@ -51,35 +57,39 @@ def create_music_task(
         "moving_time_seconds": moving_time,
         "title": existing_title,
         "description_before_music": existing_description,
+        "spotify_tracks_count": len(spotify_items),
     }
 
     print(f"📸 Music task snapshot:", file=sys.stderr)
     print(f"   {json.dumps(snapshot, indent=6)}\n", file=sys.stderr)
 
     description = f"""
-    Retrieve the music listened to during the Strava activity and append it to the summary.
+    Analyze Spotify playback data provided by n8n and enrich the activity description with music tracks.
 
     CONTEXT SNAPSHOT (JSON):
     {json.dumps(snapshot, indent=2)}
 
-    DATA REQUIREMENTS - MANDATORY TOOL USAGE:
+    SPOTIFY DATA FROM N8N:
+    {json.dumps(spotify_data, indent=2)}
 
-    ⚠️  CRITICAL: You MUST use the Spotify MCP tools to retrieve REAL playback data.
-    DO NOT invent or guess music tracks. Only report tracks that are returned by the Spotify API.
+    DATA PROCESSING REQUIREMENTS:
+
+    ⚠️  CRITICAL: You are receiving Spotify data directly from n8n (see SPOTIFY DATA FROM N8N above).
+    DO NOT invent or guess music tracks. Only report tracks that are ACTUALLY in the provided data.
 
     REQUIRED STEPS:
-    1. FIRST: Call the `spotify__getRecentlyPlayed` tool with appropriate time parameters.
-       Example call:
-       - Tool: spotify__getRecentlyPlayed
-       - Parameters: {{"limit": 50}} or with time filtering if supported
-
-    2. THEN: Analyze the ACTUAL response from Spotify API:
+    1. ANALYZE the provided Spotify data (spotify_recently_played) above:
+       - Check if the "items" array contains any tracks
        - Extract tracks that were played during the activity window (start_utc to end_utc)
-       - Filter by timestamps to ensure tracks overlap with the activity period
+       - Filter by "played_at" timestamps to ensure tracks overlap with the activity period
        - Select up to five distinct tracks ordered by playback time
-       - Format each entry as "<artist> – <track>"
 
-    3. If the Spotify API returns NO tracks or an empty response:
+    2. FORMAT the tracks:
+       - Each track should be formatted as: "<artist_name> – <track_name>"
+       - Extract artist_name from: item.track.artists[0].name
+       - Extract track_name from: item.track.name
+
+    3. If the Spotify data is EMPTY or contains NO tracks:
        - DO NOT add any music section to the description
        - DO NOT invent placeholder tracks
        - Return the original description unchanged with music_tracks: []
@@ -97,12 +107,12 @@ def create_music_task(
     - Ensure the appended section is suitable for later French translation and keeps emoji intact.
 
     CRITICAL FINAL ACTION:
-    After retrieving and analyzing the Spotify data, you MUST output a JSON object with this exact structure:
+    After analyzing the provided Spotify data, you MUST output a JSON object with this exact structure:
     {{
         "updated_description": "description text with optional music section",
         "music_tracks": ["Artist – Track", ...]
     }}
-    
+
     Do NOT include any explanatory text, thoughts, or reasoning in your final output.
     Your final message must be ONLY the JSON object, nothing else.
     """
@@ -119,5 +129,6 @@ def create_music_task(
         ),
         # CRITICAL: output_json disables tool calling! Must parse JSON manually instead.
         # output_json=ActivityMusicSelection,
-        tools=agent.tools if hasattr(agent, 'tools') and agent.tools else None,
+        # Note: No tools needed - music data comes from n8n (spotify_recently_played)
+        tools=None,
     )
