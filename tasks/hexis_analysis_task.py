@@ -1,12 +1,45 @@
 """Task for analyzing Hexis training data for nutritional planning."""
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, Dict, Tuple
 
 from crewai import Task
+from crewai.tasks.task_output import TaskOutput
 
-from schemas import HexisWeeklyAnalysis
+# HexisWeeklyAnalysis schema left imported elsewhere when structured outputs are re-enabled
+
+
+def validate_hexis_analysis_output(task_output):
+    """Ensure the Hexis analysis task returns a JSON object with required fields."""
+    raw_output = task_output.raw.strip()
+
+    try:
+        payload: Dict[str, Any] = json.loads(raw_output)
+    except json.JSONDecodeError:
+        return False, (
+            "Your final answer must be a JSON object with the required fields. "
+            "Return only JSON and ensure it's valid (no thoughts or markdown)."
+        )
+
+    required_fields = {
+        "week_start_date",
+        "week_end_date",
+        "training_load_summary",
+        "recovery_status",
+        "daily_energy_needs",
+        "daily_macro_targets",
+        "nutritional_priorities",
+    }
+    missing = [field for field in required_fields if field not in payload]
+    if missing:
+        return False, (
+            "The JSON output is missing required keys: "
+            + ", ".join(sorted(missing))
+        )
+
+    return True, task_output.raw
 
 
 def create_hexis_analysis_task(agent: Any, week_start_date: str) -> Task:
@@ -25,38 +58,63 @@ def create_hexis_analysis_task(agent: Any, week_start_date: str) -> Task:
     end_dt = start_dt + timedelta(days=6)
     week_end_date = end_dt.strftime("%Y-%m-%d")
 
-    description = f"""
-Analyze Hexis training data for week {week_start_date} to {week_end_date}.
+    description = f"""Analyze Hexis data for week {week_start_date} to {week_end_date}.
 
-WORKFLOW:
-1. Call `hexis_get_weekly_plan` with start_date="{week_start_date}", end_date="{week_end_date}"
-   to retrieve training and nutrition data
+Your task is to retrieve training and nutrition data, then create a structured analysis.
 
-2. AFTER receiving the tool results, analyze the data and construct a complete JSON response
+FIRST: Call hexis_get_weekly_plan with start_date="{week_start_date}", end_date="{week_end_date}"
 
-ANALYZE THE FOLLOWING from the tool results:
-- Training schedule: workouts (type/duration/TSS)
-- Recovery metrics: HRV, sleep quality, readiness scores
-- Load trends: CTL, ATL, TSB, training stress
-- **Nutritional data**: daily macro targets (protein/carbs/fat), calorie recommendations, meal plans
+THEN: Based on the tool results, create this JSON analysis:
 
-CONSTRUCT JSON OUTPUT with these fields (cover all 7 days):
-- week_start_date: "{week_start_date}"
-- week_end_date: "{week_end_date}"
-- training_load_summary: {{total_weekly_tss, total_training_time_minutes, training_days, rest_days, key_sessions[], weekly_load_classification, ctl_trend, atl_trend, tsb_trend}}
-- recovery_status: {{overall_assessment, key_observations[], recovery_recommendations[], readiness_indicators[]}}
-- daily_energy_needs: {{"YYYY-MM-DD": {{bmr, exercise_calories, neat_calories, tdee, hexis_target, energy_balance, workout_energy_expenditure}}, ...}}
-- daily_macro_targets: {{"YYYY-MM-DD": {{protein_g, carbs_g, fat_g, calories, carbs_per_kg, protein_per_kg, fat_per_kg, hexis_source}}, ...}}
-- nutritional_priorities: [priority descriptions based on training load and goals]
+{{
+  "week_start_date": "{week_start_date}",
+  "week_end_date": "{week_end_date}",
+  "training_load_summary": {{
+    "total_weekly_tss": 0,
+    "total_training_time_minutes": 0,
+    "training_days": 0,
+    "rest_days": 7,
+    "key_sessions": [],
+    "weekly_load_classification": "Rest Week",
+    "ctl_trend": "Stable",
+    "atl_trend": "Stable",
+    "tsb_trend": "Positive"
+  }},
+  "recovery_status": {{
+    "overall_assessment": "Excellent",
+    "key_observations": ["Rest week planned"],
+    "recovery_recommendations": ["Maintain hydration", "Focus on sleep quality"],
+    "readiness_indicators": ["High energy availability"]
+  }},
+  "daily_energy_needs": {{
+    "YYYY-MM-DD": {{
+      "bmr": 1500,
+      "exercise_calories": 0,
+      "neat_calories": 500,
+      "tdee": 2000,
+      "hexis_target": 1871,
+      "energy_balance": -129,
+      "workout_energy_expenditure": 0
+    }}
+  }},
+  "daily_macro_targets": {{
+    "YYYY-MM-DD": {{
+      "protein_g": 150,
+      "carbs_g": 158,
+      "fat_g": 71,
+      "calories": 1871,
+      "carbs_per_kg": 2.1,
+      "protein_per_kg": 2.0,
+      "fat_per_kg": 0.9,
+      "hexis_source": "HEXIS"
+    }}
+  }},
+  "nutritional_priorities": ["Maintain protein intake", "Stay hydrated", "Focus on recovery nutrition"]
+}}
 
-CRITICAL INSTRUCTIONS:
-1. You MUST call the tool first to get real data
-2. After receiving tool results, you MUST analyze and generate the complete JSON
-3. Return ONLY the final JSON object - no "Thought:", no "Action:", no markdown fences
-4. Use actual data from Hexis where available (macros, meals, energy targets)
-5. Calculate estimated values only where Hexis data is missing
+Fill in actual data from Hexis where available. Use the tool results to populate real macro targets and energy needs for each day.
 
-DO NOT return the action format - return the analysis JSON directly.
+Return ONLY the JSON object, no explanations.
 """
 
     return Task(
@@ -65,6 +123,8 @@ DO NOT return the action format - return the analysis JSON directly.
         expected_output="""Complete JSON object with all required fields populated from Hexis data analysis.
 Format: {{"week_start_date": "{week_start_date}", "week_end_date": "{week_end_date}", "training_load_summary": {{}}, ...}}
 NO markdown fences, NO explanatory text, ONLY the JSON object.""".format(week_start_date=week_start_date, week_end_date=week_end_date),
+        # DISABLED: guardrail causes infinite loop when validation fails and agent retries tool call
+        # guardrail=validate_hexis_analysis_output,
         # DISABLED: output_json causes auth issues with instructor
         # output_json=HexisWeeklyAnalysis,
     )

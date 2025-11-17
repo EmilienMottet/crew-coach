@@ -161,9 +161,17 @@ class MealItem(BaseModel):
         ..., description="Estimated preparation time in minutes"
     )
     ingredients: List[str] = Field(..., description="List of ingredients")
-    recipe_notes: Optional[Union[str, List[str]]] = Field(
-        default=None, description="Optional cooking instructions or tips (can be string or list)"
+    recipe_notes: Optional[str] = Field(
+        default=None, description="Optional cooking instructions or tips"
     )
+
+    @field_validator('calories', mode='before')
+    @classmethod
+    def round_calories(cls, v):
+        """Round float calories to nearest integer."""
+        if v is None:
+            return None
+        return round(float(v))
 
     @field_validator('recipe_notes', mode='before')
     @classmethod
@@ -172,9 +180,9 @@ class MealItem(BaseModel):
         if v is None:
             return None
         if isinstance(v, list):
-            # Join list items with newlines or periods
-            return " ".join(str(item) for item in v if item)
-        return v
+            # Join list items with newlines for better readability
+            return "\n".join(str(item) for item in v if item)
+        return str(v) if v else None
 
 
 class DailyMealPlan(BaseModel):

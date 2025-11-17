@@ -1,12 +1,28 @@
 """Test script for the meal planning crew."""
+import json
 import os
 import sys
 from datetime import datetime, timedelta
+from typing import Any
 
 # Ensure imports work
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from crew_mealy import MealPlanningCrew
+
+
+def _preview_text(value: Any, fallback: str = "N/A") -> str:
+    """Return a short preview-friendly string for logging."""
+    if value is None:
+        return fallback
+    if isinstance(value, str):
+        return value
+    if isinstance(value, (dict, list)):
+        try:
+            return json.dumps(value)
+        except TypeError:
+            pass
+    return str(value)
 
 
 def test_meal_planning():
@@ -43,15 +59,15 @@ def test_meal_planning():
         # Hexis Analysis Summary
         hexis = result.get("hexis_analysis", {})
         print(f"📊 HEXIS ANALYSIS:")
-        print(f"   Training Load: {hexis.get('training_load_summary', 'N/A')[:80]}...")
-        print(f"   Recovery: {hexis.get('recovery_status', 'N/A')[:80]}...")
+        print(f"   Training Load: {_preview_text(hexis.get('training_load_summary'))[:80]}...")
+        print(f"   Recovery: {_preview_text(hexis.get('recovery_status'))[:80]}...")
         print()
 
         # Nutrition Plan Summary
         nutrition = result.get("nutrition_plan", {})
         print(f"📅 NUTRITION PLAN:")
         print(f"   Week: {nutrition.get('week_start_date')} to {nutrition.get('week_end_date')}")
-        print(f"   Summary: {nutrition.get('weekly_summary', 'N/A')[:80]}...")
+        print(f"   Summary: {_preview_text(nutrition.get('weekly_summary'))[:80]}...")
         print()
 
         # Meal Plan Summary
@@ -79,7 +95,7 @@ def test_meal_planning():
         print(f"   Meals created: {integration.get('total_meals_created', 0)}")
         if integration.get("mealy_week_url"):
             print(f"   View meals: {integration['mealy_week_url']}")
-        print(f"   Summary: {integration.get('summary', 'N/A')[:80]}...")
+        print(f"   Summary: {_preview_text(integration.get('summary'))[:80]}...")
         print()
 
         # Sample meal (first breakfast)

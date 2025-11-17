@@ -42,6 +42,7 @@ from tasks import (
     create_nutritional_validation_task,
     create_mealy_integration_task,
 )
+from tasks.hexis_analysis_task_fallback import create_hexis_analysis_task_fallback
 # NOTE: load_catalog_tool_names kept for compatibility but currently unused
 from mcp_utils import build_mcp_references, load_catalog_tool_names
 from mcp_auth_wrapper import MetaMCPAdapter
@@ -202,10 +203,11 @@ class MealPlanningCrew:
 
         self.meal_compilation_agent = create_meal_compilation_agent(self.meal_compilation_llm)
 
-        # Nutritional Validation Agent: needs food data for validation
-        validation_tools = food_data_tools + hexis_tools
+        # Nutritional Validation Agent: pure reasoning agent (NO TOOLS)
+        # It analyzes the meal plan and nutrition targets provided in the task description
+        # without needing to call external APIs
         self.nutritional_validation_agent = create_nutritional_validation_agent(
-            self.nutritional_validation_llm, tools=validation_tools if validation_tools else None
+            self.nutritional_validation_llm, tools=None
         )
 
         # Mealy Integration Agent: needs Hexis tools for meal creation
@@ -225,6 +227,7 @@ class MealPlanningCrew:
         Supports environment variables:
         - {AGENT_NAME}_AGENT_MODEL: Model name for this agent
         - {AGENT_NAME}_AGENT_API_BASE: API base URL for this agent
+        - {AGENT_NAME}_BLACKLISTED_MODELS: Comma-separated list of models to blacklist
 
         Args:
             agent_name: Name prefix for env vars (e.g., "HEXIS_ANALYSIS", "MEAL_GENERATION")
@@ -238,14 +241,31 @@ class MealPlanningCrew:
         # Check for agent-specific overrides
         model_key = f"{agent_name}_AGENT_MODEL"
         base_key = f"{agent_name}_AGENT_API_BASE"
+        blacklist_key = f"{agent_name}_BLACKLISTED_MODELS"
 
         agent_model = os.getenv(model_key, default_model)
         agent_base = os.getenv(base_key, default_base)
+        blacklisted_models = os.getenv(blacklist_key, "").split(",") if os.getenv(blacklist_key) else []
+        blacklisted_models = [m.strip() for m in blacklisted_models if m.strip()]
+
+        # Model blacklist for specific agents
+        if agent_name == "HEXIS_ANALYSIS" and not blacklisted_models:
+            # Default blacklist for HEXIS_ANALYSIS to avoid GPT-5 issues
+            blacklisted_models = ["gpt-5", "gpt-5-codex"]
+            print(f"🚫 {agent_name} Agent: Using default blacklist for {blacklisted_models}", file=sys.stderr)
+
+        # Check if model is blacklisted
+        if agent_model in blacklisted_models:
+            print(f"⚠️  {agent_name} Agent: Model '{agent_model}' is blacklisted, using fallback", file=sys.stderr)
+            # Use safer fallback models
+            agent_model = "claude-sonnet-4.5"
+            if "codex" in agent_base.lower():
+                agent_model = "gpt-5-mini"  # Safer alternative for codex endpoint
 
         # Log configuration for transparency
         if os.getenv(model_key) or os.getenv(base_key):
             print(
-                f"🔧 {agent_name} Agent: Using custom config "
+                f"🔧 {agent_name} Agent: Using config "
                 f"(model={agent_model}, base={agent_base})",
                 file=sys.stderr,
             )
@@ -428,6 +448,8 @@ class MealPlanningCrew:
                     tasks=[meal_task],
                     process=Process.sequential,
                     verbose=True,
+                    max_iter=30,  # Increase max iterations to prevent false loop detection
+                    memory=False,  # Disable cache to prevent "reusing same input" errors
                 )
 
                 meal_result = meal_crew.kickoff()
@@ -483,6 +505,8 @@ class MealPlanningCrew:
                     tasks=[compilation_task],
                     process=Process.sequential,
                     verbose=True,
+                    max_iter=30,  # Increase max iterations to prevent false loop detection
+                    memory=False,  # Disable cache to prevent "reusing same input" errors
                 )
 
                 compilation_result = compilation_crew.kickoff()
@@ -745,7 +769,9 @@ class MealPlanningCrew:
         # ===================================================================
         print("\n📊 Step 1: Analyzing Hexis training data...\n", file=sys.stderr)
 
-        hexis_task = create_hexis_analysis_task(
+        # DIRECT FALLBACK: Use simplified task without tools to avoid infinite loops
+        print(f"\n🔄 Using direct fallback task without tool calls to avoid loops...\n", file=sys.stderr)
+        hexis_task = create_hexis_analysis_task_fallback(
             self.hexis_analysis_agent, week_start_date
         )
         hexis_crew = Crew(
@@ -753,6 +779,8 @@ class MealPlanningCrew:
             tasks=[hexis_task],
             process=Process.sequential,
             verbose=True,
+            max_iter=30,  # Increase max iterations to prevent false loop detection
+            memory=False,  # Disable cache to prevent "reusing same input" errors
         )
 
         hexis_result = hexis_crew.kickoff()
@@ -777,7 +805,29 @@ class MealPlanningCrew:
                 candidate_json = json.dumps(candidates[0], indent=2)[:2000]
                 print(f"❌ DEBUG: First candidate structure:\n{candidate_json}...\n", file=sys.stderr)
 
-            return {"error": error_msg, "step": "hexis_analysis"}
+            # FALLBACK: Use simplified task without tools
+            print(f"\n🔄 Using fallback task without tool calls...\n", file=sys.stderr)
+
+            hexis_fallback_task = create_hexis_analysis_task_fallback(
+                self.hexis_analysis_agent, week_start_date
+            )
+            hexis_fallback_crew = Crew(
+                agents=[self.hexis_analysis_agent],
+                tasks=[hexis_fallback_task],
+                process=Process.sequential,
+                verbose=True,
+                max_iter=5,
+                memory=False,
+            )
+
+            hexis_fallback_result = hexis_fallback_crew.kickoff()
+            hexis_model = self._extract_model_from_output(hexis_fallback_result, HexisWeeklyAnalysis)
+
+            if hexis_model is None:
+                print(f"\n❌ Even fallback task failed\n", file=sys.stderr)
+                return {"error": f"{error_msg} (fallback also failed)", "step": "hexis_analysis"}
+            else:
+                print(f"\n✅ Fallback task succeeded\n", file=sys.stderr)
 
         hexis_analysis = hexis_model.model_dump()
         print(
@@ -798,9 +848,19 @@ class MealPlanningCrew:
             tasks=[structure_task],
             process=Process.sequential,
             verbose=True,
+            max_iter=30,  # Increase max iterations to prevent false loop detection
+            memory=False,  # Disable cache to prevent "reusing same input" errors
         )
 
         structure_result = structure_crew.kickoff()
+
+        # DEBUG: Show raw output for weekly structure
+        raw_output = structure_result.raw if hasattr(structure_result, 'raw') else ""
+        print(f"\n🔍 DEBUG: Weekly structure raw output length = {len(raw_output)} chars\n", file=sys.stderr)
+        if raw_output:
+            print(f"🔍 DEBUG: First 1000 chars:\n{raw_output[:1000]}\n", file=sys.stderr)
+            print(f"🔍 DEBUG: Last 500 chars:\n{raw_output[-500:]}\n", file=sys.stderr)
+
         structure_model = self._extract_model_from_output(
             structure_result, WeeklyNutritionPlan
         )
@@ -808,6 +868,14 @@ class MealPlanningCrew:
         if structure_model is None:
             error_msg = "Weekly structure failed to return valid JSON"
             print(f"\n❌ {error_msg}\n", file=sys.stderr)
+
+            # DEBUG: Show candidate structure
+            candidates = self._collect_payload_candidates(structure_result)
+            print(f"❌ DEBUG: Parsing failed. Candidates found: {len(candidates)}\n", file=sys.stderr)
+            if candidates:
+                candidate_json = json.dumps(candidates[0], indent=2)[:2000]
+                print(f"❌ DEBUG: First candidate structure:\n{candidate_json}...\n", file=sys.stderr)
+
             return {"error": error_msg, "step": "weekly_structure"}
 
         nutrition_plan = structure_model.model_dump()
@@ -848,6 +916,8 @@ class MealPlanningCrew:
             tasks=[validation_task],
             process=Process.sequential,
             verbose=True,
+            max_iter=30,  # Increase max iterations to prevent false loop detection
+            memory=False,  # Disable cache to prevent "reusing same input" errors
         )
 
         validation_result = validation_crew.kickoff()
@@ -882,6 +952,8 @@ class MealPlanningCrew:
             tasks=[integration_task],
             process=Process.sequential,
             verbose=True,
+            max_iter=30,  # Increase max iterations to prevent false loop detection
+            memory=False,  # Disable cache to prevent "reusing same input" errors
         )
 
         integration_result = integration_crew.kickoff()

@@ -5,6 +5,8 @@ from __future__ import annotations
 import os
 import sys
 import random
+import threading
+import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Sequence
 
@@ -312,6 +314,11 @@ def _normalize_model_name(model_name: str, api_base: str = "") -> str:
         normalized = _normalize_for_claude_endpoint(cleaned)
         print(f"   ✓ Claude endpoint detected → '{normalized}'", file=sys.stderr)
         return normalized
+    elif "api.z.ai" in base_lower:
+        # Z.ai endpoint: use exact model names (glm-4.6, etc.)
+        normalized = _normalize_for_zai(cleaned)
+        print(f"   ✓ Z.ai endpoint detected → '{normalized}'", file=sys.stderr)
+        return normalized
     elif "ccproxy" in base_lower or "ghcopilot" in base_lower:
         # Generic ccproxy/ghcopilot: assume copilot behavior
         normalized = _normalize_for_copilot(cleaned)
@@ -416,6 +423,22 @@ def _normalize_for_claude_endpoint(model_name: str) -> str:
     return model_name
 
 
+def _normalize_for_zai(model_name: str) -> str:
+    """Normalize model names for the Z.ai endpoint."""
+    # Z.ai accepts exact model names like: glm-4.6
+    # Map common variations to canonical names
+    model_lower = model_name.lower()
+
+    # GLM models
+    if "glm-4.6" in model_lower or "glm4.6" in model_lower:
+        return "glm-4.6"
+    if "glm-4" in model_lower:
+        return "glm-4.6"  # Default to latest version
+
+    # Return as-is for unrecognized models
+    return model_name
+
+
 def _uses_default_marker(value: str) -> bool:
     if not value:
         return True
@@ -433,6 +456,10 @@ def _provider_label(prefix: str, base_url: str, suffix: str | None = None) -> st
 
 class RotatingLLM(BaseLLM):
     """BaseLLM wrapper that retries calls across multiple providers on 429 errors."""
+
+    # Class-level tracking of disabled providers (shared across all instances)
+    _disabled_providers: Dict[str, float] = {}  # key = provider_key, value = disabled_at timestamp
+    _provider_lock = threading.Lock()  # Thread-safe access to _disabled_providers
 
     def __init__(self, agent_name: str, providers: Sequence[ProviderCandidate]) -> None:
         if not providers:
@@ -607,6 +634,15 @@ class RotatingLLM(BaseLLM):
         )
 
         for index, provider in enumerate(self._providers):
+            # Check if provider is disabled due to previous quota/rate limit errors
+            if self._is_provider_disabled(provider):
+                print(
+                    f"\n⏭️  {self._agent_name}: SKIPPING {provider.label} ({provider.model})\n"
+                    f"   Reason: Provider is temporarily disabled due to quota/rate limit\n",
+                    file=sys.stderr,
+                )
+                continue
+
             if has_tools and provider.tool_free_only:
                 print(
                     f"\n⏭️  {self._agent_name}: SKIPPING {provider.label} ({provider.model})\n"
@@ -727,9 +763,9 @@ class RotatingLLM(BaseLLM):
                                     
                                     # Execute the tool
                                     if hasattr(tool_func, '_run'):
-                                        tool_result = tool_func._run(tool_args)
+                                        tool_result = tool_func._run(**tool_args) if isinstance(tool_args, dict) else tool_func._run(tool_args)
                                     elif hasattr(tool_func, 'run'):
-                                        tool_result = tool_func.run(tool_args)
+                                        tool_result = tool_func.run(**tool_args) if isinstance(tool_args, dict) else tool_func.run(tool_args)
                                     elif callable(tool_func):
                                         tool_result = tool_func(**tool_args) if isinstance(tool_args, dict) else tool_func(tool_args)
                                     else:
@@ -846,6 +882,9 @@ class RotatingLLM(BaseLLM):
                 if not _is_rate_limit_error(exc):
                     raise
 
+                # Disable the provider to prevent future retry attempts
+                self._disable_provider(provider)
+
                 last_error = exc
                 if index == len(self._providers) - 1:
                     break
@@ -878,6 +917,64 @@ class RotatingLLM(BaseLLM):
         self.model = getattr(llm, "model", self.model)
         self.api_key = getattr(llm, "api_key", self.api_key)
         self.base_url = getattr(llm, "base_url", self.base_url)
+
+    @staticmethod
+    def _provider_key(provider: ProviderCandidate) -> str:
+        """Generate unique identifier for a provider based on model and endpoint."""
+        return f"{provider.model}@{provider.api_base}"
+
+    def _is_provider_disabled(self, provider: ProviderCandidate) -> bool:
+        """Check if a provider is currently disabled due to quota/rate limit errors."""
+        ttl_seconds = int(os.getenv("PROVIDER_DISABLED_TTL_SECONDS", "0"))  # Default: 0 = disabled for entire execution
+        now = time.time()
+
+        with self._provider_lock:
+            key = self._provider_key(provider)
+            if key not in self._disabled_providers:
+                return False
+
+            # If TTL is 0, provider stays disabled for the entire execution
+            if ttl_seconds == 0:
+                return True
+
+            disabled_at = self._disabled_providers[key]
+
+            # Check if TTL has expired - if so, re-enable the provider
+            if now - disabled_at >= ttl_seconds:
+                del self._disabled_providers[key]
+                ttl_minutes = ttl_seconds // 60
+                print(
+                    f"✅ {self._agent_name}: provider {provider.label} re-enabled after {ttl_minutes}min TTL\n",
+                    file=sys.stderr,
+                )
+                return False
+
+            return True
+
+    def _disable_provider(self, provider: ProviderCandidate) -> None:
+        """Mark a provider as disabled due to quota/rate limit error."""
+        ttl_seconds = int(os.getenv("PROVIDER_DISABLED_TTL_SECONDS", "0"))
+
+        with self._provider_lock:
+            key = self._provider_key(provider)
+            self._disabled_providers[key] = time.time()
+
+        if ttl_seconds == 0:
+            print(
+                f"\n🚫 {self._agent_name}: provider {provider.label} DISABLED due to quota/rate limit\n"
+                f"   Disabled for the remainder of this execution\n"
+                f"   Will be available again on next execution (next process start)\n"
+                f"   (Configure TTL via PROVIDER_DISABLED_TTL_SECONDS env var, 0 = permanent)\n",
+                file=sys.stderr,
+            )
+        else:
+            ttl_minutes = ttl_seconds // 60
+            print(
+                f"\n🚫 {self._agent_name}: provider {provider.label} DISABLED due to quota/rate limit\n"
+                f"   Will be re-enabled after {ttl_minutes} minutes\n"
+                f"   (Configure via PROVIDER_DISABLED_TTL_SECONDS env var)\n",
+                file=sys.stderr,
+            )
 
     def __getattr__(self, item: str) -> Any:
         current = self._llms[self._last_success_index]
