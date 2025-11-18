@@ -19,7 +19,7 @@ from crewai.utilities.types import LLMMessage
 from pydantic import BaseModel
 
 
-RATE_LIMIT_KEYWORDS = ("rate limit", "quota", "429")
+RATE_LIMIT_KEYWORDS = ("rate limit", "quota", "429", "token_expired", "no quota")
 
 # Codex endpoint requires system prompts to be stripped and merged into user message
 # This is specific to the /codex/v1 endpoint optimization for code generation
@@ -80,12 +80,56 @@ def _requires_tool_free_context(api_base: str, model_name: str) -> bool:
     return any(keyword in model for keyword in TOOL_FREE_MODEL_HINTS)
 
 
+def _apply_blacklist_if_needed(agent_name: str, model_name: str, api_base: str) -> str:
+    """Apply blacklist after model normalization to ensure it's effective.
+
+    This function must be called AFTER _normalize_model_name() to ensure
+    the blacklist is applied to the final model name that will be used.
+
+    Args:
+        agent_name: Name of the agent (e.g., "DESCRIPTION", "HEXIS_ANALYSIS")
+        model_name: Normalized model name after endpoint-specific normalization
+        api_base: API base URL
+
+    Returns:
+        Model name to use (either original or fallback if blacklisted)
+    """
+    # Get blacklisted models from global and agent-specific sources
+    global_blacklist = os.getenv("GLOBAL_BLACKLISTED_MODELS", "").split(",") if os.getenv("GLOBAL_BLACKLISTED_MODELS") else []
+    agent_blacklist = os.getenv(f"{agent_name}_BLACKLISTED_MODELS", "").split(",") if os.getenv(f"{agent_name}_BLACKLISTED_MODELS") else []
+
+    # Combine and clean blacklists (agent-specific takes precedence)
+    all_blacklisted = [m.strip() for m in global_blacklist + agent_blacklist if m.strip()]
+
+    # Apply default blacklist for specific agents
+    if agent_name == "HEXIS_ANALYSIS" and not agent_blacklist:
+        default_blacklist = ["gpt-5", "gpt-5-codex"]
+        all_blacklisted.extend(default_blacklist)
+
+    # Check if model is blacklisted
+    if model_name in all_blacklisted:
+        source = "global" if model_name in global_blacklist else ("default" if agent_name == "HEXIS_ANALYSIS" and not agent_blacklist else "agent-specific")
+        print(f"⚠️  {agent_name}: Model '{model_name}' is blacklisted ({source}) after normalization, using fallback", file=sys.stderr)
+
+        # Use safer fallback models
+        if "codex" in api_base.lower():
+            return "gpt-5-mini"  # Safer alternative for codex endpoint
+        else:
+            return "claude-sonnet-4.5"  # General fallback
+
+    return model_name
+
+
 def create_llm_with_rotation(
     *, agent_name: str, model_name: str, api_base: str, api_key: str
 ) -> BaseLLM:
     """Create an LLM wrapped with provider rotation logic when enabled."""
 
     normalized_model = _normalize_model_name(model_name, api_base)
+
+    # Apply blacklist after model normalization (this fixes the issue)
+    normalized_model = _apply_blacklist_if_needed(agent_name, normalized_model, api_base)
+
     provider_chain = _build_provider_chain(
         agent_name=agent_name,
         normalized_model=normalized_model,
@@ -150,7 +194,7 @@ def _build_provider_chain(
         )
 
     candidates = _deduplicate_candidates(candidates)
-    candidates = _randomize_provider_order(candidates)
+    # candidates = _randomize_provider_order(candidates)  # Disabled: preserve order
     candidates = _ensure_copilot_fallback(candidates, api_key)
 
     for candidate in candidates:
@@ -991,6 +1035,16 @@ class RotatingLLM(BaseLLM):
         LLM.set_env_callbacks()
 
 
+def _is_codex_error_quota_related(exc: Exception) -> bool:
+    """Check if a 401 error from codex endpoint is quota-related (not real auth failure)."""
+    try:
+        message = str(exc).lower()
+        # Codex endpoint returns "token_expired" when quota is exceeded
+        return "token_expired" in message
+    except Exception:  # pragma: no cover - defensive
+        return False
+
+
 def _is_rate_limit_error(exc: Exception) -> bool:
     exc_name = exc.__class__.__name__
     if exc_name in {"RateLimitError", "RateLimitException"}:
@@ -998,6 +1052,10 @@ def _is_rate_limit_error(exc: Exception) -> bool:
 
     status_code = getattr(exc, "status_code", None) or getattr(exc, "http_status", None)
     if status_code in {402, 429}:  # 402 = quota exceeded, 429 = rate limit
+        return True
+
+    # Handle codex endpoint 401 "token_expired" as quota error (not real auth failure)
+    if status_code == 401 and _is_codex_error_quota_related(exc):
         return True
 
     try:

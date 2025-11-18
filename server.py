@@ -29,6 +29,12 @@ class MealPlanRequest(BaseModel):
         default=None,
         description="Start date of the week (YYYY-MM-DD). Defaults to next Monday if not provided."
     )
+    days: Optional[int] = Field(
+        default=None,
+        ge=1,
+        le=7,
+        description="Number of consecutive days to generate (1-7). Defaults to 7 when omitted."
+    )
 
 
 def _normalize_payload(payload: Any) -> Dict[str, Any]:
@@ -131,10 +137,18 @@ async def generate_meal_plan(request_body: MealPlanRequest) -> JSONResponse:
             detail=f"Invalid date format. Expected YYYY-MM-DD, got: {week_start_date}"
         ) from exc
 
-    print(f"\n🍽️  Generating meal plan for week starting: {week_start_date}\n", file=sys.stderr)
+    days_to_generate = request_body.days or 7
+
+    print(
+        f"\n🍽️  Generating meal plan for week starting: {week_start_date} (days={days_to_generate})\n",
+        file=sys.stderr,
+    )
 
     try:
-        result = meal_planning_crew_instance.generate_meal_plan(week_start_date)
+        result = meal_planning_crew_instance.generate_meal_plan(
+            week_start_date,
+            days_to_generate=days_to_generate,
+        )
     except Exception as exc:  # noqa: BLE001
         print(f"\n❌ Error while generating meal plan: {exc}\n", file=sys.stderr)
         import traceback

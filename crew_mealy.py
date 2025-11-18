@@ -11,12 +11,10 @@ import sys
 from collections import Counter
 from typing import Any, Dict, List, Optional, Type
 
-from dotenv import load_dotenv
-from pydantic import BaseModel, ValidationError
-
 from crewai import Crew, LLM, Process
 from crewai.crews.crew_output import CrewOutput
 from crewai.tasks.task_output import TaskOutput
+from pydantic import BaseModel, ValidationError
 
 from agents import (
     create_hexis_analysis_agent,
@@ -47,9 +45,6 @@ from tasks.hexis_analysis_task_fallback import create_hexis_analysis_task_fallba
 from mcp_utils import build_mcp_references, load_catalog_tool_names
 from mcp_auth_wrapper import MetaMCPAdapter
 from llm_provider_rotation import create_llm_with_rotation
-
-# Load environment variables from .env file (override shell variables)
-load_dotenv(override=True)
 
 
 class MealPlanningCrew:
@@ -245,22 +240,33 @@ class MealPlanningCrew:
 
         agent_model = os.getenv(model_key, default_model)
         agent_base = os.getenv(base_key, default_base)
-        blacklisted_models = os.getenv(blacklist_key, "").split(",") if os.getenv(blacklist_key) else []
-        blacklisted_models = [m.strip() for m in blacklisted_models if m.strip()]
+
+        # Get blacklisted models from global and agent-specific sources
+        global_blacklist = os.getenv("GLOBAL_BLACKLISTED_MODELS", "").split(",") if os.getenv("GLOBAL_BLACKLISTED_MODELS") else []
+        agent_blacklist = os.getenv(blacklist_key, "").split(",") if os.getenv(blacklist_key) else []
+
+        # Combine and clean blacklists (agent-specific takes precedence)
+        all_blacklisted = [m.strip() for m in global_blacklist + agent_blacklist if m.strip()]
 
         # Model blacklist for specific agents
-        if agent_name == "HEXIS_ANALYSIS" and not blacklisted_models:
+        if agent_name == "HEXIS_ANALYSIS" and not agent_blacklist:
             # Default blacklist for HEXIS_ANALYSIS to avoid GPT-5 issues
-            blacklisted_models = ["gpt-5", "gpt-5-codex"]
-            print(f"🚫 {agent_name} Agent: Using default blacklist for {blacklisted_models}", file=sys.stderr)
+            default_blacklist = ["gpt-5", "gpt-5-codex"]
+            print(f"🚫 {agent_name} Agent: Using default blacklist for {default_blacklist}", file=sys.stderr)
+            all_blacklisted.extend(default_blacklist)
 
         # Check if model is blacklisted
-        if agent_model in blacklisted_models:
-            print(f"⚠️  {agent_name} Agent: Model '{agent_model}' is blacklisted, using fallback", file=sys.stderr)
+        if agent_model in all_blacklisted:
+            source = "global" if agent_model in global_blacklist else ("default" if agent_name == "HEXIS_ANALYSIS" and not agent_blacklist else "agent-specific")
+            print(f"⚠️  {agent_name} Agent: Model '{agent_model}' is blacklisted ({source}), using fallback", file=sys.stderr)
             # Use safer fallback models
             agent_model = "claude-sonnet-4.5"
             if "codex" in agent_base.lower():
                 agent_model = "gpt-5-mini"  # Safer alternative for codex endpoint
+
+        # Show blacklist info for transparency
+        if all_blacklisted:
+            print(f"   🚫 Blacklist active: {', '.join(all_blacklisted[:3])}{'...' if len(all_blacklisted) > 3 else ''}", file=sys.stderr)
 
         # Log configuration for transparency
         if os.getenv(model_key) or os.getenv(base_key):
@@ -297,9 +303,9 @@ class MealPlanningCrew:
     def _clean_json_text(text: str) -> str:
         """Remove markdown fences and whitespace from JSON text."""
         import re
-        # Remove markdown code fences
-        text = re.sub(r'^```(?:json)?\s*', '', text, flags=re.MULTILINE)
-        text = re.sub(r'```\s*$', '', text, flags=re.MULTILINE)
+        # Remove markdown code fences (anywhere in text, including with leading/trailing whitespace)
+        text = re.sub(r'```json\s*\n?', '', text)  # Remove opening fence
+        text = re.sub(r'\n?\s*```', '', text)  # Remove closing fence
         return text.strip()
 
     @staticmethod
@@ -410,6 +416,7 @@ class MealPlanningCrew:
     def _generate_daily_meal_plans(
         self,
         nutrition_plan: Dict[str, Any],
+        max_days: Optional[int] = None,
     ) -> Optional[List[Dict[str, Any]]]:
         """Generate daily meal plans sequentially to keep tasks focused."""
         daily_targets = nutrition_plan.get("daily_targets", [])
@@ -417,6 +424,29 @@ class MealPlanningCrew:
         if not daily_targets:
             print("\n❌ No daily targets provided in nutrition plan\n", file=sys.stderr)
             return None
+
+        total_targets = len(daily_targets)
+
+        if max_days is not None:
+            if max_days <= 0:
+                print("\n❌ Cannot generate meal plans for fewer than one day\n", file=sys.stderr)
+                return None
+
+            if max_days < total_targets:
+                limited_days = ", ".join(
+                    target.get("day_name", "?") for target in daily_targets[:max_days]
+                )
+                print(
+                    f"\nℹ️  Limiting meal generation to first {max_days} day(s): {limited_days}\n",
+                    file=sys.stderr,
+                )
+            elif max_days > total_targets:
+                print(
+                    f"\nℹ️  Requested {max_days} day(s) but only {total_targets} target(s) available; generating all available days\n",
+                    file=sys.stderr,
+                )
+
+            daily_targets = daily_targets[:max_days]
 
         generated_daily_plans: List[Dict[str, Any]] = []
 
@@ -609,6 +639,32 @@ class MealPlanningCrew:
         return None
 
     @staticmethod
+    def _limit_nutrition_plan_days(
+        nutrition_plan: Dict[str, Any],
+        max_days: int,
+    ) -> Dict[str, Any]:
+        """Return a copy of the nutrition plan limited to the first max_days targets."""
+
+        if max_days <= 0:
+            return nutrition_plan
+
+        plan = copy.deepcopy(nutrition_plan)
+        daily_targets = plan.get("daily_targets") or []
+
+        if not daily_targets:
+            return plan
+
+        limited_targets = daily_targets[:max_days]
+        plan["daily_targets"] = limited_targets
+
+        last_target = limited_targets[-1] if limited_targets else {}
+        last_date = last_target.get("date") if isinstance(last_target, dict) else None
+        if last_date:
+            plan["week_end_date"] = last_date
+
+        return plan
+
+    @staticmethod
     def _simplify_ingredient_name(raw: str) -> str:
         """Return a simplified ingredient label without leading quantities/units."""
         import re
@@ -752,17 +808,26 @@ class MealPlanningCrew:
 
         return ""
 
-    def generate_meal_plan(self, week_start_date: str) -> Dict[str, Any]:
+    def generate_meal_plan(self, week_start_date: str, days_to_generate: int = 7) -> Dict[str, Any]:
         """
         Generate a complete weekly meal plan.
 
         Args:
             week_start_date: Start date of the week (ISO format YYYY-MM-DD)
+            days_to_generate: Number of consecutive days to generate meal plans for.
+                Defaults to 7 (full week) and is capped at the number of available
+                daily targets in the nutrition plan.
 
         Returns:
             Complete meal planning result with integration status
         """
-        print(f"\n🚀 Starting Meal Planning for week of {week_start_date}\n", file=sys.stderr)
+        if days_to_generate <= 0:
+            raise ValueError("days_to_generate must be at least 1")
+
+        print(
+            f"\n🚀 Starting Meal Planning for week of {week_start_date} (requested {days_to_generate} day(s))\n",
+            file=sys.stderr,
+        )
 
         # ===================================================================
         # STEP 1: Hexis Analysis - Analyze training data to determine needs
@@ -878,7 +943,30 @@ class MealPlanningCrew:
 
             return {"error": error_msg, "step": "weekly_structure"}
 
-        nutrition_plan = structure_model.model_dump()
+        nutrition_plan_full = structure_model.model_dump()
+        original_target_count = len(nutrition_plan_full.get("daily_targets", []))
+
+        days_to_process = max(1, days_to_generate)
+        if original_target_count:
+            if days_to_generate < original_target_count:
+                print(
+                    f"\nℹ️  User requested {days_to_generate} day(s); trimming nutrition plan from {original_target_count} day(s) to match request\n",
+                    file=sys.stderr,
+                )
+            elif days_to_generate > original_target_count:
+                print(
+                    f"\nℹ️  Requested {days_to_generate} day(s) but Hexis provided only {original_target_count} target(s); limiting to available days\n",
+                    file=sys.stderr,
+                )
+
+            days_to_process = max(1, min(days_to_generate, original_target_count))
+            nutrition_plan = self._limit_nutrition_plan_days(
+                nutrition_plan_full,
+                days_to_process,
+            )
+        else:
+            nutrition_plan = nutrition_plan_full
+
         print(
             f"\n✅ Nutrition plan created:\n{json.dumps(nutrition_plan, indent=2)}\n",
             file=sys.stderr,
@@ -889,7 +977,28 @@ class MealPlanningCrew:
         # ===================================================================
         print("\n👨‍🍳 Step 3: Generating meals day by day...\n", file=sys.stderr)
 
-        daily_plans = self._generate_daily_meal_plans(nutrition_plan)
+        available_daily_targets = len(nutrition_plan.get("daily_targets", []))
+        if available_daily_targets == 0:
+            error_msg = "Nutrition plan did not provide any daily targets"
+            print(f"\n❌ {error_msg}\n", file=sys.stderr)
+            return {"error": error_msg, "step": "daily_meal_generation"}
+
+        days_to_process = min(days_to_process, available_daily_targets)
+        if days_to_generate > available_daily_targets:
+            print(
+                f"\nℹ️  Requested {days_to_generate} day(s) but only {available_daily_targets} target(s) provided; generating all available days\n",
+                file=sys.stderr,
+            )
+
+        print(
+            f"\nℹ️  Generating meal plans for {days_to_process} consecutive day(s)\n",
+            file=sys.stderr,
+        )
+
+        daily_plans = self._generate_daily_meal_plans(
+            nutrition_plan,
+            max_days=days_to_process,
+        )
 
         if daily_plans is None:
             error_msg = "Daily meal generation failed after all attempts"
@@ -908,8 +1017,17 @@ class MealPlanningCrew:
         # ===================================================================
         print("\n🔍 Step 3b: Validating compiled meal plan...\n", file=sys.stderr)
 
+        planned_day_count = 0
+        if isinstance(meal_plan, dict):
+            planned_day_count = len(meal_plan.get("daily_plans", []))
+        if planned_day_count <= 0:
+            planned_day_count = days_to_generate
+
         validation_task = create_nutritional_validation_task(
-            self.nutritional_validation_agent, meal_plan, nutrition_plan
+            self.nutritional_validation_agent,
+            meal_plan,
+            nutrition_plan,
+            planned_day_count=planned_day_count,
         )
         validation_crew = Crew(
             agents=[self.nutritional_validation_agent],
@@ -945,7 +1063,10 @@ class MealPlanningCrew:
         print("\n🔗 Step 4: Integrating with Mealy...\n", file=sys.stderr)
         
         integration_task = create_mealy_integration_task(
-            self.mealy_integration_agent, meal_plan, validation
+            self.mealy_integration_agent,
+            meal_plan,
+            validation,
+            planned_day_count=planned_day_count,
         )
         integration_crew = Crew(
             agents=[self.mealy_integration_agent],

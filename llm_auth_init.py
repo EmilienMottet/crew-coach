@@ -8,8 +8,17 @@ from typing import Any, Dict, List, Optional
 
 from dotenv import load_dotenv
 
-# Load environment immediately
-load_dotenv(override=True)
+
+def load_env_with_optional_override() -> None:
+    """Load .env without clobbering explicit environment overrides."""
+
+    load_dotenv(override=False)
+    if os.getenv("DOTENV_FORCE_OVERRIDE", "").strip().lower() in {"1", "true", "yes", "on"}:
+        load_dotenv(override=True)
+
+
+# Load environment immediately while respecting explicit overrides
+load_env_with_optional_override()
 
 # CRITICAL: Disable CrewAI telemetry BEFORE any crewai imports
 # This must be set explicitly because CrewAI initializes OpenTelemetry on import
