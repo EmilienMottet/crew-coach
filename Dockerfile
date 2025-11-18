@@ -1,22 +1,16 @@
 # syntax=docker/dockerfile:1
 
 # =============================================================================
-# Stage 1: Build dependencies with compilation tools
+# Stage 1: Build dependencies
 # =============================================================================
-FROM python:3.12-alpine AS builder
+FROM python:3.12-slim AS builder
 
 # Install build dependencies for C extensions
-RUN apk add --no-cache \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     g++ \
-    musl-dev \
     libffi-dev \
-    openssl-dev \
-    cargo \
-    rust \
-    cmake \
-    make \
-    linux-headers
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
@@ -28,15 +22,9 @@ COPY requirements.txt ./
 RUN pip wheel --no-cache-dir --wheel-dir=/wheels -r requirements.txt
 
 # =============================================================================
-# Stage 2: Runtime (minimal Alpine image)
+# Stage 2: Runtime (minimal image without build tools)
 # =============================================================================
-FROM python:3.12-alpine
-
-# Install only runtime dependencies (no compilers)
-RUN apk add --no-cache \
-    libstdc++ \
-    libffi \
-    openssl
+FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
