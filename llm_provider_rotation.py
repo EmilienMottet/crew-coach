@@ -194,7 +194,7 @@ def _build_provider_chain(
         )
 
     candidates = _deduplicate_candidates(candidates)
-    # candidates = _randomize_provider_order(candidates)  # Disabled: preserve order
+    candidates = _randomize_primary_providers(candidates)  # Randomize primary providers only
     candidates = _ensure_copilot_fallback(candidates, api_key)
 
     for candidate in candidates:
@@ -318,17 +318,40 @@ def _deduplicate_candidates(
     return unique
 
 
-def _randomize_provider_order(
+def _randomize_primary_providers(
     candidates: Sequence[ProviderCandidate],
 ) -> List[ProviderCandidate]:
-    """Shuffle provider order to distribute load across endpoints."""
+    """Shuffle primary providers (non-fallback) to distribute load across endpoints.
 
+    The fallback provider (copilot-fallback with gpt-5-mini) is preserved as the last provider.
+    This ensures load balancing across primary endpoints while maintaining a stable fallback.
+    """
     randomized = list(candidates)
     if len(randomized) <= 1:
         return randomized
 
-    random.shuffle(randomized)
-    return randomized
+    # Separate fallback from primary providers
+    fallback_providers = []
+    primary_providers = []
+
+    for candidate in randomized:
+        # Identify fallback providers by label (copilot-fallback) or model (gpt-5-mini)
+        is_fallback = (
+            "fallback" in candidate.label.lower() or
+            "gpt-5-mini" in candidate.model.lower()
+        )
+
+        if is_fallback:
+            fallback_providers.append(candidate)
+        else:
+            primary_providers.append(candidate)
+
+    # Shuffle only the primary providers
+    if len(primary_providers) > 1:
+        random.shuffle(primary_providers)
+
+    # Combine: randomized primaries + fallbacks at the end
+    return primary_providers + fallback_providers
 
 
 def _normalize_model_name(model_name: str, api_base: str = "") -> str:
