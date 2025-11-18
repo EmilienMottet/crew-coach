@@ -585,10 +585,32 @@ class StravaDescriptionCrew:
     @staticmethod
     def _default_generated_content(raw_summary: str) -> Dict[str, Any]:
         """Return a safe fallback when generation fails."""
-        truncated = raw_summary[:500] if raw_summary else ""
+        # Detect reasoning/thinking text that shouldn't be used as description
+        reasoning_indicators = [
+            "I found the matching",
+            "I'll get the detailed",
+            "Now I'll",
+            "Let me",
+            "I need to",
+            "Perfect!",
+            "Great!",
+            "I can see",
+            "Looking at",
+            "The Strava activity ID",
+            "corresponds to",
+        ]
+
+        description = ""
+        if raw_summary:
+            # Check if the raw output looks like reasoning/thinking text
+            is_reasoning = any(indicator.lower() in raw_summary.lower() for indicator in reasoning_indicators)
+            if not is_reasoning:
+                description = raw_summary[:500]
+            # If it's reasoning text, leave description empty (privacy agent will handle)
+
         return {
             "title": "Activity completed",
-            "description": truncated,
+            "description": description,
             "workout_type": "Unknown",
             "key_metrics": {},
         }
