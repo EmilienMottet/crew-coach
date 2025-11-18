@@ -594,9 +594,54 @@ class StravaDescriptionCrew:
         }
 
     @staticmethod
+    def _normalize_activity_data(activity_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Normalize activity_data to handle double-nested object_data from n8n.
+
+        Sometimes n8n wraps the payload twice, resulting in:
+        {
+            "object_data": {
+                "object_type": "activity",
+                "object_data": { ...actual data... },
+                "spotify_recently_played": { ... }
+            }
+        }
+
+        This method flattens it to:
+        {
+            "object_data": { ...actual data... },
+            "spotify_recently_played": { ... }
+        }
+        """
+        object_data = activity_data.get("object_data", {})
+
+        if isinstance(object_data, dict) and "object_data" in object_data:
+            # Double-nested structure detected
+            inner_object_data = object_data.get("object_data", {})
+            spotify_data = object_data.get("spotify_recently_played", {})
+
+            # Flatten the structure
+            normalized = {
+                "object_type": activity_data.get("object_type", object_data.get("object_type", "activity")),
+                "object_id": activity_data.get("object_id") or object_data.get("object_id"),
+                "object_data": inner_object_data,
+            }
+
+            # Preserve spotify_recently_played at top level
+            if spotify_data:
+                normalized["spotify_recently_played"] = spotify_data
+            elif "spotify_recently_played" in activity_data:
+                normalized["spotify_recently_played"] = activity_data["spotify_recently_played"]
+
+            return normalized
+
+        return activity_data
+
+    @staticmethod
     def _safe_activity_id(activity_data: Dict[str, Any]) -> Optional[int]:
         """Extract activity id from the webhook payload."""
-        object_data = activity_data.get("object_data")
+        # First normalize the data structure
+        normalized = StravaDescriptionCrew._normalize_activity_data(activity_data)
+        object_data = normalized.get("object_data")
         if isinstance(object_data, dict):
             activity_id = object_data.get("id")
             if isinstance(activity_id, int):
@@ -644,6 +689,9 @@ class StravaDescriptionCrew:
     
     def process_activity(self, activity_data: Dict[str, Any]) -> Dict[str, Any]:
         """Process a Strava activity webhook to generate localized content."""
+
+        # Normalize the data structure to handle double-nested object_data from n8n
+        activity_data = self._normalize_activity_data(activity_data)
 
         print("\n🚀 Step 1: Generating activity description...\n", file=sys.stderr)
 

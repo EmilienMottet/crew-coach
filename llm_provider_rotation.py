@@ -978,7 +978,13 @@ class RotatingLLM(BaseLLM):
 
     @staticmethod
     def _instantiate_llm(target: ProviderCandidate) -> LLM:
-        return LLM(model=target.model, api_base=target.api_base, api_key=target.api_key)
+        model = target.model
+        # Force LiteLLM routing for Claude models with custom api_base
+        # This prevents CrewAI from using native Anthropic provider which would bypass our proxy
+        if target.api_base and "claude" in model.lower() and not model.startswith("openai/"):
+            model = f"openai/{model}"
+            print(f"   ℹ️  Forcing LiteLLM routing for {target.model} → {model}", file=sys.stderr)
+        return LLM(model=model, api_base=target.api_base, api_key=target.api_key)
 
     def _sync_metadata(self, llm: LLM) -> None:
         self.model = getattr(llm, "model", self.model)
