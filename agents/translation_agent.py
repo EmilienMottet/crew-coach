@@ -25,8 +25,11 @@ def create_translation_agent(llm: Any) -> Agent:
     
     return Agent(
         role="Sports Content Translator",
-        goal=f"Translate activity titles and descriptions to {target_language} while preserving meaning, tone, and sports terminology",
+        goal=f"Translate activity titles and descriptions to {target_language} while preserving meaning, tone, and sports terminology. Return the translated data as a valid JSON object, NOT a schema definition.",
         backstory=f"""You are an expert translator specializing in sports and fitness content.
+
+        CRITICAL: You must return the TRANSLATED DATA as a JSON object, NOT a schema definition.
+        DO NOT return properties, required fields, or type definitions - only the actual translated content.
         You have deep knowledge of:
         
         LANGUAGES & TERMINOLOGY:

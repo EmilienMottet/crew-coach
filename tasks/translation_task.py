@@ -52,11 +52,30 @@ def create_translation_task(agent, content_to_translate: str) -> Task:
         - Do not translate `key_metrics`
         - Only the natural-language fields should change
 
-    OUTPUT GUARANTEES:
-    - Return valid JSON following the TranslationPayload schema
-    - No markdown fenced blocks
-    - Ensure emojis render correctly and counts remain unchanged
-    - Respect the original structure exactly (same keys/order)
+    OUTPUT FORMAT EXAMPLE (French):
+    Input:
+    {{
+        "title": "🏃 Morning Run - 12.3K",
+        "description": "Easy recovery run...",
+        "workout_type": "Recovery Run",
+        "key_metrics": {{"distance": "12.3 km"}}
+    }}
+
+    Expected Output (translate ONLY title and description):
+    {{
+        "title": "🏃 Sortie matinale - 12.3K",
+        "description": "Sortie récupération tranquille...",
+        "workout_type": "Recovery Run",
+        "key_metrics": {{"distance": "12.3 km"}}
+    }}
+
+    CRITICAL REQUIREMENTS:
+    - Return ONLY the translated DATA, NOT a schema definition
+    - Do NOT include "properties", "required", "type", or "additionalProperties" fields
+    - No markdown fenced blocks (```json)
+    - Ensure emojis render correctly
+    - Title must be ≤50 characters
+    - Description must be ≤500 characters
     """
     
     return Task(
