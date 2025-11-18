@@ -16,7 +16,7 @@ import sys
 from typing import Any, Callable, Dict, List, Optional
 
 from crewai.tools import BaseTool
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, create_model
 
 # Global counter for tracking tool calls
 _tool_call_counter: Dict[str, int] = {}
@@ -174,7 +174,7 @@ def wrap_mcp_tool(tool: Any) -> Any:
     Wrap an MCP tool to add input validation.
 
     This wrapper intercepts the tool execution BEFORE CrewAI's validation
-    by wrapping both _run and __call__ methods.
+    by replacing the args_schema with a permissive one that accepts any input.
 
     Args:
         tool: MCP tool object with a `_run` or `run` method
@@ -189,6 +189,21 @@ def wrap_mcp_tool(tool: Any) -> Any:
         # Tool doesn't have a run method, return as-is
         return tool
 
+    # Replace the args_schema with a permissive model that accepts Any
+    # This bypasses CrewAI's strict validation before _run is called
+    tool_name = getattr(tool, 'name', 'unknown')
+
+    # Create a permissive schema that accepts any input as 'tool_input'
+    PermissiveSchema = create_model(
+        f"{tool_name.replace('-', '_').replace('__', '_').title()}PermissiveInput",
+        tool_input=(Any, Field(default=None, description="Tool input (any format accepted)"))
+    )
+
+    # Store original schema for reference
+    original_schema = getattr(tool, 'args_schema', None)
+    tool._original_args_schema = original_schema
+    tool.args_schema = PermissiveSchema
+
     def validated_run(*args, **kwargs) -> Any:
         """Run the tool with input validation."""
         tool_name = tool.name if hasattr(tool, 'name') else 'unknown'
@@ -199,15 +214,32 @@ def wrap_mcp_tool(tool: Any) -> Any:
 
         # Log that the tool is being called
         print(f"\n🔧 MCP Tool Call: {tool_name}", file=sys.stderr)
-        print(f"   Args: {args[:1] if args else 'none'}", file=sys.stderr)  # Only show first arg to avoid spam
+        print(f"   Args: {args[:1] if args else 'none'}", file=sys.stderr)
         print(f"   Kwargs keys: {list(kwargs.keys()) if kwargs else 'none'}", file=sys.stderr)
 
+        # Handle permissive schema input - the input comes in kwargs['tool_input']
+        if 'tool_input' in kwargs and kwargs['tool_input'] is not None:
+            raw_input = kwargs.pop('tool_input')
+            print(f"   Raw tool_input type: {type(raw_input).__name__}", file=sys.stderr)
+            try:
+                validated_input = validate_tool_input(raw_input)
+                print(f"   ✅ Validated input: {list(validated_input.keys()) if isinstance(validated_input, dict) else validated_input}", file=sys.stderr)
+                # Call original method with validated input as kwargs
+                result = original_run(**validated_input)
+            except Exception as e:
+                print(
+                    f"❌ Tool input validation failed: {e}\n"
+                    f"   Tool: {tool_name}\n"
+                    f"   Raw input: {raw_input}",
+                    file=sys.stderr
+                )
+                raise
         # If first arg looks like tool input, validate it
-        if args and len(args) > 0:
+        elif args and len(args) > 0:
             try:
                 validated_input = validate_tool_input(args[0])
-                # Replace first arg with validated input
-                args = (validated_input,) + args[1:]
+                # Call original method with validated input
+                result = original_run(**validated_input) if isinstance(validated_input, dict) else original_run(validated_input, *args[1:], **kwargs)
             except Exception as e:
                 print(
                     f"❌ Tool input validation failed: {e}\n"
@@ -216,9 +248,9 @@ def wrap_mcp_tool(tool: Any) -> Any:
                     file=sys.stderr
                 )
                 raise
-
-        # Call original method
-        result = original_run(*args, **kwargs)
+        else:
+            # No special input, call with original args/kwargs
+            result = original_run(*args, **kwargs)
 
         # Log the result summary
         result_summary = str(result)[:200] if result else "None"
