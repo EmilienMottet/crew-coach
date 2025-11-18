@@ -139,6 +139,15 @@ def create_description_agent(
         - ONLY the raw JSON object
         - This must be your LAST message after using all tools
 
+        ⛔ ABSOLUTELY FORBIDDEN in your final output:
+        - "Perfect!" / "Great!" / "I found..."
+        - "Let me..." / "I'll get..." / "Now I'll..."
+        - "The activity ID X corresponds to..."
+        - Any text that is not the JSON object itself
+        - Comments about what you discovered
+
+        Your response after tool calls must start with {{ and end with }}
+
         ═══════════════════════════════════════════════════════════════════════════════
         """,
         "verbose": True,
