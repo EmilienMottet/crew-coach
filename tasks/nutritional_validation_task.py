@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Dict
+from copy import deepcopy
+from typing import Any, Dict, List
 
 from crewai import Task
 
@@ -13,24 +14,52 @@ def create_nutritional_validation_task(
     agent: Any,
     weekly_meal_plan: Dict[str, Any],
     weekly_nutrition_plan: Dict[str, Any],
+    planned_day_count: int | None = None,
 ) -> Task:
-    """
-    Create a task for validating the weekly meal plan.
+    """Create a task for validating the weekly meal plan."""
 
-    Args:
-        agent: The agent responsible for this task
-        weekly_meal_plan: The generated meal plan (WeeklyMealPlan as dict)
-        weekly_nutrition_plan: The target nutrition plan (WeeklyNutritionPlan as dict)
+    planned_day_names: List[str] = [
+        (plan.get("day_name") or plan.get("date") or "Unspecified day")
+        for plan in weekly_meal_plan.get("daily_plans", [])
+    ]
 
-    Returns:
-        Configured Task instance
-    """
+    requested_days = planned_day_count or len(planned_day_names)
+    if not requested_days:
+        requested_days = len(weekly_nutrition_plan.get("daily_targets", [])) or 7
+
+    requested_days = max(1, requested_days)
+
+    if planned_day_names:
+        requested_days = min(requested_days, len(planned_day_names))
+
+    limited_nutrition_plan = deepcopy(weekly_nutrition_plan)
+    if limited_nutrition_plan.get("daily_targets"):
+        limited_nutrition_plan["daily_targets"] = limited_nutrition_plan["daily_targets"][:requested_days]
+        last_target = limited_nutrition_plan["daily_targets"][-1] if limited_nutrition_plan["daily_targets"] else None
+        last_date = (last_target.get("date") if isinstance(last_target, dict) else None) if last_target else None
+        if last_date:
+            limited_nutrition_plan["week_end_date"] = last_date
+
     meal_plan_json = json.dumps(weekly_meal_plan, indent=2)
-    nutrition_plan_json = json.dumps(weekly_nutrition_plan, indent=2)
+    nutrition_plan_json = json.dumps(limited_nutrition_plan, indent=2)
+
+    expected_meals = requested_days * 4
+    protein_sources_target = min(5, max(3, requested_days + 1))
+    vegetable_target = min(10, max(4, requested_days * 3))
+    fruit_target = min(5, max(2, requested_days * 2))
+    grain_target = min(4, max(2, requested_days))
+    healthy_fats_target = min(5, max(2, requested_days))
+    planned_day_list = ", ".join(planned_day_names[:requested_days]) if planned_day_names else "None provided"
 
     description = f"""
     Validate the generated weekly meal plan to ensure nutritional adequacy, accuracy,
     variety, and practical feasibility for athletic performance.
+
+    SCOPE NOTE:
+    - The user explicitly requested plans for the first {requested_days} consecutive day(s).
+    - Planned day window: {planned_day_list}
+    - Focus all checks on those {requested_days} day(s). Days beyond this window are out of scope and must not be flagged as issues.
+    - Expect four meals per planned day (Breakfast, Lunch, Afternoon Snack, Dinner). A second snack is optional and should not be required for approval.
 
     TARGET NUTRITION PLAN:
     {nutrition_plan_json}
@@ -41,19 +70,19 @@ def create_nutritional_validation_task(
     YOUR MISSION:
 
     1. VALIDATE MACRONUTRIENT ACCURACY
-        For each day of the week:
+        For each of the {requested_days} planned day(s):
         - Sum the calories from all meals
         - Sum protein, carbs, and fat from all meals
         - Compare to the daily targets from the nutrition plan
         - Calculate variance:
           * Calories: (actual - target) / target * 100
           * Macros: (actual - target) / target * 100
-        - Assess accuracy for each day:
+        - Assess accuracy for each planned day:
           * "Excellent" if <2% variance for protein/carbs, <5% for calories
           * "Good" if 2-5% variance
           * "Needs adjustment" if >5% variance
 
-        Create macro_accuracy dict with assessment for each day:
+        Create macro_accuracy dict with assessment for each planned day:
         {{
           "Monday": "Excellent - Within 1% of targets",
           "Tuesday": "Good - 3% over on carbs, acceptable",
@@ -61,17 +90,19 @@ def create_nutritional_validation_task(
         }}
 
     2. EVALUATE MEAL VARIETY
-        Assess variety across the week:
-        - Count unique meals (should be 21+ unique meals for 7 days × 3 main meals)
-        - Check protein source rotation (should include 5+ different sources)
-        - Review vegetable diversity (should include 10+ different vegetables)
-        - Check cuisine diversity (should span 3+ cuisine types)
-        - Identify any repeated meals (flag if any)
+        Assess variety across the planned {requested_days} day(s):
+        - Count unique meals (target: ≥ {expected_meals} unique dishes across Breakfast/Lunch/Snack/Dinner for the planned window)
+        - Check protein source rotation (aim for ≥ {protein_sources_target} different primary sources across the planned days)
+        - Review vegetable diversity (aim for ≥ {vegetable_target} different vegetables across those days)
+        - Fruit diversity goal: ≥ {fruit_target} distinct fruits across the planned days
+        - Grain/starch diversity goal: ≥ {grain_target} different grain or starch bases
+        - Healthy fat diversity: ≥ {healthy_fats_target} distinct sources (olive oil, nuts, avocado, fatty fish, etc.)
+        - Identify duplicated meals within the planned window (note but allow minor repeats if practicality demands)
 
         Assign variety_score:
-        - "Excellent" if 21+ unique meals, diverse proteins, varied cuisines
-        - "Good" if 18-20 unique meals, some repetition acceptable
-        - "Needs improvement" if <18 unique meals or excessive repetition
+        - "Excellent" if all diversity targets are met (or proportionally satisfied for the planned window)
+        - "Good" if most targets are met with minor repetition or slight shortfall
+        - "Needs improvement" if key diversity targets are missed or repetition is high
 
     3. ASSESS PRACTICAL FEASIBILITY
         Evaluate practicality:
@@ -87,12 +118,12 @@ def create_nutritional_validation_task(
         - "Needs improvement" if unrealistic time demands or ingredient availability
 
     4. CHECK MICRONUTRIENT DIVERSITY
-        Review food groups:
-        - Vegetables: Should include 10+ different types across the week
-        - Fruits: Should include 5+ different types
-        - Proteins: Should include 5+ sources (animal and/or plant)
-        - Grains: Should include 4+ types (rice, quinoa, oats, bread, pasta, etc.)
-        - Healthy fats: Should include varied sources (olive oil, nuts, avocado, fish)
+        Review food groups across the planned day(s):
+        - Vegetables: Aim for ≥ {vegetable_target} different types
+        - Fruits: Aim for ≥ {fruit_target} different types
+        - Proteins: Aim for ≥ {protein_sources_target} different sources (animal and/or plant)
+        - Grains/starches: Aim for ≥ {grain_target} types (rice, quinoa, oats, bread, pasta, etc.)
+        - Healthy fats: Aim for ≥ {healthy_fats_target} varied sources (olive oil, nuts, avocado, fish)
 
         Flag if any food group is underrepresented.
 
@@ -109,7 +140,7 @@ def create_nutritional_validation_task(
     6. IDENTIFY ISSUES (IF ANY)
         List specific issues found:
         - "Monday exceeds calorie target by 8% (2698 vs 2500 kcal)"
-        - "Only 3 protein sources used across the week (chicken, eggs, salmon)"
+        - "Only 3 protein sources used across the planned window"
         - "Dinner preparation times average 55 minutes, may be unrealistic for weeknights"
         - "Insufficient pre-workout carbohydrate in Wednesday breakfast before intervals"
 
@@ -131,12 +162,12 @@ def create_nutritional_validation_task(
         Set approved = True ONLY if:
         - All daily macros within ±50 kcal of targets
         - Macro variance <5% for protein and carbs
-        - At least 18 unique meals across the week
-        - Adequate micronutrient diversity (all food groups represented)
+        - At least {expected_meals} unique meals across the planned window
+        - Adequate micronutrient diversity (targets above satisfied proportionally for the planned day count)
         - No critical performance nutrition issues
         - Practical feasibility is reasonable
 
-        Set approved = False if any critical issues exist.
+        Set approved = False if any critical issues exist. Missing days beyond the requested {requested_days} day(s) must NOT be considered a critical issue.
 
     9. WRITE VALIDATION SUMMARY
         Provide clear, concise summary:
@@ -147,12 +178,22 @@ def create_nutritional_validation_task(
 
         Example summary:
         "Meal plan APPROVED with minor recommendations. Macro accuracy is excellent across
-        all days (average variance <2%). Meal variety is good with 20 unique meals and
-        diverse protein sources. Practicality is excellent with realistic prep times.
-        Minor recommendation: add more colorful vegetables for micronutrient optimization."
+        the planned window (average variance <2%). Meal variety is good with distinct dishes
+        and protein sources. Practicality is excellent with realistic prep times. Minor
+        recommendation: add more colorful vegetables for micronutrient optimization."
 
     OUTPUT CONTRACT:
-    - Respond with valid JSON matching the NutritionalValidation schema
+    - Respond with valid JSON matching the NutritionalValidation schema EXACTLY
+    - Required top-level fields (no nesting allowed):
+      * approved: boolean
+      * validation_summary: string (overall summary)
+      * macro_accuracy: dict (key=day_name, value=assessment string)
+      * variety_score: string (overall variety assessment)
+      * practicality_score: string (overall practicality assessment)
+      * issues_found: list of strings
+      * recommendations: list of strings
+    - Do NOT nest variety_score or practicality_score inside other objects
+    - Do NOT create extra top-level fields like "per_day_macros" or "approval_decision_basis"
     - Do not wrap JSON in markdown fences
     - Be thorough and specific in assessments
     - Provide actionable recommendations
@@ -163,5 +204,5 @@ def create_nutritional_validation_task(
         description=description,
         agent=agent,
         expected_output="Valid JSON adhering to the NutritionalValidation schema with complete validation assessment",
-        # output_json=NutritionalValidation,
+        output_json=NutritionalValidation,
     )

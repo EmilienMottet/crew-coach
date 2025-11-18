@@ -28,12 +28,27 @@ def _preview_text(value: Any, fallback: str = "N/A") -> str:
 def test_meal_planning():
     """Test the meal planning crew with a sample week."""
     # Use the requested week (user confirmed Hexis has data for this week)
-    week_start_date = "2025-11-10"  # Monday, November 10, 2025
+    week_start_date = "2025-11-17"
+
+    days_env = os.getenv("MEAL_PLAN_DAYS")
+    try:
+        days_to_generate = int(days_env) if days_env else 7
+    except ValueError:
+        print(f"⚠️  Invalid MEAL_PLAN_DAYS value '{days_env}' - defaulting to 7 days\n")
+        days_to_generate = 7
+
+    if days_to_generate < 1:
+        print(f"⚠️  Requested days ({days_to_generate}) is less than 1 - defaulting to 1 day\n")
+        days_to_generate = 1
+    elif days_to_generate > 7:
+        print(f"⚠️  Requested days ({days_to_generate}) exceeds 7 - capping to 7 days\n")
+        days_to_generate = 7
 
     print(f"\n{'='*70}")
     print(f"🧪 Testing Meal Planning Crew")
     print(f"{'='*70}")
     print(f"Week start date: {week_start_date}")
+    print(f"Days requested: {days_to_generate}")
     print(f"{'='*70}\n")
 
     try:
@@ -43,7 +58,7 @@ def test_meal_planning():
 
         # Generate meal plan
         print("⏳ Generating meal plan (this may take 2-10 minutes)...\n")
-        result = crew.generate_meal_plan(week_start_date)
+        result = crew.generate_meal_plan(week_start_date, days_to_generate=days_to_generate)
 
         # Check for errors
         if "error" in result:

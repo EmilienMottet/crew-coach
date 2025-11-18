@@ -1,6 +1,9 @@
 """Main Crew definition for Strava activity description generation."""
 from __future__ import annotations
 
+# Ensure authentication patches and environment loading happen first
+import llm_auth_init  # noqa: F401
+
 import json
 import os
 import sys
@@ -35,9 +38,6 @@ from tasks import (
 from mcp_auth_wrapper import MetaMCPAdapter
 from llm_provider_rotation import create_llm_with_rotation
 from mcp_tool_wrapper import wrap_mcp_tools
-
-# Load environment variables from .env file (override shell variables)
-load_dotenv(override=True)
 
 
 class StravaDescriptionCrew:
@@ -225,6 +225,7 @@ class StravaDescriptionCrew:
         Supports environment variables:
         - {AGENT_NAME}_AGENT_MODEL: Model name for this agent
         - {AGENT_NAME}_AGENT_API_BASE: API base URL for this agent
+        - {AGENT_NAME}_BLACKLISTED_MODELS: Comma-separated list of models to blacklist
 
         Args:
             agent_name: Name prefix for env vars (e.g., "DESCRIPTION", "MUSIC")
@@ -239,9 +240,38 @@ class StravaDescriptionCrew:
         # Check for agent-specific overrides
         model_key = f"{agent_name}_AGENT_MODEL"
         base_key = f"{agent_name}_AGENT_API_BASE"
+        blacklist_key = f"{agent_name}_BLACKLISTED_MODELS"
 
         agent_model = os.getenv(model_key, default_model)
         agent_base = os.getenv(base_key, default_base)
+
+        # Get blacklisted models from global and agent-specific sources
+        global_blacklist = os.getenv("GLOBAL_BLACKLISTED_MODELS", "").split(",") if os.getenv("GLOBAL_BLACKLISTED_MODELS") else []
+        agent_blacklist = os.getenv(blacklist_key, "").split(",") if os.getenv(blacklist_key) else []
+
+        # Combine and clean blacklists (agent-specific takes precedence)
+        all_blacklisted = [m.strip() for m in global_blacklist + agent_blacklist if m.strip()]
+
+        # Model blacklist for specific agents (add defaults if needed)
+        if agent_name == "DESCRIPTION" and not agent_blacklist:
+            # Default blacklist for DESCRIPTION to avoid known problematic models
+            default_blacklist = []  # Add specific models if needed
+            if default_blacklist:
+                print(f"🚫 {agent_name} Agent: Using default blacklist for {default_blacklist}", file=sys.stderr)
+                all_blacklisted.extend(default_blacklist)
+
+        # Check if model is blacklisted
+        if agent_model in all_blacklisted:
+            source = "global" if agent_model in global_blacklist else "agent-specific"
+            print(f"⚠️  {agent_name} Agent: Model '{agent_model}' is blacklisted ({source}), using fallback", file=sys.stderr)
+            # Use safer fallback models
+            agent_model = "claude-sonnet-4.5"
+            if "codex" in agent_base.lower():
+                agent_model = "gpt-5-mini"  # Safer alternative for codex endpoint
+
+        # Show blacklist info for transparency
+        if all_blacklisted:
+            print(f"   🚫 Blacklist active: {', '.join(all_blacklisted[:3])}{'...' if len(all_blacklisted) > 3 else ''}", file=sys.stderr)
 
         # Note: All our endpoints (/copilot/v1, /codex/v1, /claude/v1) support function calling.
         # The validation has been removed as it was blocking valid configurations.
