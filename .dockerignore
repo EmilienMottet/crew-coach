@@ -1,19 +1,53 @@
+# Python cache
 __pycache__/
+**/__pycache__/
 *.py[cod]
 *.pyo
 *.pyd
 *.so
-*.log
-*.tmp
-*.swp
-.env
-.env.*
+
+# Virtual environment
 .venv/
 venv/
+env/
+
+# Git
 .git/
 .gitignore
+
+# IDE
 .idea/
 .vscode/
+*.swp
+*.swo
+
+# Documentation (reduce image size)
+*.md
+docs/
+
+# Tests
+tests/
+test_*.py
 pytest_cache/
+.pytest_cache/
 .mypy_cache/
-**/__pycache__/
+
+# Logs
+*.log
+*.tmp
+
+# Local config
+.env
+.env.*
+
+# Docker files themselves
+Dockerfile
+.dockerignore
+docker-compose*.yml
+
+# n8n workflows (not needed in container)
+n8n/
+
+# Misc
+.DS_Store
+Thumbs.db
