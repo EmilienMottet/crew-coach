@@ -353,6 +353,46 @@ class StravaDescriptionCrew:
 
         return candidates
 
+    @staticmethod
+    def _is_pydantic_schema(data: Dict[str, Any]) -> bool:
+        """Detect if JSON looks like a Pydantic schema definition instead of data."""
+        schema_indicators = ["properties", "required", "type", "additionalProperties", "$schema"]
+        return any(key in data for key in schema_indicators)
+
+    @staticmethod
+    def _extract_data_from_schema(data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Try to extract actual data from a Pydantic schema response.
+
+        Example problematic input:
+        {
+            "description": "🚴 Sortie puissance midi...",  # ACTUAL DATA (full description)
+            "properties": {  # SCHEMA METADATA
+                "title": {"description": "English activity title", ...},
+                "description": {"description": "English activity description", ...}
+            },
+            "required": ["title", "description"],
+            "title": "TranslationPayload"
+        }
+
+        The LLM mistakenly put the translated DESCRIPTION in the top-level,
+        but forgot to include the title. We need to detect this and reject it.
+        """
+        # Schema metadata fields that should NOT be in data responses
+        schema_metadata_fields = {"properties", "required", "additionalProperties", "$schema", "definitions"}
+
+        # If we find schema metadata, this is NOT a valid data response
+        if any(field in data for field in schema_metadata_fields):
+            # Check if there's a "properties" field - this is a strong indicator of a schema
+            if "properties" in data:
+                # Invalid response - LLM returned the schema instead of data
+                return None
+
+            # Other schema fields also indicate this is not data
+            return None
+
+        # If no schema metadata, this is actual data
+        return data
+
     def _extract_model_from_output(
         self,
         crew_output: CrewOutput,
@@ -361,21 +401,36 @@ class StravaDescriptionCrew:
         """Safely parse the final task output into a typed model."""
         # First try structured candidates (json_dict, pydantic)
         for candidate in self._collect_payload_candidates(crew_output):
+            # Check if this looks like a Pydantic schema instead of data
+            if self._is_pydantic_schema(candidate):
+                print("\n⚠️  Detected Pydantic schema instead of data, attempting to extract...\n", file=sys.stderr)
+                extracted_data = self._extract_data_from_schema(candidate)
+                if extracted_data:
+                    candidate = extracted_data
+                else:
+                    continue
+
             try:
                 return model_type.model_validate(candidate)
             except ValidationError:
                 continue
-        
+
         # If no structured data found, try to extract JSON from raw text
         raw_text = self._stringify_output(crew_output)
         if raw_text:
             extracted_json = self._extract_json_from_text(raw_text)
             if extracted_json:
+                # Check for Pydantic schema in extracted JSON too
+                if self._is_pydantic_schema(extracted_json):
+                    extracted_data = self._extract_data_from_schema(extracted_json)
+                    if extracted_data:
+                        extracted_json = extracted_data
+
                 try:
                     return model_type.model_validate(extracted_json)
                 except ValidationError:
                     pass
-        
+
         return None
     
     @staticmethod
