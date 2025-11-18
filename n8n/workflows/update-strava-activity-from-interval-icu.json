@@ -167,13 +167,7 @@
     },
     {
       "parameters": {
-        "mode": "combine",
-        "mergeByFields": {
-          "values": [
-            {}
-          ]
-        },
-        "options": {}
+        "mode": "multiplex"
       },
       "id": "merge-data",
       "name": "Merge Activity and Spotify",
@@ -198,19 +192,19 @@
               "id": "format-2",
               "name": "object_id",
               "type": "number",
-              "value": "={{ $json.1.id }}"
+              "value": "={{ $('Strava Trigger').item.json.object_data.id }}"
             },
             {
               "id": "format-3",
               "name": "object_data",
               "type": "object",
-              "value": "={{ $json.1 }}"
+              "value": "={{ $('Strava Trigger').item.json.object_data }}"
             },
             {
               "id": "format-4",
               "name": "spotify_recently_played",
               "type": "object",
-              "value": "={{ $json.2 }}"
+              "value": "={{ { items: $('Get Recently Played').all() } }}"
             }
           ]
         },
@@ -246,13 +240,7 @@
     },
     {
       "parameters": {
-        "mode": "combine",
-        "mergeByFields": {
-          "values": [
-            {}
-          ]
-        },
-        "options": {}
+        "mode": "multiplex"
       },
       "id": "merge-manual",
       "name": "Merge Manual Activity and Spotify",
@@ -277,19 +265,19 @@
               "id": "manual-format-2",
               "name": "object_id",
               "type": "number",
-              "value": "={{ $json.0.id }}"
+              "value": "={{ $json.id }}"
             },
             {
               "id": "manual-format-3",
               "name": "object_data",
               "type": "object",
-              "value": "={{ $json.0 }}"
+              "value": "={{ $json }}"
             },
             {
               "id": "manual-format-4",
               "name": "spotify_recently_played",
               "type": "object",
-              "value": "={{ $json.1 }}"
+              "value": "={{ { items: $('Get Recently Played - Manual').all() } }}"
             }
           ]
         },
