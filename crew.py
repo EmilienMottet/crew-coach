@@ -486,10 +486,10 @@ class StravaDescriptionCrew:
     @staticmethod
     def _unnest_json_strings(data: Dict[str, Any]) -> Dict[str, Any]:
         """Recursively parse JSON strings found in dictionary values.
-        
+
         Sometimes LLMs return JSON where some values are themselves JSON strings.
         This function detects and parses those nested JSON strings.
-        
+
         Example:
             Input:  {"description": "{\"title\": \"Test\", \"value\": 123}"}
             Output: {"description": {"title": "Test", "value": 123}}
@@ -506,8 +506,8 @@ class StravaDescriptionCrew:
                     else:
                         result[key] = parsed
                 except (json.JSONDecodeError, ValueError):
-                    # Not JSON, keep as string
-                    result[key] = value
+                    # Not JSON, sanitize LLM reasoning from string
+                    result[key] = StravaDescriptionCrew._sanitize_llm_reasoning(value)
             elif isinstance(value, dict):
                 # Recursively process nested dicts
                 result[key] = StravaDescriptionCrew._unnest_json_strings(value)
@@ -520,8 +520,45 @@ class StravaDescriptionCrew:
                 ]
             else:
                 result[key] = value
-        
+
         return result
+
+    @staticmethod
+    def _sanitize_llm_reasoning(text: str) -> str:
+        """Remove LLM reasoning/thought prefixes from string values.
+
+        LLMs sometimes include their reasoning process in the output values.
+        This strips common patterns like "Thought: I now have..." from the beginning.
+
+        Example:
+            Input:  "\\n\\nThought: I now have all the info.\\n\\n{actual content}"
+            Output: "{actual content}"
+        """
+        import re
+
+        # Strip leading whitespace first
+        cleaned = text.strip()
+
+        # Remove common LLM reasoning patterns at the start
+        # Pattern: "Thought: ... actual content" or "I now have... {content}"
+        reasoning_patterns = [
+            r'^Thought:\s*.*?(?=\n\n|\{|$)',  # "Thought: ..." until double newline or JSON
+            r'^I now have all.*?(?=\n\n|\{|$)',  # "I now have all..." pattern
+            r'^Let me.*?(?=\n\n|\{|$)',  # "Let me provide..." pattern
+            r'^Final Answer:\s*',  # "Final Answer:" prefix
+        ]
+
+        for pattern in reasoning_patterns:
+            cleaned = re.sub(pattern, '', cleaned, flags=re.IGNORECASE | re.DOTALL)
+
+        # Strip again after removal
+        cleaned = cleaned.strip()
+
+        # If we stripped everything, return original (minus whitespace)
+        if not cleaned:
+            return text.strip()
+
+        return cleaned
 
     @staticmethod
     def _stringify_output(crew_output: CrewOutput) -> str:
