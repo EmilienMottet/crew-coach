@@ -192,7 +192,8 @@ def create_hexis_integration_task(
         description=description,
         agent=agent,
         expected_output="Valid JSON adhering to the HexisIntegrationResult schema with complete sync status",
-        output_json=HexisIntegrationResult,
+        # DISABLED: output_json causes auth issues with instructor when using custom LLM configs
+        # output_json=HexisIntegrationResult,
     )
 
 
