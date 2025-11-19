@@ -809,7 +809,7 @@ class RotatingLLM(BaseLLM):
                     # Tool call loop - continue until LLM stops requesting tools
                     current_response = litellm_response
                     current_messages = formatted_messages
-                    max_tool_iterations = 10  # Safety limit
+                    max_tool_iterations = 60  # Safety limit (supports 7-day meal plans)
                     iteration = 0
 
                     while iteration < max_tool_iterations:

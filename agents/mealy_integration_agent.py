@@ -28,6 +28,7 @@ def create_hexis_integration_agent(
     agent_kwargs = {
         "role": "Hexis Integration Specialist & Nutrition Data Engineer",
         "goal": "Reliably integrate validated meal plans into Hexis with comprehensive error handling and status reporting",
+        "max_iter": 30,  # Allow more tool iterations for multi-day meal plans
         "backstory": """You are an expert system integration engineer specializing in
         reliable nutrition data synchronization with Hexis. Your expertise includes:
 
@@ -61,22 +62,32 @@ def create_hexis_integration_agent(
              * "Afternoon Snack" or "Snack" → "SNACK"
            - Format foods array with name and macros
 
-        2. MEAL VERIFICATION (using hexis_verify_meal)
-           - For each meal, call hexis_verify_meal with:
-             * meal_id: "BREAKFAST", "LUNCH", "DINNER", or "SNACK"
-             * date: ISO format "YYYY-MM-DD"
-             * foods: Array of food objects with name and nutritional data
-             * carb_code: "LOW", "MEDIUM", or "HIGH" based on meal macros
-           - Send meals sequentially (one at a time for reliability)
-           - Capture success/failure for each meal
+        2. MEAL INTEGRATION WORKFLOW (2-step process)
 
-        3. FOOD OBJECT FORMAT
-           Each food in the foods array should include:
-           - name: The food/meal name
-           - calories: Total calories
-           - protein: Protein in grams
-           - carbs: Carbohydrates in grams
-           - fat: Fat in grams
+           STEP A: First get existing meal IDs from Hexis
+           - Use hexis_get_weekly_plan(start_date, end_date) to get current meals
+           - Each day has meals with IDs like "dZq9KDJDRLu+5p29aneZAw/524662"
+           - Save these meal IDs for updating
+
+           STEP B: For each ingredient in each meal, search and add foods
+           - Use search_foods to find existing foods matching the ingredient name
+           - Use get_food_details or get_multiple_foods to get full nutritional data
+           - Use hexis_update_verified_meal (NOT hexis_verify_meal) with:
+             * meal_id: The meal ID from the weekly plan (e.g., "dZq9KDJDRLu+5p29aneZAw/524662")
+             * date: ISO format "YYYY-MM-DD"
+             * foods: Array with proper Hexis food format using found foodIds
+             * carb_code: "LOW", "MEDIUM", or "HIGH"
+           - Batch searches when possible to reduce API calls
+
+        3. HEXIS FOOD OBJECT FORMAT (CRITICAL - use exact format)
+           Each food in the foods array MUST include:
+           - foodId: ID from search_foods result (e.g., "r9uJGlnXRm+hhcwIa7JNUw/639521")
+           - foodName: The food name from search results
+           - quantity: Calculated based on ingredient quantity and portion size
+           - portion: Use the portion from the food details
+
+           DO NOT include dataOrigin field - let the API set it automatically.
+           DO NOT use simple format like {"name": "...", "calories": ...}
 
         4. ERROR HANDLING
            - Catch and log all errors
@@ -95,7 +106,11 @@ def create_hexis_integration_agent(
            - Give actionable feedback to user
 
         HEXIS MCP TOOLS:
-        - hexis_verify_meal(meal_id, date, foods, carb_code, time, skipped)
+        - hexis_get_weekly_plan(start_date, end_date) - Get existing meal IDs
+        - search_foods(query, limit) - Search for existing foods by name
+        - get_multiple_foods(food_ids) - Get details for multiple foods at once
+        - get_food_details(food_id) - Get full details for a single food
+        - hexis_update_verified_meal(meal_id, date, foods, carb_code) - Update meal with foods
 
         YOUR APPROACH:
 
@@ -112,7 +127,7 @@ def create_hexis_integration_agent(
         STEP 3: Sync Sequentially
         - Process each day in order (Monday → Sunday)
         - Within each day, sync in order (Breakfast → Lunch → Dinner → Snacks)
-        - Use hexis_verify_meal to log each meal
+        - For each meal: search_foods for ingredients → get details → update_verified_meal
         - Capture results (success or failure + error)
 
         STEP 4: Handle Errors

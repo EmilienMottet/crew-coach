@@ -21,20 +21,37 @@ def create_meal_generation_task(
 
     feedback_section = ""
     if validation_feedback:
-        attempt = validation_feedback.get("attempt", 0)
-        issues = validation_feedback.get("issues", [])
+        attempt = validation_feedback.get("previous_attempt", 0)
+        issues = validation_feedback.get("issues_found", [])
         recommendations = validation_feedback.get("recommendations", [])
+        macro_accuracy = validation_feedback.get("macro_accuracy", {})
+        summary = validation_feedback.get("validation_summary", "")
+
+        # Format macro accuracy issues
+        macro_issues = ""
+        if macro_accuracy:
+            macro_lines = [f"  - {day}: {status}" for day, status in macro_accuracy.items()]
+            macro_issues = "\n".join(macro_lines)
+
         feedback_section = f"""
 
-⚠️ PRIOR VALIDATION ATTEMPT #{attempt} FAILED
+⚠️ PRIOR VALIDATION ATTEMPT #{attempt} FAILED - MUST FIX THESE ISSUES
 
-Issues to fix immediately:
-{chr(10).join(f"  {idx + 1}. {issue}" for idx, issue in enumerate(issues[:5]))}
+Validation Summary: {summary}
 
-Implement these adjustments:
-{chr(10).join(f"  • {rec}" for rec in recommendations[:5])}
+Macro Accuracy Issues per Day:
+{macro_issues if macro_issues else "  (no specific day-level issues)"}
 
-This is attempt #{attempt + 1}. Do not repeat the same mistakes.
+Critical Issues to Fix:
+{chr(10).join(f"  {idx + 1}. {issue}" for idx, issue in enumerate(issues[:8]))}
+
+MANDATORY Adjustments - Implement ALL of these:
+{chr(10).join(f"  ✓ {rec}" for rec in recommendations[:8])}
+
+This is attempt #{attempt + 1}. You MUST fix the protein/macro deficiencies by:
+- Increasing portion sizes as recommended above
+- Adding protein-rich ingredients where needed
+- Recalculating all totals to ensure they meet targets within tolerance
 """
 
     description = f"""
