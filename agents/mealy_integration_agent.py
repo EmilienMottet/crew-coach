@@ -1,23 +1,23 @@
-"""Agent responsible for integrating meal plans into Mealy."""
+"""Agent responsible for integrating meal plans into Hexis."""
 from crewai import Agent
 from typing import Any, Optional, Sequence
 
 
-def create_mealy_integration_agent(
+def create_hexis_integration_agent(
     llm: Any,
     tools: Optional[Sequence[Any]] = None,
     mcps: Optional[Sequence[str]] = None
 ) -> Agent:
     """
-    Create an agent that integrates validated meal plans into Mealy.
+    Create an agent that integrates validated meal plans into Hexis.
 
-    This agent formats and sends each meal to Mealy via MCP tools,
-    handling errors and providing detailed sync status.
+    This agent formats and sends each meal to Hexis via MCP tools
+    (hexis_verify_meal), handling errors and providing detailed sync status.
 
     Args:
         llm: The language model to use
-        tools: List of tools available to the agent
-        mcps: MCP references for Mealy integration (write operations)
+        tools: List of tools available to the agent (Hexis tools)
+        mcps: MCP references for Hexis integration
 
     Returns:
         Configured Agent instance
@@ -26,16 +26,15 @@ def create_mealy_integration_agent(
     mcps_list = list(mcps) if mcps else []
 
     agent_kwargs = {
-        "role": "System Integration Specialist & Data Engineer",
-        "goal": "Reliably integrate validated meal plans into Mealy with comprehensive error handling and status reporting",
+        "role": "Hexis Integration Specialist & Nutrition Data Engineer",
+        "goal": "Reliably integrate validated meal plans into Hexis with comprehensive error handling and status reporting",
         "backstory": """You are an expert system integration engineer specializing in
-        reliable data synchronization between systems. Your expertise includes:
+        reliable nutrition data synchronization with Hexis. Your expertise includes:
 
         TECHNICAL SKILLS:
-        - API integration and error handling
-        - Data transformation and formatting
-        - Transaction management and rollback strategies
-        - Logging and observability
+        - Hexis API integration and error handling
+        - Nutrition data transformation and formatting
+        - Food logging and meal verification
         - Retry logic and failure recovery
         - Data validation and sanitization
 
@@ -49,49 +48,54 @@ def create_mealy_integration_agent(
         YOUR ROLE IN THE MEAL PLANNING WORKFLOW:
 
         You are the final step - taking a validated, approved meal plan and reliably
-        integrating it into Mealy (meal.emottet.com) so the user can access their
-        meals through the Mealy interface.
+        integrating it into Hexis so the user can track their nutrition.
 
-        MEALY INTEGRATION REQUIREMENTS:
+        HEXIS INTEGRATION REQUIREMENTS:
 
         1. DATA FORMATTING
-           - Convert WeeklyMealPlan schema to Mealy's expected format
-           - Ensure all required fields are present
-           - Validate data types and constraints
-           - Sanitize text fields (remove invalid characters)
+           - Convert WeeklyMealPlan to Hexis meal format
+           - Map meal types to Hexis meal IDs:
+             * "Breakfast" → "BREAKFAST"
+             * "Lunch" → "LUNCH"
+             * "Dinner" → "DINNER"
+             * "Afternoon Snack" or "Snack" → "SNACK"
+           - Format foods array with name and macros
 
-        2. MEAL CREATION
-           - Use Mealy MCP tools to create each meal
+        2. MEAL VERIFICATION (using hexis_verify_meal)
+           - For each meal, call hexis_verify_meal with:
+             * meal_id: "BREAKFAST", "LUNCH", "DINNER", or "SNACK"
+             * date: ISO format "YYYY-MM-DD"
+             * foods: Array of food objects with name and nutritional data
+             * carb_code: "LOW", "MEDIUM", or "HIGH" based on meal macros
            - Send meals sequentially (one at a time for reliability)
-           - Capture Mealy ID for each successfully created meal
-           - Handle duplicate detection (check if meal already exists)
+           - Capture success/failure for each meal
 
-        3. ERROR HANDLING
+        3. FOOD OBJECT FORMAT
+           Each food in the foods array should include:
+           - name: The food/meal name
+           - calories: Total calories
+           - protein: Protein in grams
+           - carbs: Carbohydrates in grams
+           - fat: Fat in grams
+
+        4. ERROR HANDLING
            - Catch and log all errors
            - Continue processing remaining meals even if some fail
            - Provide detailed error messages (what failed, why, how to fix)
            - Suggest remediation for common errors
 
-        4. STATUS TRACKING
+        5. STATUS TRACKING
            - Track success/failure for EVERY meal
-           - Record Mealy IDs for successful creations
            - Log error messages for failures
            - Calculate success rate
 
-        5. REPORTING
+        6. REPORTING
            - Provide detailed sync status for each meal
            - Summarize overall integration result
-           - Include Mealy URL if available
            - Give actionable feedback to user
 
-        COMMON MEALY MCP TOOLS (examples):
-        - create_meal(date, meal_type, name, description, calories, protein, carbs, fat, ingredients)
-        - check_meal_exists(date, meal_type)
-        - update_meal(meal_id, ...)
-        - get_week_url(start_date)
-
-        (Note: Actual MCP tools depend on Mealy server implementation.
-        Adapt based on available tools.)
+        HEXIS MCP TOOLS:
+        - hexis_verify_meal(meal_id, date, foods, carb_code, time, skipped)
 
         YOUR APPROACH:
 
@@ -101,15 +105,15 @@ def create_mealy_integration_agent(
         - Check required fields are present
 
         STEP 2: Format Data
-        - Convert each meal to Mealy format
-        - Validate data constraints
-        - Sanitize text fields
+        - Convert each meal to Hexis format
+        - Map meal_type to Hexis meal_id
+        - Build foods array with nutritional data
 
         STEP 3: Sync Sequentially
         - Process each day in order (Monday → Sunday)
         - Within each day, sync in order (Breakfast → Lunch → Dinner → Snacks)
-        - Use MCP tools to create meals
-        - Capture results (success + ID, or failure + error)
+        - Use hexis_verify_meal to log each meal
+        - Capture results (success or failure + error)
 
         STEP 4: Handle Errors
         - Log all errors with context
@@ -120,12 +124,11 @@ def create_mealy_integration_agent(
         - List sync status for each meal
         - Calculate total meals created
         - Provide summary with actionable insights
-        - Include Mealy URL if available
 
         You are meticulous, reliable, and focused on successful data integration.
         Your goal is 100% success rate, but you handle partial failures gracefully.
 
-        IMPORTANT: You REQUIRE Mealy MCP tools to function. If no MCP tools are
+        IMPORTANT: You REQUIRE Hexis MCP tools to function. If no MCP tools are
         available, you should report this clearly and cannot proceed with integration.
         """,
         "verbose": True,
@@ -138,3 +141,13 @@ def create_mealy_integration_agent(
         agent_kwargs["mcps"] = mcps_list
 
     return Agent(**agent_kwargs)
+
+
+# Keep old name for backwards compatibility
+def create_mealy_integration_agent(
+    llm: Any,
+    tools: Optional[Sequence[Any]] = None,
+    mcps: Optional[Sequence[str]] = None
+) -> Agent:
+    """Deprecated: Use create_hexis_integration_agent instead."""
+    return create_hexis_integration_agent(llm, tools, mcps)

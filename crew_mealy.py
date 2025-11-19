@@ -121,11 +121,11 @@ class MealPlanningCrew:
         require_mcp = os.getenv("REQUIRE_MCP", "true").lower() == "true"
 
         # Define MCP server URLs for Meal Planning Crew
+        # Note: Mealy MCP removed - now using Hexis for meal integration
         mcp_servers = {
             "Food": os.getenv("FOOD_MCP_SERVER_URL", ""),
             "Intervals.icu": os.getenv("INTERVALS_MCP_SERVER_URL", ""),
             "Toolbox": os.getenv("TOOLBOX_MCP_SERVER_URL", ""),
-            "Mealy": os.getenv("MEALY_MCP_SERVER_URL", ""),
         }
 
         # Filter out empty URLs
@@ -167,7 +167,6 @@ class MealPlanningCrew:
         food_data_tools = [t for t in self.mcp_tools if "food" in t.name.lower() and "hexis" not in t.name.lower()]
         intervals_tools = [t for t in self.mcp_tools if "intervals" in t.name.lower()]
         toolbox_tools = [t for t in self.mcp_tools if any(keyword in t.name.lower() for keyword in ["fetch", "time", "task"])]
-        mealy_tools = [t for t in self.mcp_tools if "mealy" in t.name.lower()]
 
         if hexis_tools:
             print(f"✅ Found {len(hexis_tools)} Hexis tools\n", file=sys.stderr)
@@ -177,8 +176,6 @@ class MealPlanningCrew:
             print(f"📊 Found {len(intervals_tools)} Intervals.icu tools\n", file=sys.stderr)
         if toolbox_tools:
             print(f"🛠️  Found {len(toolbox_tools)} Toolbox tools\n", file=sys.stderr)
-        if mealy_tools:
-            print(f"🍽️ Found {len(mealy_tools)} Mealy tools\n", file=sys.stderr)
 
         # Create agents with MCP tools
         # Hexis Analysis Agent: needs Hexis, Intervals.icu, and Toolbox
@@ -205,9 +202,9 @@ class MealPlanningCrew:
             self.nutritional_validation_llm, tools=None
         )
 
-        # Mealy Integration Agent: needs Hexis tools for meal creation
+        # Hexis Integration Agent: needs Hexis tools for meal verification
         self.mealy_integration_agent = create_mealy_integration_agent(
-            self.mealy_integration_llm, tools=mealy_tools if mealy_tools else None
+            self.mealy_integration_llm, tools=hexis_tools if hexis_tools else None
         )
 
     def _create_agent_llm(
@@ -1058,9 +1055,9 @@ class MealPlanningCrew:
         )
 
         # ===================================================================
-        # STEP 4: Mealy Integration - Sync to Mealy (only if approved)
+        # STEP 4: Hexis Integration - Sync meals to Hexis (only if approved)
         # ===================================================================
-        print("\n🔗 Step 4: Integrating with Mealy...\n", file=sys.stderr)
+        print("\n🔗 Step 4: Integrating with Hexis...\n", file=sys.stderr)
         
         integration_task = create_mealy_integration_task(
             self.mealy_integration_agent,
@@ -1096,6 +1093,9 @@ class MealPlanningCrew:
         # ===================================================================
         # FINAL RESULT
         # ===================================================================
+        # Extract shopping_list from meal_plan for n8n workflow
+        shopping_list = meal_plan.get("shopping_list", []) if isinstance(meal_plan, dict) else []
+
         final_result = {
             "week_start_date": week_start_date,
             "hexis_analysis": hexis_analysis,
@@ -1103,6 +1103,7 @@ class MealPlanningCrew:
             "meal_plan": meal_plan,
             "validation": validation,
             "integration": integration,
+            "shopping_list": shopping_list,  # Exposed at top level for n8n
             "summary": integration.get("summary", "Meal planning completed"),
         }
 

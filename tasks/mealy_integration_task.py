@@ -1,4 +1,4 @@
-"""Task for integrating meal plans into Mealy."""
+"""Task for integrating meal plans into Hexis."""
 from __future__ import annotations
 
 import json
@@ -7,17 +7,17 @@ from typing import Any, Dict
 
 from crewai import Task
 
-from schemas import MealyIntegrationResult
+from schemas import HexisIntegrationResult
 
 
-def create_mealy_integration_task(
+def create_hexis_integration_task(
     agent: Any,
     weekly_meal_plan: Dict[str, Any],
     validation_result: Dict[str, Any],
     planned_day_count: int | None = None,
 ) -> Task:
     """
-    Create a task for integrating the meal plan into Mealy.
+    Create a task for integrating the meal plan into Hexis.
 
     Args:
         agent: The agent responsible for this task
@@ -39,7 +39,7 @@ def create_mealy_integration_task(
 
     description = dedent(
         f"""
-        Integrate the validated weekly meal plan into Mealy with comprehensive
+        Integrate the validated weekly meal plan into Hexis with comprehensive
         error handling and status reporting.
 
         VALIDATION RESULT:
@@ -66,57 +66,46 @@ def create_mealy_integration_task(
             - Count total meals to sync (expected ≈ {expected_meals} meals: 4 meals × {planned_days} day(s))
             - Initialize tracking for sync results
 
-        3. USE MEALY BULK UPLOAD TO SYNC ALL MEALS AT ONCE
+        3. USE hexis_verify_meal TO LOG EACH MEAL
 
-            A. Convert WeeklyMealPlan to Mealy bulk format
-               Build an entries array with ALL meals from the requested range:
+            For each day in the meal plan, for each meal:
 
-               entries = []
-               For each day in daily_plans:
-                 For each meal in day.meals:
-                   entry = {{
-                     "date": day.date,  # ISO format "YYYY-MM-DD"
-                     "title": f"{{meal.meal_type}}: {{meal.meal_name}}",
-                     "entry_type": map_meal_type_to_mealy(meal.meal_type)
-                   }}
-                   entries.append(entry)
+            A. Map meal_type to Hexis meal_id:
+               - "Breakfast" → "BREAKFAST"
+               - "Lunch" → "LUNCH"
+               - "Dinner" → "DINNER"
+               - "Afternoon Snack" or "Snack" → "SNACK"
 
-               Meal type mapping:
-               - "Breakfast" → "breakfast"
-               - "Lunch" → "lunch"
-               - "Dinner" → "dinner"
-               - "Afternoon Snack" or "Snack" → "side"
+            B. Build the foods array with ONE food entry per meal:
+               foods = [{{
+                   "name": meal.meal_name,
+                   "calories": meal.calories,
+                   "protein": meal.protein_g,
+                   "carbs": meal.carbs_g,
+                   "fat": meal.fat_g
+               }}]
 
-            B. Call mealy__create_mealplan_bulk ONCE with all entries
-               Example:
-               result = mealy__create_mealplan_bulk(entries=entries)
+            C. Determine carb_code based on carbs_g:
+               - carbs_g < 30 → "LOW"
+               - carbs_g < 60 → "MEDIUM"
+               - carbs_g >= 60 → "HIGH"
 
-               This sends all {expected_meals} meal(s) ({planned_days} day(s) × 4 meals) in a single API call.
+            D. Call hexis_verify_meal for each meal:
+               hexis_verify_meal(
+                   meal_id="BREAKFAST",  # or LUNCH, DINNER, SNACK
+                   date="2025-01-06",    # ISO format
+                   foods=[{{"name": "...", "calories": 500, "protein": 30, "carbs": 50, "fat": 20}}],
+                   carb_code="MEDIUM",   # LOW, MEDIUM, or HIGH
+                   time=null,            # optional
+                   skipped=false         # false to verify the meal
+               )
 
-            C. Parse bulk response and create sync statuses
-               The tool returns a response indicating success/failure.
-               For each entry in your entries list:
-                 - If bulk call succeeded: Mark as success
-                 - If bulk call failed: Mark all as failed with error message
-
-               Create MealySyncStatus for each meal:
-               {{
-                 "day_name": "Monday",
-                 "date": "2025-01-06",
-                 "meal_type": "Breakfast",
-                 "success": true/false,
-                 "mealy_id": null,  # Bulk doesn't return individual IDs
-                 "error_message": error if failed
-               }}
-
-            D. FALLBACK: If bulk upload fails, consider individual upload
-               If mealy__create_mealplan_bulk is not available or fails,
-               you can fall back to individual meal creation (if available).
-               However, bulk is preferred for efficiency.
+            E. Track the result:
+               - If successful: Mark sync status as success
+               - If failed: Log error message, mark as failed
 
         4. HANDLE ERRORS GRACEFULLY
             Common errors and how to handle:
-            - Duplicate meal exists: Skip or update (depending on Mealy API)
             - Invalid data format: Log error, suggest data fix
             - Network timeout: Log error, suggest retry
             - Authentication failure: Log error, check MCP configuration
@@ -126,39 +115,32 @@ def create_mealy_integration_task(
             - Continue processing remaining meals
             - Include error in sync_statuses
 
-        5. RETRIEVE MEALY WEEK URL (if available)
-            - After syncing all meals, try to get week view URL
-            - Example MCP call: get_week_url(start_date="2025-01-06")
-            - If available, include in mealy_week_url field
-            - If not available, set to null
-
-        6. CALCULATE SUMMARY STATISTICS
+        5. CALCULATE SUMMARY STATISTICS
             - Count total meals synced successfully
             - Count total failures
             - Calculate success rate: (successes / total) × 100%
 
-        7. WRITE INTEGRATION SUMMARY
+        6. WRITE INTEGRATION SUMMARY
             Provide clear, actionable summary:
 
             Example (all successful):
             "Successfully integrated every planned meal ({expected_meals} entries) for the requested period
-            from 2025-01-06 to 2025-01-12. All meals are now available in Mealy. View your week at: [URL]"
+            from 2025-01-06 to 2025-01-12. All meals are now logged in Hexis."
 
             Example (partial failure):
             "Integrated most meals (all but two of the planned {expected_meals}) for the period
-            2025-01-06 to 2025-01-12. Remaining issues: Monday Dinner (duplicate exists), Wednesday Snack (network timeout).
-            Please retry failed meals or create manually in Mealy."
+            2025-01-06 to 2025-01-12. Remaining issues: Monday Dinner (API error), Wednesday Snack (network timeout).
+            Please retry failed meals manually in Hexis."
 
             Example (validation failed):
             "Integration skipped: Meal plan did not pass validation. Issues found:
             [list issues]. Please address validation issues before integration."
 
-        8. OUTPUT STRUCTURED RESULT
-            Return valid JSON matching MealyIntegrationResult schema:
+        7. OUTPUT STRUCTURED RESULT
+            Return valid JSON matching HexisIntegrationResult schema:
             - week_start_date, week_end_date
             - total_meals_created (count of successes)
             - sync_statuses (list of all sync attempts with results)
-            - mealy_week_url (if available)
             - summary (human-readable description)
 
         IMPORTANT GUIDELINES:
@@ -181,7 +163,7 @@ def create_mealy_integration_task(
               "date": "2025-01-06",
               "meal_type": "Breakfast",
               "success": true,
-              "mealy_id": "meal_12345",
+              "hexis_id": null,
               "error_message": null
             }},
             {{
@@ -189,17 +171,16 @@ def create_mealy_integration_task(
               "date": "2025-01-06",
               "meal_type": "Lunch",
               "success": true,
-              "mealy_id": "meal_12346",
+              "hexis_id": null,
               "error_message": null
             }},
             ...
           ],
-          "mealy_week_url": "https://meal.emottet.com/week/2025-01-06",
-          "summary": "Successfully integrated every planned meal ({expected_meals} total). All meals are now available in Mealy."
+          "summary": "Successfully integrated every planned meal ({expected_meals} total). All meals are now logged in Hexis."
         }}
 
         OUTPUT CONTRACT:
-        - Respond with valid JSON matching the MealyIntegrationResult schema
+        - Respond with valid JSON matching the HexisIntegrationResult schema
         - Do not wrap JSON in markdown fences
         - Include sync status for EVERY meal attempted
         - Provide detailed, actionable summary
@@ -210,6 +191,17 @@ def create_mealy_integration_task(
     return Task(
         description=description,
         agent=agent,
-        expected_output="Valid JSON adhering to the MealyIntegrationResult schema with complete sync status",
-        output_json=MealyIntegrationResult,
+        expected_output="Valid JSON adhering to the HexisIntegrationResult schema with complete sync status",
+        output_json=HexisIntegrationResult,
     )
+
+
+# Keep old name for backwards compatibility
+def create_mealy_integration_task(
+    agent: Any,
+    weekly_meal_plan: Dict[str, Any],
+    validation_result: Dict[str, Any],
+    planned_day_count: int | None = None,
+) -> Task:
+    """Deprecated: Use create_hexis_integration_task instead."""
+    return create_hexis_integration_task(agent, weekly_meal_plan, validation_result, planned_day_count)
