@@ -44,6 +44,10 @@ def create_music_task(
 
     distance_km = object_data.get("distance", 0) / 1000 if object_data else 0
 
+    # Detect model type to customize prompt
+    model_name = getattr(agent.llm, 'model', '').lower() if hasattr(agent, 'llm') and hasattr(agent.llm, 'model') else ''
+    api_base = getattr(agent.llm, 'api_base', '').lower() if hasattr(agent, 'llm') and hasattr(agent.llm, 'api_base') else ''
+
     # Extract Spotify track count for logging
     spotify_items = spotify_data.get("items", []) if isinstance(spotify_data, dict) else []
     print(f"🎵 Spotify data from n8n:", file=sys.stderr)
@@ -115,6 +119,26 @@ def create_music_task(
 
     Do NOT include any explanatory text, thoughts, or reasoning in your final output.
     Your final message must be ONLY the JSON object, nothing else.
+    """
+
+    # Model-specific prompt adaptations for GLM-4.6
+    if 'glm-4.6' in model_name or 'z.ai' in api_base:
+        # GLM-4.6: Add extremely strict JSON output requirements
+        description += """
+
+    🚨 CRITICAL FOR GLM-4.6 MODEL:
+
+    YOUR FINAL RESPONSE MUST BE ONLY THIS JSON FORMAT:
+    {"updated_description": "...text with optional music section...", "music_tracks": ["Artist – Track", ...]}
+
+    ABSOLUTELY NO:
+    - Explanatory text
+    - "Here is the JSON:"
+    - Markdown code blocks
+    - Thinking or analysis
+    - Any text before or after the JSON
+
+    ONLY OUTPUT THE RAW JSON OBJECT.
     """
 
     return Task(

@@ -137,10 +137,8 @@ def create_llm_with_rotation(
         api_key=api_key,
     )
 
-    if len(provider_chain) == 1 and not provider_chain[0].disable_system_prompt:
-        provider = provider_chain[0]
-        return LLM(model=provider.model, api_base=provider.api_base, api_key=provider.api_key)
-
+    # ALWAYS use RotatingLLM to ensure tools are passed correctly
+    # The standard LLM class doesn't pass tools to the API
     labels = ", ".join(candidate.label for candidate in provider_chain)
     print(
         f"\n🔁 {agent_name or 'LLM'} provider chain: {labels}\n",
@@ -560,7 +558,16 @@ class RotatingLLM(BaseLLM):
     ) -> Any:
         last_error: Exception | None = None
         base_messages = messages
-        
+
+        # DEBUG: Check what CrewAI passes to call()
+        print(
+            f"   🔍 RotatingLLM.call() invoked:\n"
+            f"      tools param: {len(tools) if tools else 'None'}\n"
+            f"      from_agent: {from_agent.role if from_agent else 'None'}\n"
+            f"      available_functions: {len(available_functions) if available_functions else 'None'}\n",
+            file=sys.stderr
+        )
+
         # CRITICAL FIX: CrewAI doesn't pass tools parameter, extract from agent
         if not tools and from_agent:
             agent_tools = getattr(from_agent, 'tools', None)
@@ -799,35 +806,48 @@ class RotatingLLM(BaseLLM):
                         )
                         return response
                     
-                    # Check for tool calls
-                    choice = litellm_response.choices[0]
-                    if hasattr(choice.message, 'tool_calls') and choice.message.tool_calls:
+                    # Tool call loop - continue until LLM stops requesting tools
+                    current_response = litellm_response
+                    current_messages = formatted_messages
+                    max_tool_iterations = 10  # Safety limit
+                    iteration = 0
+
+                    while iteration < max_tool_iterations:
+                        choice = current_response.choices[0]
+
+                        # Check if LLM wants to call tools
+                        if not (hasattr(choice.message, 'tool_calls') and choice.message.tool_calls):
+                            # No more tool calls - we have the final response
+                            response = choice.message.content or str(choice.message)
+                            break
+
+                        iteration += 1
                         print(
-                            f"   ✅ LLM returned {len(choice.message.tool_calls)} tool calls!\n",
+                            f"   ✅ LLM returned {len(choice.message.tool_calls)} tool calls (iteration {iteration})!\n",
                             file=sys.stderr
                         )
-                        
+
                         # Execute each tool call
                         tool_results = []
                         for tool_call in choice.message.tool_calls:
                             tool_name = tool_call.function.name
                             tool_args_str = tool_call.function.arguments
-                            
+
                             print(
                                 f"   🔧 Executing tool: {tool_name}\n"
                                 f"      Arguments: {tool_args_str[:200]}...\n",
                                 file=sys.stderr
                             )
-                            
+
                             # Find the tool in available_functions
                             if available_functions and tool_name in available_functions:
                                 try:
                                     # Parse arguments
                                     tool_args = json.loads(tool_args_str) if isinstance(tool_args_str, str) else tool_args_str
-                                    
+
                                     # Get the tool callable
                                     tool_func = available_functions[tool_name]
-                                    
+
                                     # Execute the tool
                                     if hasattr(tool_func, '_run'):
                                         tool_result = tool_func._run(**tool_args) if isinstance(tool_args, dict) else tool_func._run(tool_args)
@@ -837,13 +857,13 @@ class RotatingLLM(BaseLLM):
                                         tool_result = tool_func(**tool_args) if isinstance(tool_args, dict) else tool_func(tool_args)
                                     else:
                                         tool_result = {"error": f"Tool {tool_name} is not callable"}
-                                    
+
                                     print(
                                         f"   ✅ Tool {tool_name} executed successfully\n"
                                         f"      Result: {str(tool_result)[:200]}...\n",
                                         file=sys.stderr
                                     )
-                                    
+
                                     tool_results.append({
                                         "tool_call_id": tool_call.id,
                                         "role": "tool",
@@ -872,56 +892,50 @@ class RotatingLLM(BaseLLM):
                                     "name": tool_name,
                                     "content": json.dumps({"error": f"Tool {tool_name} not available"})
                                 })
-                        
-                        # Add tool results to conversation and call LLM again
-                        if tool_results:
-                            print(
-                                f"   🔁 Sending {len(tool_results)} tool results back to LLM...\n",
-                                file=sys.stderr
-                            )
-                            
-                            # Build new messages with tool results
-                            new_messages = formatted_messages + [
-                                {
-                                    "role": "assistant",
-                                    "content": choice.message.content,
-                                    "tool_calls": [
-                                        {
-                                            "id": tc.id,
-                                            "type": "function",
-                                            "function": {
-                                                "name": tc.function.name,
-                                                "arguments": tc.function.arguments
-                                            }
+
+                        # Build new messages with assistant response and tool results
+                        print(
+                            f"   🔁 Sending {len(tool_results)} tool results back to LLM...\n",
+                            file=sys.stderr
+                        )
+
+                        current_messages = current_messages + [
+                            {
+                                "role": "assistant",
+                                "content": choice.message.content,
+                                "tool_calls": [
+                                    {
+                                        "id": tc.id,
+                                        "type": "function",
+                                        "function": {
+                                            "name": tc.function.name,
+                                            "arguments": tc.function.arguments
                                         }
-                                        for tc in choice.message.tool_calls
-                                    ]
-                                }
-                            ] + tool_results
-                            
-                            # Call LLM again with tool results
-                            final_response = litellm.completion(
-                                model=model_for_litellm,
-                                messages=new_messages,
-                                tools=tools,
-                                api_base=provider.api_base,
-                                api_key=api_key_str,
-                                custom_llm_provider=custom_provider,
-                                drop_params=True,
-                                request_timeout=240,  # Longer timeout for second call with tool results (increased from 90)
-                                max_tokens=32000,  # Increased for weekly meal plans (7 days with full recipes)
-                            )
-                            
-                            print(
-                                f"   ✅ LLM generated final response with tool results\n",
-                                file=sys.stderr
-                            )
-                            
-                            response = final_response.choices[0].message.content or str(final_response.choices[0].message)
-                        else:
-                            response = choice.message.content or str(choice.message)
+                                    }
+                                    for tc in choice.message.tool_calls
+                                ]
+                            }
+                        ] + tool_results
+
+                        # Call LLM again with tool results
+                        current_response = litellm.completion(
+                            model=model_for_litellm,
+                            messages=current_messages,
+                            tools=tools,
+                            api_base=provider.api_base,
+                            api_key=api_key_str,
+                            custom_llm_provider=custom_provider,
+                            drop_params=True,
+                            request_timeout=240,
+                            max_tokens=32000,
+                        )
                     else:
-                        response = choice.message.content or str(choice.message)
+                        # Max iterations reached
+                        print(
+                            f"   ⚠️  Max tool iterations ({max_tool_iterations}) reached, using last response\n",
+                            file=sys.stderr
+                        )
+                        response = current_response.choices[0].message.content or str(current_response.choices[0].message)
                 else:
                     # No tools, use normal CrewAI flow
                     response = llm.call(
