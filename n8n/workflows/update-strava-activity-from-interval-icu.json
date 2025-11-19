@@ -204,7 +204,7 @@
               "id": "format-4",
               "name": "spotify_recently_played",
               "type": "object",
-              "value": "={{ { items: $('Get Recently Played').all() } }}"
+              "value": "={{ $if($('Get Recently Played').isExecuted, { items: $('Get Recently Played').all() }, { items: [] }) }}"
             }
           ]
         },
@@ -277,7 +277,7 @@
               "id": "manual-format-4",
               "name": "spotify_recently_played",
               "type": "object",
-              "value": "={{ { items: $('Get Recently Played - Manual').all() } }}"
+              "value": "={{ $if($('Get Recently Played - Manual').isExecuted, { items: $('Get Recently Played - Manual').all() }, { items: [] }) }}"
             }
           ]
         },
@@ -306,7 +306,7 @@
           {
             "node": "Merge Activity and Spotify",
             "type": "main",
-            "index": 1
+            "index": 0
           }
         ]
       ]
@@ -378,7 +378,7 @@
           {
             "node": "Merge Activity and Spotify",
             "type": "main",
-            "index": 2
+            "index": 1
           }
         ]
       ]
