@@ -248,33 +248,38 @@ class NutritionalValidation(BaseModel):
     )
 
 
-class MealySyncStatus(BaseModel):
-    """Status of a single meal sync to Mealy."""
+class HexisSyncStatus(BaseModel):
+    """Status of a single meal sync to Hexis."""
 
     day_name: str = Field(..., description="Day of week")
     date: str = Field(..., description="ISO format date")
     meal_type: str = Field(..., description="Meal type (Breakfast, Lunch, etc.)")
     success: bool = Field(..., description="Whether sync was successful")
-    mealy_id: Optional[str] = Field(
-        default=None, description="Mealy ID if successfully created"
+    hexis_id: Optional[str] = Field(
+        default=None, description="Hexis ID if successfully created"
     )
     error_message: Optional[str] = Field(
         default=None, description="Error message if sync failed"
     )
 
 
-class MealyIntegrationResult(BaseModel):
-    """Result of integrating the weekly meal plan into Mealy."""
+# Keep old name for backwards compatibility
+MealySyncStatus = HexisSyncStatus
+
+
+class HexisIntegrationResult(BaseModel):
+    """Result of integrating the weekly meal plan into Hexis."""
 
     model_config = {"extra": "allow"}
 
     week_start_date: str = Field(..., description="ISO format start date")
     week_end_date: str = Field(..., description="ISO format end date")
     total_meals_created: int = Field(..., description="Total number of meals synced")
-    sync_statuses: List[MealySyncStatus] = Field(
+    sync_statuses: List[HexisSyncStatus] = Field(
         ..., description="Detailed sync status for each meal"
     )
-    mealy_week_url: Optional[str] = Field(
-        default=None, description="URL to view the week in Mealy (if available)"
-    )
     summary: str = Field(..., description="Human-readable summary of the integration")
+
+
+# Keep old name for backwards compatibility
+MealyIntegrationResult = HexisIntegrationResult
