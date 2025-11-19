@@ -34,12 +34,12 @@ def create_privacy_task(
     # Parse the start time to check working hours in Europe/Paris timezone
     try:
         # Format: "2025-10-27T11:54:41Z"
-        start_datetime = datetime.fromisoformat(start_date_local.replace('Z', '+00:00'))
-        
-        # Convert to Europe/Paris timezone
+        # Note: start_date_local is ALREADY in local time despite the 'Z' suffix
+        # We should NOT convert from UTC - just parse and localize directly
         paris_tz = pytz.timezone('Europe/Paris')
-        start_datetime_paris = start_datetime.astimezone(paris_tz)
-        
+        naive_datetime = datetime.fromisoformat(start_date_local.replace('Z', ''))
+        start_datetime_paris = paris_tz.localize(naive_datetime)
+
         start_time_str = start_datetime_paris.strftime("%H:%M")
         day_of_week = start_datetime_paris.strftime("%A")
     except:
@@ -58,9 +58,10 @@ def create_privacy_task(
     # Determine time of day for fallback title
     time_of_day = "Run"  # Default
     try:
-        start_datetime = datetime.fromisoformat(start_date_local.replace('Z', '+00:00'))
+        # start_date_local is already in local time, just localize it
         paris_tz = pytz.timezone('Europe/Paris')
-        start_datetime_paris = start_datetime.astimezone(paris_tz)
+        naive_datetime = datetime.fromisoformat(start_date_local.replace('Z', ''))
+        start_datetime_paris = paris_tz.localize(naive_datetime)
         hour = start_datetime_paris.hour
         
         # Categorize by time of day (Europe/Paris timezone)
