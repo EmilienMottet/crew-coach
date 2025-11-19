@@ -414,6 +414,7 @@ class MealPlanningCrew:
         self,
         nutrition_plan: Dict[str, Any],
         max_days: Optional[int] = None,
+        validation_feedback: Optional[Dict[str, Any]] = None,
     ) -> Optional[List[Dict[str, Any]]]:
         """Generate daily meal plans sequentially to keep tasks focused."""
         daily_targets = nutrition_plan.get("daily_targets", [])
@@ -469,6 +470,7 @@ class MealPlanningCrew:
                     daily_target=target,
                     weekly_context=nutrition_plan,
                     previous_days=generated_daily_plans,
+                    validation_feedback=validation_feedback,
                 )
                 meal_crew = Crew(
                     agents=[self.meal_generation_agent],
@@ -970,7 +972,7 @@ class MealPlanningCrew:
         )
 
         # ===================================================================
-        # STEP 3: Daily Meal Generation and Weekly Compilation
+        # STEP 3: Daily Meal Generation and Weekly Compilation (with retry)
         # ===================================================================
         print("\n👨‍🍳 Step 3: Generating meals day by day...\n", file=sys.stderr)
 
@@ -992,62 +994,130 @@ class MealPlanningCrew:
             file=sys.stderr,
         )
 
-        daily_plans = self._generate_daily_meal_plans(
-            nutrition_plan,
-            max_days=days_to_process,
-        )
+        # Retry loop for meal generation + validation
+        max_validation_retries = int(os.getenv("MEAL_VALIDATION_MAX_RETRIES", "2"))
+        validation_feedback: Optional[Dict[str, Any]] = None
+        meal_plan: Optional[Dict[str, Any]] = None
+        validation: Dict[str, Any] = {"approved": False, "validation_summary": "Not yet validated"}
 
-        if daily_plans is None:
-            error_msg = "Daily meal generation failed after all attempts"
-            print(f"\n❌ {error_msg}\n", file=sys.stderr)
-            return {"error": error_msg, "step": "daily_meal_generation"}
+        for validation_attempt in range(1, max_validation_retries + 1):
+            attempt_label = f"[Attempt {validation_attempt}/{max_validation_retries}]"
 
-        meal_plan = self._compile_weekly_plan(nutrition_plan, daily_plans)
+            if validation_attempt > 1:
+                print(
+                    f"\n🔄 {attempt_label} Regenerating meals with validation feedback...\n",
+                    file=sys.stderr,
+                )
+
+            daily_plans = self._generate_daily_meal_plans(
+                nutrition_plan,
+                max_days=days_to_process,
+                validation_feedback=validation_feedback,
+            )
+
+            if daily_plans is None:
+                error_msg = f"{attempt_label} Daily meal generation failed after all attempts"
+                print(f"\n❌ {error_msg}\n", file=sys.stderr)
+                if validation_attempt == max_validation_retries:
+                    return {"error": error_msg, "step": "daily_meal_generation"}
+                continue
+
+            meal_plan = self._compile_weekly_plan(nutrition_plan, daily_plans)
+
+            if meal_plan is None:
+                error_msg = f"{attempt_label} Meal compilation failed to produce a valid weekly plan"
+                print(f"\n❌ {error_msg}\n", file=sys.stderr)
+                if validation_attempt == max_validation_retries:
+                    return {"error": error_msg, "step": "meal_compilation"}
+                continue
+
+            # ===================================================================
+            # STEP 3B: Nutritional validation of compiled plan
+            # ===================================================================
+            print(f"\n🔍 {attempt_label} Validating compiled meal plan...\n", file=sys.stderr)
+
+            planned_day_count = 0
+            if isinstance(meal_plan, dict):
+                planned_day_count = len(meal_plan.get("daily_plans", []))
+            if planned_day_count <= 0:
+                planned_day_count = days_to_generate
+
+            validation_task = create_nutritional_validation_task(
+                self.nutritional_validation_agent,
+                meal_plan,
+                nutrition_plan,
+                planned_day_count=planned_day_count,
+            )
+            validation_crew = Crew(
+                agents=[self.nutritional_validation_agent],
+                tasks=[validation_task],
+                process=Process.sequential,
+                verbose=True,
+                max_iter=30,
+                memory=False,
+            )
+
+            validation_result = validation_crew.kickoff()
+            validation_model = self._extract_model_from_output(
+                validation_result, NutritionalValidation
+            )
+
+            if validation_model is None:
+                print(f"\n⚠️  {attempt_label} Validation returned invalid JSON\n", file=sys.stderr)
+                validation = {
+                    "approved": False,
+                    "validation_summary": "Validation failed to return valid JSON",
+                }
+            else:
+                validation = validation_model.model_dump()
+
+            is_approved = validation.get("approved", False)
+            print(
+                f"\n{'✅' if is_approved else '❌'} {attempt_label} Validation status: Approved={is_approved}\n",
+                file=sys.stderr,
+            )
+
+            if is_approved:
+                print(f"\n✅ Meal plan approved on attempt {validation_attempt}\n", file=sys.stderr)
+                break
+
+            # Not approved - prepare feedback for next attempt
+            if validation_attempt < max_validation_retries:
+                issues = validation.get("issues_found", [])
+                recommendations = validation.get("recommendations", [])
+                macro_accuracy = validation.get("macro_accuracy", {})
+
+                validation_feedback = {
+                    "previous_attempt": validation_attempt,
+                    "issues_found": issues,
+                    "recommendations": recommendations,
+                    "macro_accuracy": macro_accuracy,
+                    "validation_summary": validation.get("validation_summary", ""),
+                }
+
+                print(
+                    f"\n⚠️  {attempt_label} Validation failed. Issues found:\n",
+                    file=sys.stderr,
+                )
+                for issue in issues[:5]:
+                    print(f"   • {issue}", file=sys.stderr)
+                print(
+                    f"\n   Recommendations for next attempt:\n",
+                    file=sys.stderr,
+                )
+                for rec in recommendations[:5]:
+                    print(f"   → {rec}", file=sys.stderr)
+                print("", file=sys.stderr)
+            else:
+                print(
+                    f"\n⚠️  Max validation retries ({max_validation_retries}) reached. Proceeding with current plan.\n",
+                    file=sys.stderr,
+                )
 
         if meal_plan is None:
-            error_msg = "Meal compilation failed to produce a valid weekly plan"
+            error_msg = "Meal generation failed after all validation retries"
             print(f"\n❌ {error_msg}\n", file=sys.stderr)
-            return {"error": error_msg, "step": "meal_compilation"}
-
-        # ===================================================================
-        # STEP 3B: Nutritional validation of compiled plan
-        # ===================================================================
-        print("\n🔍 Step 3b: Validating compiled meal plan...\n", file=sys.stderr)
-
-        planned_day_count = 0
-        if isinstance(meal_plan, dict):
-            planned_day_count = len(meal_plan.get("daily_plans", []))
-        if planned_day_count <= 0:
-            planned_day_count = days_to_generate
-
-        validation_task = create_nutritional_validation_task(
-            self.nutritional_validation_agent,
-            meal_plan,
-            nutrition_plan,
-            planned_day_count=planned_day_count,
-        )
-        validation_crew = Crew(
-            agents=[self.nutritional_validation_agent],
-            tasks=[validation_task],
-            process=Process.sequential,
-            verbose=True,
-            max_iter=30,  # Increase max iterations to prevent false loop detection
-            memory=False,  # Disable cache to prevent "reusing same input" errors
-        )
-
-        validation_result = validation_crew.kickoff()
-        validation_model = self._extract_model_from_output(
-            validation_result, NutritionalValidation
-        )
-
-        if validation_model is None:
-            print("\n⚠️  Validation returned invalid JSON\n", file=sys.stderr)
-            validation = {
-                "approved": False,
-                "validation_summary": "Validation failed",
-            }
-        else:
-            validation = validation_model.model_dump()
+            return {"error": error_msg, "step": "meal_generation_validation_loop"}
 
         print(
             f"\n✅ Final validation status: Approved={validation.get('approved', False)}\n",
