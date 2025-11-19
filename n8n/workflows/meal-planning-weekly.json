@@ -16,7 +16,10 @@
       "name": "Schedule Trigger - Sunday 20:00",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
-      "position": [112, 304]
+      "position": [
+        112,
+        304
+      ]
     },
     {
       "parameters": {
@@ -26,7 +29,10 @@
       "name": "Calculate Week Dates",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [304, 304]
+      "position": [
+        304,
+        304
+      ]
     },
     {
       "parameters": {
@@ -52,29 +58,38 @@
       "name": "Fetch Training Events",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.3,
-      "position": [512, 304],
+      "position": [
+        512,
+        304
+      ],
       "alwaysOutputData": true,
       "continueOnFail": true
     },
     {
       "parameters": {
-        "jsCode": "// Debug: Log API response\nconst events = $input.item.json;\n\nconsole.log('=== DEBUG API RESPONSE ===');\nconsole.log('Response type:', typeof events);\nconsole.log('Is Array:', Array.isArray(events));\n\nif (Array.isArray(events)) {\n  console.log('Total events:', events.length);\n  console.log('Event types:', events.map(e => ({ id: e.id, name: e.name, type: e.type, category: e.category })));\n} else {\n  console.log('Single event:', events);\n}\n\n// Return the events array for the next node\nreturn { json: events };"
+        "jsCode": "// Debug: Log API response\n// n8n splits arrays into individual items, so we need to collect all items\nconst allItems = $input.all();\nconst events = allItems.map(item => item.json);\n\nconsole.log('=== DEBUG API RESPONSE ===');\nconsole.log('Total items received:', allItems.length);\nconsole.log('Events:', events.map(e => ({ id: e.id, name: e.name, type: e.type, category: e.category })));\n\n// Return the events as a single array for the next node\nreturn { json: { events: events } };"
       },
       "id": "debug-response",
       "name": "Debug API Response",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [608, 304]
+      "position": [
+        608,
+        304
+      ]
     },
     {
       "parameters": {
-        "jsCode": "// Get events array from previous node\nconst allEvents = $input.item.json;\n\n// Filter to only keep WORKOUT events (exclude NOTE events)\nconst events = Array.isArray(allEvents) \n  ? allEvents.filter(event => event && event.category === 'WORKOUT' && event.id)\n  : [];\n\nconsole.log('Total events received:', Array.isArray(allEvents) ? allEvents.length : 0);\nconsole.log('Workout events to process:', events.length);\n\nconst noUpdatesItem = () => ({\n  json: {\n    has_updates: false,\n    events_checked: events.length,\n    message: 'No training updates required'\n  }\n});\n\nif (events.length === 0) {\n  console.log('No events to process');\n  return [noUpdatesItem()];\n}\n\nconst getDayOfWeek = (dateStr) => new Date(dateStr).getDay();\nconst setTime = (dateStr, hours, minutes = 0) => { \n  const date = new Date(dateStr); \n  date.setHours(hours, minutes, 0, 0); \n  return date.toISOString(); \n};\nconst getActivityType = (event) => { \n  const type = (event.type || '').toLowerCase(); \n  const name = (event.name || '').toLowerCase(); \n  if (type.includes('run') || name.includes('course') || name.includes('run')) return 'run'; \n  if (type.includes('ride') || type.includes('bike') || name.includes('vélo') || name.includes('cyclisme')) return 'ride'; \n  return 'other'; \n};\n\n// Group events by day of week\nconst eventsByDay = {};\nevents.forEach(event => { \n  if (!event.start_date_local) return; \n  const dayOfWeek = getDayOfWeek(event.start_date_local); \n  if (!eventsByDay[dayOfWeek]) eventsByDay[dayOfWeek] = []; \n  eventsByDay[dayOfWeek].push(event); \n});\n\nconst updates = [];\nObject.keys(eventsByDay).forEach(dayOfWeek => { \n  const dayEvents = eventsByDay[dayOfWeek]; \n  const day = parseInt(dayOfWeek); \n  \n  // Sort by duration (longest first)\n  dayEvents.sort((a, b) => (b.moving_time || 0) - (a.moving_time || 0)); \n  \n  dayEvents.forEach((event, index) => { \n    const activityType = getActivityType(event); \n    let newTime; \n    \n    // Monday (1)\n    if (day === 1) { \n      if (activityType === 'run') newTime = setTime(event.start_date_local, 12, 0); \n      else if (activityType === 'ride') newTime = setTime(event.start_date_local, 18, 0); \n    } \n    // Tuesday/Wednesday (2,3)\n    else if (day === 2 || day === 3) { \n      if (index === 0) newTime = setTime(event.start_date_local, 12, 0); \n      else if (index === 1) newTime = setTime(event.start_date_local, 18, 0); \n    } \n    // Thursday/Friday (4,5)\n    else if (day === 4 || day === 5) { \n      if (activityType === 'run') newTime = setTime(event.start_date_local, 12, 0); \n      else if (activityType === 'ride') newTime = setTime(event.start_date_local, 18, 0); \n    } \n    // Saturday/Sunday (6,0)\n    else if (day === 6 || day === 0) { \n      if (index === 0) newTime = setTime(event.start_date_local, 9, 0); \n      else if (index === 1) newTime = setTime(event.start_date_local, 17, 0); \n    } \n    \n    if (newTime && newTime !== event.start_date_local) {\n      updates.push({ \n        id: event.id, \n        original_time: event.start_date_local, \n        new_time: newTime, \n        activity_type: activityType, \n        day_of_week: day, \n        name: event.name \n      }); \n    }\n  }); \n});\n\nconsole.log('Generated', updates.length, 'updates');\n\nif (updates.length === 0) {\n  console.log('No timing adjustments needed');\n  return [noUpdatesItem()];\n}\n\nreturn updates.map(update => ({ json: { ...update, has_updates: true } }));"
+        "jsCode": "// Get events array from previous node (now wrapped in an object)\nconst inputData = $input.item.json;\nconst allEvents = inputData.events || [];\n\n// Filter to only keep WORKOUT events (exclude NOTE events)\nconst events = Array.isArray(allEvents) \n  ? allEvents.filter(event => event && event.category === 'WORKOUT' && event.id)\n  : [];\n\nconsole.log('Total events received:', allEvents.length);\nconsole.log('Workout events to process:', events.length);\n\nconst noUpdatesItem = () => ({\n  json: {\n    has_updates: false,\n    events_checked: events.length,\n    message: 'No training updates required'\n  }\n});\n\nif (events.length === 0) {\n  console.log('No events to process');\n  return [noUpdatesItem()];\n}\n\nconst getDayOfWeek = (dateStr) => new Date(dateStr).getDay();\n\n// Format date for intervals.icu API: YYYY-MM-DDTHH:MM:SS (no milliseconds, no Z)\nconst setTime = (dateStr, hours, minutes = 0) => { \n  // Extract just the date part from the original string\n  const datePart = dateStr.split('T')[0];\n  // Format hours and minutes with leading zeros\n  const hh = String(hours).padStart(2, '0');\n  const mm = String(minutes).padStart(2, '0');\n  return `${datePart}T${hh}:${mm}:00`;\n};\n\nconst getActivityType = (event) => { \n  const type = (event.type || '').toLowerCase(); \n  const name = (event.name || '').toLowerCase(); \n  if (type.includes('run') || name.includes('course') || name.includes('run')) return 'run'; \n  if (type.includes('ride') || type.includes('bike') || name.includes('vélo') || name.includes('cyclisme')) return 'ride'; \n  return 'other'; \n};\n\n// Group events by day of week\nconst eventsByDay = {};\nevents.forEach(event => { \n  if (!event.start_date_local) return; \n  const dayOfWeek = getDayOfWeek(event.start_date_local); \n  if (!eventsByDay[dayOfWeek]) eventsByDay[dayOfWeek] = []; \n  eventsByDay[dayOfWeek].push(event); \n});\n\nconst updates = [];\nObject.keys(eventsByDay).forEach(dayOfWeek => { \n  const dayEvents = eventsByDay[dayOfWeek]; \n  const day = parseInt(dayOfWeek); \n  \n  // Sort by duration (longest first)\n  dayEvents.sort((a, b) => (b.moving_time || 0) - (a.moving_time || 0)); \n  \n  dayEvents.forEach((event, index) => { \n    const activityType = getActivityType(event); \n    let newTime; \n    \n    // Monday (1)\n    if (day === 1) { \n      if (activityType === 'run') newTime = setTime(event.start_date_local, 12, 0); \n      else if (activityType === 'ride') newTime = setTime(event.start_date_local, 18, 0); \n    } \n    // Tuesday/Wednesday (2,3)\n    else if (day === 2 || day === 3) { \n      if (index === 0) newTime = setTime(event.start_date_local, 12, 0); \n      else if (index === 1) newTime = setTime(event.start_date_local, 18, 0); \n    } \n    // Thursday/Friday (4,5)\n    else if (day === 4 || day === 5) { \n      if (activityType === 'run') newTime = setTime(event.start_date_local, 12, 0); \n      else if (activityType === 'ride') newTime = setTime(event.start_date_local, 18, 0); \n    } \n    // Saturday/Sunday (6,0)\n    else if (day === 6 || day === 0) { \n      if (index === 0) newTime = setTime(event.start_date_local, 9, 0); \n      else if (index === 1) newTime = setTime(event.start_date_local, 17, 0); \n    } \n    \n    if (newTime && newTime !== event.start_date_local) {\n      updates.push({ \n        id: event.id, \n        original_time: event.start_date_local, \n        new_time: newTime, \n        activity_type: activityType, \n        day_of_week: day, \n        name: event.name \n      }); \n    }\n  }); \n});\n\nconsole.log('Generated', updates.length, 'updates');\n\nif (updates.length === 0) {\n  console.log('No timing adjustments needed');\n  return [noUpdatesItem()];\n}\n\nreturn updates.map(update => ({ json: { ...update, has_updates: true } }));"
       },
       "id": "calculate-training-times",
       "name": "Calculate New Training Times",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [704, 304]
+      "position": [
+        704,
+        304
+      ]
     },
     {
       "parameters": {
@@ -103,7 +118,10 @@
       "name": "Check Updates Needed",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
-      "position": [912, 304]
+      "position": [
+        912,
+        304
+      ]
     },
     {
       "parameters": {
@@ -137,7 +155,10 @@
       "name": "Update Training Time",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.3,
-      "position": [1104, 208]
+      "position": [
+        1104,
+        208
+      ]
     },
     {
       "parameters": {
@@ -147,7 +168,10 @@
       "name": "Merge & Continue",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1312, 208]
+      "position": [
+        1312,
+        208
+      ]
     },
     {
       "parameters": {
@@ -165,7 +189,10 @@
       "name": "Generate Meal Plan",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.3,
-      "position": [1104, 400]
+      "position": [
+        1104,
+        400
+      ]
     },
     {
       "parameters": {
@@ -175,7 +202,10 @@
       "name": "Parse Crew Output",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1312, 400]
+      "position": [
+        1312,
+        400
+      ]
     },
     {
       "parameters": {
@@ -204,7 +234,10 @@
       "name": "Check Success",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
-      "position": [1504, 400]
+      "position": [
+        1504,
+        400
+      ]
     },
     {
       "parameters": {
@@ -219,7 +252,10 @@
       "name": "Success Notification",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
-      "position": [1712, 304],
+      "position": [
+        1712,
+        304
+      ],
       "webhookId": "d83a558b-75c2-4755-bc7b-394b4b5d997f",
       "credentials": {
         "telegramApi": {
@@ -241,7 +277,10 @@
       "name": "Error Notification",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
-      "position": [1712, 512],
+      "position": [
+        1712,
+        512
+      ],
       "webhookId": "28a0cccf-8dc9-432b-9c40-871b6468e739",
       "credentials": {
         "telegramApi": {
@@ -258,7 +297,10 @@
       "name": "Log Execution Result",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1904, 400]
+      "position": [
+        1904,
+        400
+      ]
     }
   ],
   "pinData": {},
@@ -409,12 +451,13 @@
       ]
     }
   },
-  "active": false,
+  "active": true,
   "settings": {
     "executionOrder": "v1",
     "callerPolicy": "workflowsFromSameOwner",
     "availableInMCP": false
   },
+  "versionId": "caefd27e-7da8-4464-a665-c2ed2112806e",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "089593b0375f52cffd2e682594e43cdd96459883230a04bef809490471c267bb"
@@ -422,10 +465,14 @@
   "id": "VSOAzIak3SfoMqVR",
   "tags": [
     {
+      "updatedAt": "2025-11-03T21:19:27.930Z",
+      "createdAt": "2025-11-03T21:19:27.930Z",
       "id": "iQ5VAWKF1stNmolK",
       "name": "meal-planning"
     },
     {
+      "updatedAt": "2025-11-03T21:19:27.932Z",
+      "createdAt": "2025-11-03T21:19:27.932Z",
       "id": "SvfwsMIdMU4Mcssi",
       "name": "automation"
     }
