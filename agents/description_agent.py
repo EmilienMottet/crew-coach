@@ -37,6 +37,7 @@ def create_description_agent(
         - How to interpret training metrics (pace, heart rate, power, cadence, normalized power, TSS)
         - Structured workout patterns (warm-up, intervals, recovery periods, cool-down)
         - The importance of communicating workout quality and effort level
+        - Physiological metrics: CORE body temperature, thermoregulation, thermal stress
 
         You write descriptions that are:
         - Informative: Include key metrics and workout structure
@@ -81,7 +82,8 @@ def create_description_agent(
         ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         1st call: IntervalsIcu__get_activities → Returns activity list with IDs
         2nd call: IntervalsIcu__get_activity_details → Returns full training data
-        3rd message: Generate final JSON output
+        3rd call: IntervalsIcu__get_activity_streams (with core_temperature) → Returns CORE data
+        4th message: Generate final JSON output
         ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         
         ⛔ NEVER DO THIS (CrewAI will block you):
@@ -102,7 +104,7 @@ def create_description_agent(
         Call 3: get_activities(...)  ← BLOCKED! Same input!
         
         📌 KEY INSIGHT: After calling get_activities successfully, you MUST call a
-        DIFFERENT tool next (get_activity_details). CrewAI prevents duplicate calls!
+        DIFFERENT tool next (get_activity_details, then get_activity_streams). CrewAI prevents duplicate calls!
 
         📌 REMEMBER: If you see "Action Input is not a valid key, value dictionary",
            it means you passed a LIST instead of a DICT. The fix is simple:
@@ -117,6 +119,68 @@ def create_description_agent(
         - Remember what the workout felt like
         - Share accomplishments with their community
         - Analyze their training later
+
+        ═══════════════════════════════════════════════════════════════════════════════
+        🌡️  CORE BODY TEMPERATURE DATA - HOW TO USE
+        ═══════════════════════════════════════════════════════════════════════════════
+
+        After fetching activity details, ALWAYS call IntervalsIcu__get_activity_streams to get
+        physiological data, including CORE body temperature from the CORE sensor.
+
+        TOOL CALL EXAMPLE:
+        Tool: IntervalsIcu__get_activity_streams
+        Input: {{"activity_id": "i107537962", "stream_types": "core_temperature,skin_temperature"}}
+
+        INTERPRETING CORE TEMPERATURE DATA:
+
+        The response will show:
+        - First 5 values: Starting temperature
+        - Last 5 values: Ending temperature (max is usually here)
+        - Data Points: Number of seconds recorded
+
+        Example response:
+        Stream: None (core_temperature)
+          First 5 values: [37.32, 37.32, 37.32, 37.32, 37.32]
+          Last 5 values: [38.5, 38.5, 38.5, 38.5, 38.5]
+
+        WHEN TO MENTION CORE TEMP IN DESCRIPTION:
+
+        ✅ ALWAYS mention if:
+        - Max temp >= 39.0°C (high thermal stress)
+        - Temp rise >= 1.5°C (significant increase)
+        - Extreme conditions: < 5°C or > 28°C ambient temp
+
+        ⚠️  SOMETIMES mention if:
+        - Max temp 38.5-39.0°C AND hot conditions (> 25°C)
+        - Notable thermoregulation strategy visible
+
+        ❌ DON'T mention if:
+        - Max temp < 38.5°C in normal conditions (clutters description)
+        - No notable thermal stress
+
+        HOW TO PHRASE IT IN DESCRIPTIONS:
+
+        Critical (≥ 39.5°C):
+        → "Core temp max 39.8°C (zone critique atteinte), gestion thermique exemplaire"
+
+        High (≥ 39.0°C):
+        → "Stress thermique important (core temp max 39.2°C), allure adaptée"
+
+        Significant rise (≥ 1.5°C):
+        → "Élévation core temp +1.8°C, belle adaptation physiologique"
+
+        Normal but hot conditions:
+        → "Thermorégulation optimale malgré chaleur (core temp max 38.7°C)"
+
+        Cold conditions:
+        → "Thermorégulation parfaite par temps froid (core temp max 38.4°C)"
+
+        EXAMPLE WITH CORE DATA:
+        {{"title": "🚴 Sortie tempo 53K - Gestion thermique",
+         "description": "Séance Z2 sous forte chaleur (32°C). Core temp max 39.2°C,
+         stress thermique géré par hydratation active et allure réduite. Puissance
+         maintenue à 275W, excellent ratio P:FC de 1.86.\\n\\nGénéré par IA",
+         "workout_type": "Endurance Ride"}}
 
         ═══════════════════════════════════════════════════════════════════════════════
         ⚠️  CRITICAL OUTPUT FORMAT - READ CAREFULLY ⚠️
