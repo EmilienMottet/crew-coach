@@ -56,18 +56,18 @@ jobs:
             update_payload=$(jq -c 'del(.id)' "${file}")
             tmpfile=$(mktemp)
 
-            update_status=$(curl -sS -o "${tmpfile}" -w '%{http_code}' \
+            update_status=$(curl -sS -L -o "${tmpfile}" -w '%{http_code}' \
               -X PUT "${N8N_API_URL%/}/rest/workflows/${workflow_id}" \
               -H "Content-Type: application/json" \
-              -H "n8n-api-key: ${N8N_API_KEY}" \
+              -H "X-N8N-API-KEY: ${N8N_API_KEY}" \
               -d "${update_payload}")
 
             if [ "${update_status}" = "404" ]; then
               create_payload=$(jq -c '{name, active, nodes, connections, settings, meta, tags}' "${file}")
-              create_status=$(curl -sS -o "${tmpfile}" -w '%{http_code}' \
+              create_status=$(curl -sS -L -o "${tmpfile}" -w '%{http_code}' \
                 -X POST "${N8N_API_URL%/}/rest/workflows" \
                 -H "Content-Type: application/json" \
-                -H "n8n-api-key: ${N8N_API_KEY}" \
+                -H "X-N8N-API-KEY: ${N8N_API_KEY}" \
                 -d "${create_payload}")
               if [ "${create_status}" -ge 300 ]; then
                 cat "${tmpfile}" >&2
