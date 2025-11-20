@@ -182,7 +182,7 @@
         "jsonBody": "={}",
         "options": {
           "response": {},
-          "timeout": 600000
+          "timeout": 1800000
         }
       },
       "id": "0e89dfe1-61ae-4df2-982d-b24e466a50dd",
@@ -457,7 +457,7 @@
     "callerPolicy": "workflowsFromSameOwner",
     "availableInMCP": false
   },
-  "versionId": "caefd27e-7da8-4464-a665-c2ed2112806e",
+  "versionId": "764162dc-b43f-4016-9bb1-c0f8ab83e9ac",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "089593b0375f52cffd2e682594e43cdd96459883230a04bef809490471c267bb"
@@ -465,16 +465,16 @@
   "id": "VSOAzIak3SfoMqVR",
   "tags": [
     {
-      "updatedAt": "2025-11-03T21:19:27.930Z",
-      "createdAt": "2025-11-03T21:19:27.930Z",
-      "id": "iQ5VAWKF1stNmolK",
-      "name": "meal-planning"
-    },
-    {
       "updatedAt": "2025-11-03T21:19:27.932Z",
       "createdAt": "2025-11-03T21:19:27.932Z",
       "id": "SvfwsMIdMU4Mcssi",
       "name": "automation"
+    },
+    {
+      "updatedAt": "2025-11-03T21:19:27.930Z",
+      "createdAt": "2025-11-03T21:19:27.930Z",
+      "id": "iQ5VAWKF1stNmolK",
+      "name": "meal-planning"
     }
   ]
 }
