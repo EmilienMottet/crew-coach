@@ -287,6 +287,51 @@
         992,
         336
       ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://crew:8000/process",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json }}",
+        "options": {
+          "response": {},
+          "timeout": 3600000
+        }
+      },
+      "id": "2c796fff-eed5-47c1-84cf-921a2aada37a",
+      "name": "HTTP Request - Webhook",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        720,
+        -192
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "activityId": "={{ $json[\"activity_id\"] }}",
+        "updateFields": {
+          "description": "={{ $json[\"description\"] }}",
+          "name": "={{ $json[\"title\"] }}"
+        }
+      },
+      "id": "d1219476-aab1-44d6-bf44-3e9661cd6500",
+      "name": "Update Activity - Webhook",
+      "type": "n8n-nodes-base.strava",
+      "typeVersion": 1.1,
+      "position": [
+        992,
+        -240
+      ],
+      "credentials": {
+        "stravaOAuth2Api": {
+          "id": "K3T8baQuxLWmmuhd",
+          "name": "Strava account"
+        }
+      }
     }
   ],
   "pinData": {},
@@ -357,17 +402,6 @@
         ]
       ]
     },
-    "Update an activity": {
-      "main": [
-        [
-          {
-            "node": "Loop Over Activities",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "Get Recently Played": {
       "main": [
         [
@@ -384,17 +418,6 @@
         [
           {
             "node": "Format Data for CrewAI",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Format Data for CrewAI": {
-      "main": [
-        [
-          {
-            "node": "HTTP Request",
             "type": "main",
             "index": 0
           }
@@ -444,6 +467,39 @@
           }
         ]
       ]
+    },
+    "Update an activity": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Activities",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Data for CrewAI": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request - Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request - Webhook": {
+      "main": [
+        [
+          {
+            "node": "Update Activity - Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "active": true,
@@ -454,7 +510,7 @@
     "callerPolicy": "workflowsFromSameOwner",
     "availableInMCP": false
   },
-  "versionId": "cf10c1d8-b929-4d94-98ac-9278814658b4",
+  "versionId": "84866546-c63b-43a3-885e-e03461483a2a",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "089593b0375f52cffd2e682594e43cdd96459883230a04bef809490471c267bb"
