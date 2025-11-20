@@ -10,7 +10,7 @@
       "typeVersion": 1,
       "position": [
         -128,
-        -16
+        -80
       ],
       "id": "0c4caafa-8e2c-4b19-9c57-ccfbc3ca42e2",
       "name": "Strava Trigger",
@@ -27,8 +27,8 @@
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
       "position": [
-        320,
-        336
+        -128,
+        112
       ],
       "id": "a1b2c3d4-5e6f-7g8h-9i0j-k1l2m3n4o5p6",
       "name": "Manual Trigger"
@@ -41,8 +41,8 @@
       "type": "n8n-nodes-base.strava",
       "typeVersion": 1.1,
       "position": [
-        544,
-        240
+        96,
+        112
       ],
       "id": "b2c3d4e5-6f7g-8h9i-0j1k-l2m3n4o5p6q7",
       "name": "Get Recent Activities",
@@ -55,179 +55,79 @@
     },
     {
       "parameters": {
-        "options": {}
-      },
-      "type": "n8n-nodes-base.splitInBatches",
-      "typeVersion": 3,
-      "position": [
-        1216,
-        -80
-      ],
-      "id": "c3d4e5f6-7g8h-9i0j-1k2l-m3n4o5p6q7r8",
-      "name": "Loop Over Activities"
-    },
-    {
-      "parameters": {
         "assignments": {
           "assignments": [
             {
-              "id": "webhook-format-1",
-              "name": "object_type",
-              "type": "string",
-              "value": "activity"
-            },
-            {
-              "id": "webhook-format-2",
-              "name": "object_id",
+              "id": "extract-1",
+              "name": "id",
               "type": "number",
-              "value": "={{ $json.id }}"
+              "value": "={{ $json.object_data.id }}"
             },
             {
-              "id": "webhook-format-3",
-              "name": "object_data",
-              "type": "object",
-              "value": "={{ $json }}"
+              "id": "extract-2",
+              "name": "name",
+              "type": "string",
+              "value": "={{ $json.object_data.name }}"
+            },
+            {
+              "id": "extract-3",
+              "name": "distance",
+              "type": "number",
+              "value": "={{ $json.object_data.distance }}"
+            },
+            {
+              "id": "extract-4",
+              "name": "moving_time",
+              "type": "number",
+              "value": "={{ $json.object_data.moving_time }}"
+            },
+            {
+              "id": "extract-5",
+              "name": "type",
+              "type": "string",
+              "value": "={{ $json.object_data.type }}"
+            },
+            {
+              "id": "extract-6",
+              "name": "start_date_local",
+              "type": "string",
+              "value": "={{ $json.object_data.start_date_local }}"
             }
           ]
         },
         "options": {}
       },
+      "id": "2f23081c-2d73-40c6-974a-f9095e5921cb",
+      "name": "Extract Activity from Webhook",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        1440,
-        -16
-      ],
-      "id": "d4e5f6g7-8h9i-0j1k-2l3m-n4o5p6q7r8s9",
-      "name": "Transform to Webhook Format"
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "http://crew:8000/process",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ $json }}",
-        "options": {
-          "response": {},
-          "timeout": 3600000
-        }
-      },
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.3,
-      "position": [
-        768,
-        -16
-      ],
-      "id": "8d4efa51-0788-4503-9c37-8cde03ff992f",
-      "name": "HTTP Request"
-    },
-    {
-      "parameters": {
-        "operation": "update",
-        "activityId": "={{ $json[\"activity_id\"] }}",
-        "updateFields": {
-          "description": "={{ $json[\"description\"] }}",
-          "name": "={{ $json[\"title\"] }}"
-        }
-      },
-      "type": "n8n-nodes-base.strava",
-      "typeVersion": 1.1,
-      "position": [
-        992,
-        -80
-      ],
-      "id": "aed76cd0-6c81-4d28-95a8-19a29d0e5848",
-      "name": "Update an activity",
-      "credentials": {
-        "stravaOAuth2Api": {
-          "id": "K3T8baQuxLWmmuhd",
-          "name": "Strava account"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "operation": "recentlyPlayed"
-      },
-      "id": "spotify-recently-played",
-      "name": "Get Recently Played",
-      "type": "n8n-nodes-base.spotify",
-      "typeVersion": 1,
-      "position": [
         96,
-        64
-      ],
-      "credentials": {
-        "spotifyOAuth2Api": {
-          "id": "yiaksNUDI8zRr12v",
-          "name": "Spotify account"
-        }
-      }
+        -80
+      ]
     },
     {
       "parameters": {},
-      "id": "merge-data",
-      "name": "Merge Activity and Spotify",
+      "id": "bfb5eb9a-13e5-475f-874f-4e41b53f2f10",
+      "name": "Merge Both Sources",
       "type": "n8n-nodes-base.merge",
       "typeVersion": 2.1,
       "position": [
         320,
-        -16
-      ]
-    },
-    {
-      "parameters": {
-        "assignments": {
-          "assignments": [
-            {
-              "id": "format-1",
-              "name": "object_type",
-              "type": "string",
-              "value": "activity"
-            },
-            {
-              "id": "format-2",
-              "name": "object_id",
-              "type": "number",
-              "value": "={{ $('Strava Trigger').item.json.object_data.id }}"
-            },
-            {
-              "id": "format-3",
-              "name": "object_data",
-              "type": "object",
-              "value": "={{ $('Strava Trigger').item.json.object_data }}"
-            },
-            {
-              "id": "format-4",
-              "name": "spotify_recently_played",
-              "type": "object",
-              "value": "={{ $if($('Get Recently Played').isExecuted, { items: $('Get Recently Played').all() }, { items: [] }) }}"
-            }
-          ]
-        },
-        "options": {}
-      },
-      "id": "format-data",
-      "name": "Format Data for CrewAI",
-      "type": "n8n-nodes-base.set",
-      "typeVersion": 3.4,
-      "position": [
-        544,
-        -16
+        16
       ]
     },
     {
       "parameters": {
         "operation": "recentlyPlayed"
       },
-      "id": "spotify-manual",
-      "name": "Get Recently Played - Manual",
+      "id": "a889d0a9-dd34-4830-9f31-d3b2e8a86375",
+      "name": "Get Spotify",
       "type": "n8n-nodes-base.spotify",
       "typeVersion": 1,
       "position": [
         544,
-        432
+        88
       ],
       "credentials": {
         "spotifyOAuth2Api": {
@@ -238,13 +138,13 @@
     },
     {
       "parameters": {},
-      "id": "merge-manual",
-      "name": "Merge Manual Activity and Spotify",
+      "id": "03fbf61c-dc16-4dfc-8c66-db60bd66619e",
+      "name": "Merge with Spotify",
       "type": "n8n-nodes-base.merge",
       "typeVersion": 2.1,
       "position": [
         768,
-        336
+        16
       ]
     },
     {
@@ -252,40 +152,53 @@
         "assignments": {
           "assignments": [
             {
-              "id": "manual-format-1",
+              "id": "unified-1",
               "name": "object_type",
               "type": "string",
               "value": "activity"
             },
             {
-              "id": "manual-format-2",
+              "id": "unified-2",
               "name": "object_id",
               "type": "number",
               "value": "={{ $json.id }}"
             },
             {
-              "id": "manual-format-3",
+              "id": "unified-3",
               "name": "object_data",
               "type": "object",
               "value": "={{ $json }}"
             },
             {
-              "id": "manual-format-4",
+              "id": "unified-4",
               "name": "spotify_recently_played",
               "type": "object",
-              "value": "={{ $if($('Get Recently Played - Manual').isExecuted, { items: $('Get Recently Played - Manual').all() }, { items: [] }) }}"
+              "value": "={{ { items: $('Get Spotify').all() } }}"
             }
           ]
         },
         "options": {}
       },
-      "id": "format-manual",
-      "name": "Format Manual Data for CrewAI",
+      "id": "3d4b3afc-37cf-47c3-a413-dcd8b793432b",
+      "name": "Format for CrewAI",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
         992,
-        336
+        16
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "cfa1a204-ba39-48c1-9157-5c09681f6757",
+      "name": "Loop",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1216,
+        16
       ]
     },
     {
@@ -300,31 +213,31 @@
           "timeout": 3600000
         }
       },
-      "id": "2c796fff-eed5-47c1-84cf-921a2aada37a",
-      "name": "HTTP Request - Webhook",
+      "id": "cfc71dc3-742d-4e8a-8332-c9e9ec7a1bcd",
+      "name": "Call CrewAI",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.3,
       "position": [
-        720,
-        -192
+        1440,
+        -56
       ]
     },
     {
       "parameters": {
         "operation": "update",
-        "activityId": "={{ $json[\"activity_id\"] }}",
+        "activityId": "={{ $json['activity_id'] }}",
         "updateFields": {
-          "description": "={{ $json[\"description\"] }}",
-          "name": "={{ $json[\"title\"] }}"
+          "description": "={{ $json['description'] }}",
+          "name": "={{ $json['title'] }}"
         }
       },
-      "id": "d1219476-aab1-44d6-bf44-3e9661cd6500",
-      "name": "Update Activity - Webhook",
+      "id": "c0a07a9e-437a-4b6f-9691-8b87b005593e",
+      "name": "Update Strava",
       "type": "n8n-nodes-base.strava",
       "typeVersion": 1.1,
       "position": [
-        992,
-        -240
+        1664,
+        16
       ],
       "credentials": {
         "stravaOAuth2Api": {
@@ -340,12 +253,7 @@
       "main": [
         [
           {
-            "node": "Get Recently Played",
-            "type": "main",
-            "index": 0
-          },
-          {
-            "node": "Merge Activity and Spotify",
+            "node": "Extract Activity from Webhook",
             "type": "main",
             "index": 0
           }
@@ -359,78 +267,6 @@
             "node": "Get Recent Activities",
             "type": "main",
             "index": 0
-          },
-          {
-            "node": "Get Recently Played - Manual",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Loop Over Activities": {
-      "main": [
-        [],
-        [
-          {
-            "node": "Transform to Webhook Format",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Transform to Webhook Format": {
-      "main": [
-        [
-          {
-            "node": "HTTP Request",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "HTTP Request": {
-      "main": [
-        [
-          {
-            "node": "Update an activity",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Get Recently Played": {
-      "main": [
-        [
-          {
-            "node": "Merge Activity and Spotify",
-            "type": "main",
-            "index": 1
-          }
-        ]
-      ]
-    },
-    "Merge Activity and Spotify": {
-      "main": [
-        [
-          {
-            "node": "Format Data for CrewAI",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Get Recently Played - Manual": {
-      "main": [
-        [
-          {
-            "node": "Merge Manual Activity and Spotify",
-            "type": "main",
-            "index": 2
           }
         ]
       ]
@@ -439,62 +275,101 @@
       "main": [
         [
           {
-            "node": "Merge Manual Activity and Spotify",
+            "node": "Merge Both Sources",
             "type": "main",
             "index": 1
           }
         ]
       ]
     },
-    "Merge Manual Activity and Spotify": {
+    "Extract Activity from Webhook": {
       "main": [
         [
           {
-            "node": "Format Manual Data for CrewAI",
+            "node": "Merge Both Sources",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Format Manual Data for CrewAI": {
+    "Merge Both Sources": {
       "main": [
         [
           {
-            "node": "Loop Over Activities",
+            "node": "Get Spotify",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge with Spotify",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Update an activity": {
+    "Get Spotify": {
       "main": [
         [
           {
-            "node": "Loop Over Activities",
+            "node": "Merge with Spotify",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge with Spotify": {
+      "main": [
+        [
+          {
+            "node": "Format for CrewAI",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Format Data for CrewAI": {
+    "Format for CrewAI": {
       "main": [
         [
           {
-            "node": "HTTP Request - Webhook",
+            "node": "Loop",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "HTTP Request - Webhook": {
+    "Call CrewAI": {
       "main": [
         [
           {
-            "node": "Update Activity - Webhook",
+            "node": "Update Strava",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Strava": {
+      "main": [
+        [
+          {
+            "node": "Loop",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Call CrewAI",
             "type": "main",
             "index": 0
           }
@@ -510,7 +385,7 @@
     "callerPolicy": "workflowsFromSameOwner",
     "availableInMCP": false
   },
-  "versionId": "84866546-c63b-43a3-885e-e03461483a2a",
+  "versionId": "f0fd8701-a525-49d4-85c2-5089dbcd8b46",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "089593b0375f52cffd2e682594e43cdd96459883230a04bef809490471c267bb"
