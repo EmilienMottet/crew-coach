@@ -32,16 +32,19 @@ def create_description_task(agent, activity_data: Dict[str, Any]) -> Task:
         tool_instructions = """
         ⚡⚡⚡ IMMEDIATE ACTION REQUIRED - NO EXCEPTIONS ⚡⚡⚡
 
-        YOU MUST MAKE THESE TOOL CALLS NOW - THIS IS NOT OPTIONAL:
+        YOU MUST MAKE THESE 3 TOOL CALLS NOW - THIS IS NOT OPTIONAL:
 
         TOOL CALL 1: Call IntervalsIcu__get_activities with parameters:
         {"start_date": "2025-11-18", "end_date": "2025-11-18", "limit": 10}
 
         TOOL CALL 2: Call IntervalsIcu__get_activity_details with the activity_id from result 1
 
-        AFTER BOTH TOOL CALLS COMPLETE: Generate JSON output
+        TOOL CALL 3: Call IntervalsIcu__get_activity_streams with parameters:
+        {"activity_id": "<id_from_call_1>", "stream_types": "core_temperature,skin_temperature"}
 
-        🚨 CRITICAL: You MUST make these tool calls immediately before any other action.
+        AFTER ALL 3 TOOL CALLS COMPLETE: Generate JSON output
+
+        🚨 CRITICAL: You MUST make these 3 tool calls immediately before any other action.
         🚨 DO NOT explain, analyze, or describe what you will do.
         🚨 JUST EXECUTE THE TOOL CALLS NOW.
         """
@@ -63,7 +66,8 @@ def create_description_task(agent, activity_data: Dict[str, Any]) -> Task:
 
         Step 1: Call IntervalsIcu__get_activities
         Step 2: Call IntervalsIcu__get_activity_details with the ID
-        Step 3: Generate final JSON
+        Step 3: Call IntervalsIcu__get_activity_streams for CORE temp data
+        Step 4: Generate final JSON
 
         Execute these steps in order without explanatory text between them.
         """
@@ -79,6 +83,7 @@ def create_description_task(agent, activity_data: Dict[str, Any]) -> Task:
         Execute these tools in order:
         1. IntervalsIcu__get_activities
         2. IntervalsIcu__get_activity_details (using the ID from step 1)
+        3. IntervalsIcu__get_activity_streams (for CORE temperature data)
 
         Then generate the final JSON output.
         """
@@ -120,12 +125,13 @@ def create_description_task(agent, activity_data: Dict[str, Any]) -> Task:
 
     {tool_instructions}
 
-    1. IMMEDIATELY MAKE THESE 2 CALLS - NO EXCEPTIONS:
+    1. IMMEDIATELY MAKE THESE 3 CALLS - NO EXCEPTIONS:
 
-        CALL NOW: IntervalsIcu__get_activities with {{"start_date": "{start_date_str}", "end_date": "{start_date_str}", "limit": 10}}
-        CALL NEXT: IntervalsIcu__get_activity_details with the ID you get
+        CALL 1: IntervalsIcu__get_activities with {{"start_date": "{start_date_str}", "end_date": "{start_date_str}", "limit": 10}}
+        CALL 2: IntervalsIcu__get_activity_details with the ID you get
+        CALL 3: IntervalsIcu__get_activity_streams with {{"activity_id": "<id>", "stream_types": "core_temperature,skin_temperature"}}
 
-        ⚠️  AFTER 2 CALLS: Output JSON immediately. No explanations!
+        ⚠️  AFTER 3 CALLS: Output JSON immediately. No explanations!
 
     2. PRODUCE A TITLE (≤ 50 characters)
         - Highlight the workout intent or key achievement
