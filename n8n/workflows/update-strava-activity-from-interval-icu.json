@@ -10,7 +10,7 @@
       "typeVersion": 1,
       "position": [
         -128,
-        -8
+        -16
       ],
       "id": "0c4caafa-8e2c-4b19-9c57-ccfbc3ca42e2",
       "name": "Strava Trigger",
@@ -28,7 +28,7 @@
       "typeVersion": 1,
       "position": [
         320,
-        328
+        336
       ],
       "id": "a1b2c3d4-5e6f-7g8h-9i0j-k1l2m3n4o5p6",
       "name": "Manual Trigger"
@@ -36,13 +36,13 @@
     {
       "parameters": {
         "operation": "getAll",
-        "limit": 5
+        "limit": 1
       },
       "type": "n8n-nodes-base.strava",
       "typeVersion": 1.1,
       "position": [
         544,
-        232
+        240
       ],
       "id": "b2c3d4e5-6f7g-8h9i-0j1k-l2m3n4o5p6q7",
       "name": "Get Recent Activities",
@@ -96,7 +96,7 @@
       "typeVersion": 3.4,
       "position": [
         1440,
-        -8
+        -16
       ],
       "id": "d4e5f6g7-8h9i-0j1k-2l3m-n4o5p6q7r8s9",
       "name": "Transform to Webhook Format"
@@ -117,7 +117,7 @@
       "typeVersion": 4.3,
       "position": [
         768,
-        -8
+        -16
       ],
       "id": "8d4efa51-0788-4503-9c37-8cde03ff992f",
       "name": "HTTP Request"
@@ -166,16 +166,14 @@
       }
     },
     {
-      "parameters": {
-        "mode": "multiplex"
-      },
+      "parameters": {},
       "id": "merge-data",
       "name": "Merge Activity and Spotify",
       "type": "n8n-nodes-base.merge",
       "typeVersion": 2.1,
       "position": [
         320,
-        -8
+        -16
       ]
     },
     {
@@ -216,7 +214,7 @@
       "typeVersion": 3.4,
       "position": [
         544,
-        -8
+        -16
       ]
     },
     {
@@ -229,7 +227,7 @@
       "typeVersion": 1,
       "position": [
         544,
-        424
+        432
       ],
       "credentials": {
         "spotifyOAuth2Api": {
@@ -239,16 +237,14 @@
       }
     },
     {
-      "parameters": {
-        "mode": "multiplex"
-      },
+      "parameters": {},
       "id": "merge-manual",
       "name": "Merge Manual Activity and Spotify",
       "type": "n8n-nodes-base.merge",
       "typeVersion": 2.1,
       "position": [
         768,
-        328
+        336
       ]
     },
     {
@@ -289,7 +285,7 @@
       "typeVersion": 3.4,
       "position": [
         992,
-        328
+        336
       ]
     }
   ],
@@ -458,7 +454,7 @@
     "callerPolicy": "workflowsFromSameOwner",
     "availableInMCP": false
   },
-  "versionId": "ae7453bc-75da-44fa-8f1c-3214159b445c",
+  "versionId": "cf10c1d8-b929-4d94-98ac-9278814658b4",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "089593b0375f52cffd2e682594e43cdd96459883230a04bef809490471c267bb"
