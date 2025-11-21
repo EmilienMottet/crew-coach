@@ -55,7 +55,7 @@ class MealPlanningCrew:
         # Environment and auth already configured at module level via llm_auth_init
 
         # Get configuration
-        base_url = os.getenv("OPENAI_API_BASE", "https://ccproxy.emottet.com/copilot/v1")
+        base_url = os.getenv("OPENAI_API_BASE", "https://ccproxy.emottet.com/v1")
         default_complex_model = os.getenv("OPENAI_MODEL_NAME") or "claude-sonnet-4-5"
         complex_model_name = os.getenv(
             "OPENAI_COMPLEX_MODEL_NAME",

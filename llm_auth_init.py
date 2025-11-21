@@ -41,7 +41,7 @@ def initialize_basic_auth() -> str:
     Returns:
         The configured API key
     """
-    base_url = os.getenv("OPENAI_API_BASE", "https://ccproxy.emottet.com/copilot/v1")
+    base_url = os.getenv("OPENAI_API_BASE", "https://ccproxy.emottet.com/v1")
     api_key = os.getenv("OPENAI_API_KEY", "dummy-key")
 
     # Set environment variables
