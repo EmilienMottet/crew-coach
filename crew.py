@@ -48,7 +48,7 @@ class StravaDescriptionCrew:
         load_dotenv()
 
         # Configure environment variables for LiteLLM/OpenAI
-        base_url = os.getenv("OPENAI_API_BASE", "https://ccproxy.emottet.com/copilot/v1")
+        base_url = os.getenv("OPENAI_API_BASE", "https://ccproxy.emottet.com/v1")
         default_complex_model = os.getenv("OPENAI_MODEL_NAME") or "claude-sonnet-4-5"
         complex_model_name = os.getenv(
             "OPENAI_COMPLEX_MODEL_NAME",
@@ -1078,6 +1078,18 @@ class StravaDescriptionCrew:
         return final_result
 
 
+
+class RedirectStdoutToStderr:
+    """Context manager to redirect stdout to stderr."""
+    def __enter__(self):
+        self._original_stdout = sys.stdout
+        sys.stdout = sys.stderr
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        sys.stdout = self._original_stdout
+
+
 def main():
     """Main entry point for n8n integration."""
     # Read input from stdin (n8n will provide this)
@@ -1092,8 +1104,10 @@ def main():
             activity_data = activity_data[0]
 
         # Process the activity
-        crew = StravaDescriptionCrew()
-        result = crew.process_activity(activity_data)
+        # Redirect stdout to stderr during processing to keep stdout clean for final JSON
+        with RedirectStdoutToStderr():
+            crew = StravaDescriptionCrew()
+            result = crew.process_activity(activity_data)
         
         # Output result as JSON to stdout
         print(json.dumps(result, indent=2))

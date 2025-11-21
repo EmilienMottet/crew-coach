@@ -277,7 +277,7 @@ def _ensure_copilot_fallback(
 ) -> List[ProviderCandidate]:
     """Append the mandatory Copilot fallback unless already present."""
 
-    copilot_base = os.getenv("COPILOT_API_BASE", "https://ccproxy.emottet.com/copilot/v1")
+    copilot_base = os.getenv("COPILOT_API_BASE", "https://ccproxy.emottet.com/v1")
     copilot_key = os.getenv("COPILOT_API_KEY", default_key)
     copilot_model = _normalize_model_name(os.getenv("COPILOT_FALLBACK_MODEL", "gpt-5-mini"), copilot_base)
 
@@ -379,15 +379,10 @@ def _normalize_model_name(model_name: str, api_base: str = "") -> str:
         normalized = _normalize_for_claude_endpoint(cleaned)
         print(f"   ✓ Claude endpoint detected → '{normalized}'", file=sys.stderr)
         return normalized
-    elif "api.z.ai" in base_lower:
-        # Z.ai endpoint: use exact model names (glm-4.6, etc.)
-        normalized = _normalize_for_zai(cleaned)
-        print(f"   ✓ Z.ai endpoint detected → '{normalized}'", file=sys.stderr)
-        return normalized
-    elif "ccproxy" in base_lower or "ghcopilot" in base_lower:
-        # Generic ccproxy/ghcopilot: assume copilot behavior
+    elif "/v1" in base_lower and "ccproxy" in base_lower:
+        # New single endpoint: assume copilot behavior (supports short names)
         normalized = _normalize_for_copilot(cleaned)
-        print(f"   ✓ Generic ccproxy/ghcopilot endpoint detected → '{normalized}'", file=sys.stderr)
+        print(f"   ✓ New ccproxy endpoint detected → '{normalized}'", file=sys.stderr)
         return normalized
 
     # Default: add openai/ prefix if needed
@@ -417,9 +412,9 @@ def _normalize_for_copilot(model_name: str) -> str:
 
     # Claude models - map to short names
     if "claude-sonnet-4.5" in model_lower or "claude-sonnet-4-5" in model_lower:
-        return "claude-sonnet-4.5"
+        return "claude-sonnet-4-5"
     if "claude-haiku-4.5" in model_lower or "claude-haiku-4-5" in model_lower:
-        return "claude-haiku-4.5"
+        return "claude-haiku-4-5"
     if "claude-sonnet-4" in model_lower and "4.5" not in model_lower and "4-5" not in model_lower:
         return "claude-sonnet-4"
     if "claude-3.5-sonnet" in model_lower or "claude-35-sonnet" in model_lower:
@@ -765,9 +760,10 @@ class RotatingLLM(BaseLLM):
                     
                     # LiteLLM needs provider prefix for some models
                     model_for_litellm = provider.model
-                    if "claude" in provider.model.lower():
-                        # Don't add prefix - our proxy handles it
-                        pass
+                    if "claude" in provider.model.lower() and not provider.model.lower().startswith("openai/"):
+                        # Force openai/ prefix to ensure LiteLLM uses OpenAI format for tools
+                        # This prevents LiteLLM from trying to adapt tools for Anthropic API
+                        model_for_litellm = f"openai/{provider.model}"
                     
                     # Call litellm directly with the necessary parameters
                     import litellm

@@ -76,7 +76,7 @@ If `OPENAI_API_AUTH_TOKEN` is set, it takes precedence and will be used as `Auth
 
 ### Example curl request
 ```bash
-curl https://ccproxy.emottet.com/copilot/v1/chat/completions \
+curl https://ccproxy.emottet.com/v1/chat/completions \
   -H "Authorization: Basic b2NvOjc2d3VudFk4Q3QzR2szRFU=" \
   -H "Content-Type: application/json" \
   -d '{
@@ -177,7 +177,7 @@ Les agents relancent désormais automatiquement l'inférence sur une autre passe
 
 - Tentative sur la config primaire (`OPENAI_*` ou variables agent spécifiques)
 - Tentatives successives définies via les variables `*_PROVIDER_ROTATION` (l'ordre est aléatoire à chaque lancement pour équilibrer Copilot/Claude)
-- Dernier recours obligatoire : `gpt-5-mini` exposé via le provider Copilot (`https://ccproxy.emottet.com/copilot/v1`)
+- Dernier recours obligatoire : `gpt-5-mini` exposé via le provider Copilot (`https://ccproxy.emottet.com/v1`)
 
 #### Configuration
 
@@ -192,7 +192,7 @@ LLM_PROVIDER_ROTATION="anthropic|claude-sonnet-4.5|https://anthropic.proxy/v1|AN
 DESCRIPTION_PROVIDER_ROTATION="azure-sonnet|claude-sonnet-4.5|https://azure.example/v1|AZURE_KEY"
 
 # Provider Copilot utilisé pour le dernier fallback
-COPILOT_API_BASE=https://ccproxy.emottet.com/copilot/v1
+COPILOT_API_BASE=https://ccproxy.emottet.com/v1
 COPILOT_API_KEY=${OPENAI_API_KEY}
 COPILOT_FALLBACK_MODEL=gpt-5-mini
 ```
@@ -204,7 +204,7 @@ COPILOT_FALLBACK_MODEL=gpt-5-mini
   - `ENV:MY_TOKEN` ou simplement `MY_TOKEN` → lit la variable d'environnement correspondante
   - `key=XXX` → valeur inline (éviter si possible)
 
-L'entrée `codex-gpt5` ci-dessus pointe directement vers `https://ccproxy.emottet.com/codex/v1` (modèles `gpt-5`, `gpt-5-codex`). Ce proxy refuse les messages `system`, donc l'orchestrateur fusionne automatiquement le prompt système dans la première instruction utilisateur dès qu'un endpoint `codex` est détecté. Comme ce backend ne gère pas les appels tools/functions, il n'est sélectionné que pour les agents qui n'ont aucun outil associé (ex. Privacy, Translation, Weekly Structure).
+L'entrée `codex-gpt5` ci-dessus pointe directement vers `https://ccproxy.emottet.com/v1` (modèles `gpt-5`, `gpt-5-codex`). Ce proxy refuse les messages `system`, donc l'orchestrateur fusionne automatiquement le prompt système dans la première instruction utilisateur dès qu'un endpoint `codex` est détecté. Comme ce backend ne gère pas les appels tools/functions, il n'est sélectionné que pour les agents qui n'ont aucun outil associé (ex. Privacy, Translation, Weekly Structure).
 
 Toutes les chaînes suivent le même format. Pour les agents Strava, les préfixes possibles sont `DESCRIPTION`, `MUSIC`, `PRIVACY`, `TRANSLATION`. Pour le meal planning : `HEXIS_ANALYSIS`, `WEEKLY_STRUCTURE`, `MEAL_GENERATION`, `NUTRITIONAL_VALIDATION`, `MEALY_INTEGRATION`. Si aucune chaîne spécifique n'est définie, la variable globale `LLM_PROVIDER_ROTATION` est utilisée.
 

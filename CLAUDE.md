@@ -372,7 +372,7 @@ The system builds MCP references in `crew.py:_build_intervals_mcp_references()` 
 2. **API Key**: Set `OPENAI_API_KEY` (standard Bearer token)
 
 **Endpoint Setup**:
-- `OPENAI_API_BASE`: Custom endpoint URL (e.g., `https://ccproxy.emottet.com/copilot/v1`)
+- `OPENAI_API_BASE`: Custom endpoint URL (e.g., `https://ccproxy.emottet.com/v1`)
 - `OPENAI_MODEL_NAME`: Model identifier (e.g., `claude-sonnet-4.5`, `gpt-5-mini`)
 - **LiteLLM prefix**: Models are referenced as `openai/{model_name}` internally (except for ccproxy endpoints)
 
@@ -414,13 +414,13 @@ All endpoints support tool calling with MCP tools:
   ```
   🤖 MUSIC Agent: ✅ with tools
      Model: claude-haiku-4-5
-     Endpoint: copilot (https://ccproxy.emottet.com/copilot/v1)
+     Endpoint: copilot (https://ccproxy.emottet.com/v1)
   ```
 
 **Testing Model Normalization**:
 ```bash
 # Test with real endpoint using curl
-curl -X POST https://ccproxy.emottet.com/copilot/v1/chat/completions \
+curl -X POST https://ccproxy.emottet.com/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $OPENAI_API_KEY" \
   -d '{"model": "claude-sonnet-4.5", "messages": [{"role": "user", "content": "test"}]}'
@@ -659,7 +659,7 @@ TRANSLATION_SOURCE_LANGUAGE=English
 
   ```bash
   # Test with real endpoint using curl
-  curl -X POST https://ccproxy.emottet.com/copilot/v1/chat/completions \
+  curl -X POST https://ccproxy.emottet.com/v1/chat/completions \
     -H "Content-Type: application/json" \
     -H "Authorization: Bearer $OPENAI_API_KEY" \
     -d '{"model": "claude-sonnet-4.5", "messages": [{"role": "user", "content": "test"}]}'
