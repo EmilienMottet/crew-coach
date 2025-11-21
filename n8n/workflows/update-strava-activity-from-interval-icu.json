@@ -127,7 +127,7 @@
       "typeVersion": 1,
       "position": [
         544,
-        88
+        96
       ],
       "credentials": {
         "spotifyOAuth2Api": {
@@ -135,17 +135,6 @@
           "name": "Spotify account"
         }
       }
-    },
-    {
-      "parameters": {},
-      "id": "03fbf61c-dc16-4dfc-8c66-db60bd66619e",
-      "name": "Merge with Spotify",
-      "type": "n8n-nodes-base.merge",
-      "typeVersion": 2.1,
-      "position": [
-        768,
-        16
-      ]
     },
     {
       "parameters": {
@@ -158,16 +147,10 @@
               "value": "activity"
             },
             {
-              "id": "unified-2",
-              "name": "object_id",
-              "type": "number",
-              "value": "={{ $json.id }}"
-            },
-            {
               "id": "unified-3",
               "name": "object_data",
               "type": "object",
-              "value": "={{ $json }}"
+              "value": "={{ $('Merge Both Sources').first() }}"
             },
             {
               "id": "unified-4",
@@ -184,7 +167,7 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        992,
+        768,
         16
       ]
     },
@@ -197,7 +180,7 @@
       "type": "n8n-nodes-base.splitInBatches",
       "typeVersion": 3,
       "position": [
-        1216,
+        992,
         16
       ]
     },
@@ -218,8 +201,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.3,
       "position": [
-        1440,
-        -56
+        1216,
+        -64
       ]
     },
     {
@@ -236,7 +219,7 @@
       "type": "n8n-nodes-base.strava",
       "typeVersion": 1.1,
       "position": [
-        1664,
+        1440,
         16
       ],
       "credentials": {
@@ -300,33 +283,6 @@
             "node": "Get Spotify",
             "type": "main",
             "index": 0
-          },
-          {
-            "node": "Merge with Spotify",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Get Spotify": {
-      "main": [
-        [
-          {
-            "node": "Merge with Spotify",
-            "type": "main",
-            "index": 1
-          }
-        ]
-      ]
-    },
-    "Merge with Spotify": {
-      "main": [
-        [
-          {
-            "node": "Format for CrewAI",
-            "type": "main",
-            "index": 0
           }
         ]
       ]
@@ -375,6 +331,17 @@
           }
         ]
       ]
+    },
+    "Get Spotify": {
+      "main": [
+        [
+          {
+            "node": "Format for CrewAI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "active": true,
@@ -385,7 +352,7 @@
     "callerPolicy": "workflowsFromSameOwner",
     "availableInMCP": false
   },
-  "versionId": "f0fd8701-a525-49d4-85c2-5089dbcd8b46",
+  "versionId": "6e341f70-1ff9-44ca-882f-b309ee4faf7e",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "089593b0375f52cffd2e682594e43cdd96459883230a04bef809490471c267bb"

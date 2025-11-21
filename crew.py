@@ -1103,11 +1103,17 @@ def main():
         print(f"\n❌ Error: {str(e)}\n", file=sys.stderr)
         import traceback
         traceback.print_exc(file=sys.stderr)
-        
+
+        # Try to extract activity_id even on error
+        try:
+            activity_id = crew._safe_activity_id(activity_data) if crew else None
+        except:
+            activity_id = None
+
         # Output error result to stdout
         error_result = {
             "error": str(e),
-            "activity_id": None,
+            "activity_id": activity_id,
             "title": "Error processing activity",
             "description": "An error occurred while generating the description",
             "should_be_private": True,
