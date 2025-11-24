@@ -48,11 +48,12 @@ def create_lyrics_task(
        - ACCEPT if neutral/safe.
     
     2. Select a Quote:
-       - Choose a quote that is thematic with {sport_type}, inspiring, motivating, or related to Michelin.
-       - If SENSATION/RPE data is available above, use it to tailor the quote:
-         - High exertion/Hard feeling -> Quote about resilience, suffering, or overcoming limits.
-         - Low exertion/Good feeling -> Quote about joy, flow, or enjoying the moment.
-       - You can use a line from one of the ACCEPTED songs if it fits.
+       - The quote MUST be a line extracted directly from the lyrics of one of the ACCEPTED songs.
+       - Do NOT use generic quotes, famous sayings, or Michelin-related quotes unless they appear in the song lyrics.
+       - If SENSATION/RPE data is available above, try to find a lyric that matches the mood:
+         - High exertion/Hard feeling -> Lyric about resilience, pain, or power.
+         - Low exertion/Good feeling -> Lyric about joy, movement, or freedom.
+       - If no suitable lyric is found, return an empty string for the quote.
        - Decide where to place the quote:
          - At the BEGINNING if it sets a good tone.
          - At the END if it works better as a sign-off.

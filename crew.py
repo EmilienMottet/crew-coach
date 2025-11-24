@@ -912,53 +912,59 @@ class StravaDescriptionCrew:
                 print(f"🎵 Candidate tracks: {candidate_tracks}", file=sys.stderr)
                 print(f"   Count: {len(candidate_tracks)}\n", file=sys.stderr)
 
-                # ------------------------------------------------------------------
-                # Step 3: Lyrics Verification and Quote Selection
-                # ------------------------------------------------------------------
-                print("\n🎤 Step 3: Verifying lyrics and selecting quote...\n", file=sys.stderr)
-                
-                current_description = generated_content.get("description", "")
-                
-                lyrics_task = create_lyrics_task(
-                    self.lyrics_agent,
-                    candidate_tracks,
-                    current_description,
-                    activity_data
-                )
-                
-                lyrics_crew = Crew(
-                    agents=[self.lyrics_agent],
-                    tasks=[lyrics_task],
-                    process=Process.sequential,
-                    verbose=True,
-                )
-                
-                lyrics_result = lyrics_crew.kickoff()
-                
-                lyrics_model = self._extract_model_from_output(
-                    lyrics_result, LyricsVerificationResult
-                )
-                
-                if lyrics_model:
-                    print("\n✅ Lyrics verification complete:", file=sys.stderr)
-                    print(f"   Accepted: {lyrics_model.accepted_tracks}", file=sys.stderr)
-                    print(f"   Rejected: {lyrics_model.rejected_tracks}", file=sys.stderr)
-                    print(f"   Quote: \"{lyrics_model.selected_quote}\" ({lyrics_model.quote_source})", file=sys.stderr)
+                if candidate_tracks:
+                    # ------------------------------------------------------------------
+                    # Step 3: Lyrics Verification and Quote Selection
+                    # ------------------------------------------------------------------
+                    print("\n🎤 Step 3: Verifying lyrics and selecting quote...\n", file=sys.stderr)
                     
-                    # Update description with the final version from Lyrics Agent
-                    generated_content["description"] = lyrics_model.final_description
+                    current_description = generated_content.get("description", "")
                     
-                    # Update key metrics with music info if available
-                    if lyrics_model.accepted_tracks:
-                        metrics = generated_content.get("key_metrics", {})
-                        metrics["music"] = f"{len(lyrics_model.accepted_tracks)} tracks"
-                        generated_content["key_metrics"] = metrics
+                    lyrics_task = create_lyrics_task(
+                        self.lyrics_agent,
+                        candidate_tracks,
+                        current_description,
+                        activity_data
+                    )
+                    
+                    lyrics_crew = Crew(
+                        agents=[self.lyrics_agent],
+                        tasks=[lyrics_task],
+                        process=Process.sequential,
+                        verbose=True,
+                    )
+                    
+                    lyrics_result = lyrics_crew.kickoff()
+                    
+                    lyrics_model = self._extract_model_from_output(
+                        lyrics_result, LyricsVerificationResult
+                    )
+                    
+                    if lyrics_model:
+                        print("\n✅ Lyrics verification complete:", file=sys.stderr)
+                        print(f"   Accepted: {lyrics_model.accepted_tracks}", file=sys.stderr)
+                        print(f"   Rejected: {lyrics_model.rejected_tracks}", file=sys.stderr)
+                        print(f"   Quote: \"{lyrics_model.selected_quote}\" ({lyrics_model.quote_source})", file=sys.stderr)
+                        
+                        # Update description with the final version from Lyrics Agent
+                        generated_content["description"] = lyrics_model.final_description
+                        
+                        # Update key metrics with music info if available
+                        if lyrics_model.accepted_tracks:
+                            metrics = generated_content.get("key_metrics", {})
+                            metrics["music"] = f"{len(lyrics_model.accepted_tracks)} tracks"
+                            generated_content["key_metrics"] = metrics
+                    else:
+                        print("\n⚠️  Warning: Lyrics agent returned invalid JSON, using original description.\n", file=sys.stderr)
+                        # Fallback: append music tracks manually if lyrics agent failed but we have candidates
+                        if candidate_tracks:
+                            music_section = "\n\n🎧 Music: " + "; ".join(candidate_tracks)
+                            generated_content["description"] += music_section
                 else:
-                    print("\n⚠️  Warning: Lyrics agent returned invalid JSON, using original description.\n", file=sys.stderr)
-                    # Fallback: append music tracks manually if lyrics agent failed but we have candidates
-                    if candidate_tracks:
-                        music_section = "\n\n🎧 Music: " + "; ".join(candidate_tracks)
-                        generated_content["description"] += music_section
+                    print(
+                        "\n⚠️  No candidate tracks found. Skipping lyrics verification and quote selection.\n",
+                        file=sys.stderr,
+                    )
 
         except Exception as exc:  # noqa: BLE001
             print(
