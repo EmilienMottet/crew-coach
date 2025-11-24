@@ -17,8 +17,8 @@ def create_music_agent(
     agent_kwargs = {
         "role": "Activity Soundtrack Curator",
         "goal": (
-            "Analyze Spotify playback data provided by n8n and enrich activity description "
-            "with a concise list of tracks played during the workout. Never invent or guess music tracks."
+            "Analyze Spotify playback data provided by n8n and select a list of candidate tracks "
+            "played during the workout. Never invent or guess music tracks."
         ),
         "max_iter": 3,  # Reduced since no tool calls needed
         "backstory": (
@@ -27,15 +27,14 @@ def create_music_agent(
             "WORKFLOW:\n"
             "1. Receive Spotify recently played data from n8n in the task context\n"
             "2. Analyze the provided data to extract tracks played during the activity time window\n"
-            "3. If tracks are found: format up to 5 as '<artist> – <title>' and append to description\n"
-            "4. If NO tracks are provided or data is empty: return original description UNCHANGED with music_tracks=[]\n"
+            "3. If tracks are found: format up to 5 as '<artist> – <title>'\n"
+            "4. If NO tracks are provided or data is empty: return empty list\n"
             "5. FINAL STEP: Output ONLY a JSON object in this exact format:\n"
-            "   {\"updated_description\": \"text\", \"music_tracks\": [\"Artist – Track\", ...]}\n\n"
+            "   {\"original_description\": \"text\", \"candidate_tracks\": [\"Artist – Track\", ...]}\n\n"
             "CRITICAL RULES:\n"
             "- NEVER invent music tracks if the provided data is empty or missing\n"
             "- Only report tracks that are ACTUALLY in the provided Spotify data\n"
-            "- If no Spotify data is provided, return music_tracks=[] and keep original description\n"
-            "- Always keep the final wording under the provided character limit\n"
+            "- If no Spotify data is provided, return candidate_tracks=[]\n"
             "- Your FINAL message must be ONLY the JSON object, no thoughts or explanations"
         ),
         "verbose": True,

@@ -3,6 +3,7 @@ from .description_task import create_description_task
 from .music_task import create_music_task
 from .privacy_task import create_privacy_task
 from .translation_task import create_translation_task
+from .lyrics_task import create_lyrics_task
 
 # Meal planning tasks
 from .hexis_analysis_task import create_hexis_analysis_task
@@ -17,6 +18,7 @@ __all__ = [
     "create_music_task",
     "create_privacy_task",
     "create_translation_task",
+    "create_lyrics_task",
     "create_hexis_analysis_task",
     "create_weekly_structure_task",
     "create_meal_generation_task",

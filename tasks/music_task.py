@@ -100,21 +100,19 @@ def create_music_task(
 
     OUTPUT CONTRACT:
     - If tracks are found:
-      * Start from the existing English description and append a short "Music" section at the end.
-      * Example pattern: "... main description text.\n\n🎧 Music: Artist – Track; ..."
-      * Keep the entire updated description ≤ 500 characters. Trim the track list if necessary.
+      * Return the list of tracks in 'candidate_tracks'.
+      * Return the original description in 'original_description'.
     - If NO tracks are found:
-      * Return the original description UNCHANGED (do not add any music section or message).
-      * Set music_tracks to an empty list [].
+      * Return 'candidate_tracks' as [].
+      * Return 'original_description' as the input description.
     - Return valid JSON following the ActivityMusicSelection schema.
     - Do not wrap the JSON in markdown fences.
-    - Ensure the appended section is suitable for later French translation and keeps emoji intact.
 
     CRITICAL FINAL ACTION:
     After analyzing the provided Spotify data, you MUST output a JSON object with this exact structure:
     {{
-        "updated_description": "description text with optional music section",
-        "music_tracks": ["Artist – Track", ...]
+        "candidate_tracks": ["Artist – Track", ...],
+        "original_description": "original description text"
     }}
 
     Do NOT include any explanatory text, thoughts, or reasoning in your final output.
@@ -146,9 +144,9 @@ def create_music_task(
         agent=agent,
         expected_output=(
             "A JSON object (not wrapped in markdown) with exactly two fields:\n"
-            "1. 'updated_description': the activity description with optional music section appended\n"
-            "2. 'music_tracks': array of track strings in format 'Artist – Track'\n"
-            "Example: {\"updated_description\": \"...\", \"music_tracks\": [\"Artist – Track\"]}\n"
+            "1. 'candidate_tracks': array of track strings in format 'Artist – Track'\n"
+            "2. 'original_description': the original description passed in input\n"
+            "Example: {\"candidate_tracks\": [\"Artist – Track\"], \"original_description\": \"...\"}\n"
             "IMPORTANT: Your FINAL response must be ONLY this JSON object, no explanatory text."
         ),
         # CRITICAL: output_json disables tool calling! Must parse JSON manually instead.

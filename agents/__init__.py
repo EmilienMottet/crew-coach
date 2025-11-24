@@ -3,6 +3,7 @@ from .description_agent import create_description_agent
 from .music_agent import create_music_agent
 from .privacy_agent import create_privacy_agent
 from .translation_agent import create_translation_agent
+from .lyrics_agent import create_lyrics_agent
 
 # Meal planning agents
 from .hexis_analysis_agent import create_hexis_analysis_agent
@@ -17,6 +18,7 @@ __all__ = [
     "create_music_agent",
     "create_privacy_agent",
     "create_translation_agent",
+    "create_lyrics_agent",
     "create_hexis_analysis_agent",
     "create_weekly_structure_agent",
     "create_meal_generation_agent",
