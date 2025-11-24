@@ -676,20 +676,213 @@ class MealPlanningCrew:
         simplified = re.sub(pattern, "", text, flags=re.IGNORECASE).lstrip("-×x· *")
         return simplified.strip()
 
-    def _build_shopping_list(self, ingredient_counter: Counter[str]) -> List[str]:
-        """Aggregate ingredients into a shopping list with simple deduplication."""
+    @staticmethod
+    def _parse_ingredient(raw: str) -> Tuple[float, str, str]:
+        """Parse an ingredient string into quantity, unit, and name."""
+        import re
+        
+        raw = raw.strip()
+        if not raw:
+            return 0.0, "", ""
 
+        valid_units = {
+            # Metric
+            "g", "kg", "mg", "ml", "l", "cl", 
+            # Imperial / US
+            "oz", "lb", "lbs", "cup", "cups", "tbsp", "tablespoon", "tablespoons", 
+            "tsp", "teaspoon", "teaspoons", 
+            # French
+            "c.à.s", "cas", "c.à.c", "cac", "cuillère", "cuillères", 
+            "tranche", "tranches", "pincée", "pincées", "poignée", "poignées",
+            "gousse", "gousses", "branche", "branches", "feuille", "feuilles",
+            "tasse", "tasses", "verre", "verres", "bol", "bols",
+            # Common
+            "scoop", "scoops", "piece", "pieces", "slice", "slices", "whole", 
+            "large", "small", "medium", "can", "cans", "jar", "jars",
+            "pack", "packs", "bag", "bags", "box", "boxes", "boîte", "boîtes",
+            "sachet", "sachets", "paquet", "paquets"
+        }
+
+        # Match: quantity (float/int/fraction) + optional unit + name
+        # Examples: "100g chicken", "2.5 tbsp oil", "1/2 cup rice", "onion"
+        
+        # Handle fractions first (e.g., "1/2")
+        fraction_match = re.match(r"^(\d+)/(\d+)\s*(.*)", raw)
+        if fraction_match:
+            try:
+                num, den, rest = fraction_match.groups()
+                qty = float(num) / float(den)
+                
+                # Check for unit in the rest
+                parts = rest.strip().split(maxsplit=1)
+                if parts:
+                    potential_unit = parts[0].lower()
+                    # Remove trailing 's' for check if needed, but valid_units has plurals
+                    if potential_unit in valid_units:
+                        name = parts[1] if len(parts) > 1 else ""
+                        return qty, potential_unit, name
+                
+                return qty, "", rest.strip()
+            except (ValueError, ZeroDivisionError):
+                pass
+
+        # Standard pattern
+        pattern = r"^(\d+(?:[.,]\d+)?)\s*([a-zA-Z.à]+)?\s+(.*)$"
+        match = re.match(pattern, raw)
+        
+        if match:
+            qty_str, unit, name = match.groups()
+            
+            try:
+                qty = float(qty_str.replace(",", "."))
+                unit = unit.lower() if unit else ""
+                
+                if unit and unit not in valid_units:
+                    # Unit is likely part of the name (e.g. "1 salmon fillet")
+                    name = f"{unit} {name}"
+                    unit = ""
+                
+                return qty, unit, name.strip()
+            except ValueError:
+                pass
+        
+        # No quantity found, assume 1 unit if it looks countable, else just return name
+        return 1.0, "", raw
+
+    @staticmethod
+    def _categorize_item(name: str) -> str:
+        """Categorize an ingredient based on keywords (French & English)."""
+        name = name.lower()
+        
+        categories = {
+            "Fruits & Légumes": [
+                "apple", "banana", "pear", "peach", "berry", "fruit", "spinach", "kale", "lettuce", "tomato", "cucumber", "pepper", "onion", "garlic", "ginger", "potato", "carrot", "broccoli", "cauliflower", "zucchini", "mushroom", "herb", "parsley", "cilantro", "basil", "lime", "lemon", "avocado",
+                "pomme", "banane", "poire", "pêche", "fruit", "épinard", "chou", "laitue", "salade", "tomate", "concombre", "poivron", "oignon", "ail", "gingembre", "patate", "carotte", "brocoli", "chou-fleur", "courgette", "champignon", "herbe", "persil", "coriandre", "basilic", "citron", "avocat", "aubergine", "haricot vert", "poireau", "courge"
+            ],
+            "Viande/Poisson": [
+                "chicken", "beef", "pork", "lamb", "turkey", "fish", "salmon", "tuna", "cod", "shrimp", "prawn", "steak", "breast", "thigh", "mince", "sausage", "bacon", "egg",
+                "poulet", "boeuf", "porc", "agneau", "dinde", "poisson", "saumon", "thon", "cabillaud", "crevette", "steak", "blanc", "cuisse", "haché", "saucisse", "lardon", "oeuf", "jambon", "viande"
+            ],
+            "Produits Laitiers": [
+                "milk", "yogurt", "cheese", "butter", "cream", "ghee", "kefir", "whey", "casein",
+                "lait", "yaourt", "fromage", "beurre", "crème", "skyr", "faisselle", "blanc battu", "emmental", "mozzarella", "parmesan"
+            ],
+            "Épicerie": [
+                "rice", "pasta", "quinoa", "oat", "couscous", "bread", "flour", "sugar", "honey", "syrup", "oil", "olive", "coconut", "vinegar", "sauce", "soy", "tamari", "spice", "salt", "pepper", "cinnamon", "curry", "paprika", "cumin", "turmeric", "powder", "nut", "seed", "almond", "walnut", "chia", "flax", "peanut", "cashew", "bean", "lentil", "chickpea", "stock", "broth", "can",
+                "riz", "pâte", "quinoa", "avoine", "couscous", "pain", "farine", "sucre", "miel", "sirop", "huile", "olive", "coco", "vinaigre", "sauce", "soja", "épice", "sel", "poivre", "cannelle", "curry", "paprika", "cumin", "curcuma", "poudre", "noix", "graine", "amande", "chia", "lin", "cacahuète", "cajou", "haricot", "lentille", "pois chiche", "bouillon", "conserve", "bocal", "moutarde", "mayonnaise"
+            ],
+            "Surgelés": ["frozen", "surgelé", "glace"],
+        }
+        
+        for category, keywords in categories.items():
+            if any(keyword in name for keyword in keywords):
+                return category
+                
+        return "Autre"
+
+    @staticmethod
+    def _convert_to_metric(qty: float, unit: str) -> Tuple[float, str]:
+        """Convert Imperial units to Metric (approximate for shopping)."""
+        unit = unit.lower()
+        
+        conversions = {
+            # Weight
+            "oz": (28.35, "g"),
+            "ounce": (28.35, "g"),
+            "ounces": (28.35, "g"),
+            "lb": (453.59, "g"),
+            "lbs": (453.59, "g"),
+            "pound": (453.59, "g"),
+            "pounds": (453.59, "g"),
+            
+            # Volume
+            "cup": (240.0, "ml"),
+            "cups": (240.0, "ml"),
+            "tasse": (240.0, "ml"), # Assuming US cup size for consistency
+            "tasses": (240.0, "ml"),
+            "tbsp": (1.0, "c.à.s"),
+            "tablespoon": (1.0, "c.à.s"),
+            "tablespoons": (1.0, "c.à.s"),
+            "tsp": (1.0, "c.à.c"),
+            "teaspoon": (1.0, "c.à.c"),
+            "teaspoons": (1.0, "c.à.c"),
+            "fl oz": (29.57, "ml"),
+            "fluid ounce": (29.57, "ml"),
+            
+            # Length (rare but possible)
+            "inch": (2.54, "cm"),
+            "inches": (2.54, "cm"),
+        }
+        
+        if unit in conversions:
+            factor, new_unit = conversions[unit]
+            return qty * factor, new_unit
+            
+        return qty, unit
+
+    def _build_shopping_list(self, ingredient_counter: Counter[str]) -> List[str]:
+        """Aggregate ingredients into a categorized shopping list."""
         if not ingredient_counter:
             return []
 
-        shopping_entries: List[str] = []
-        for ingredient, count in ingredient_counter.most_common():
-            label = ingredient
-            if count > 1:
-                label = f"{count}× {ingredient}"
-            shopping_entries.append(label)
+        consolidated: Dict[str, Dict[str, Any]] = {}
+        
+        for raw_ingredient, count in ingredient_counter.items():
+            qty, unit, name = self._parse_ingredient(raw_ingredient)
+            
+            # Convert to Metric
+            qty, unit = self._convert_to_metric(qty, unit)
+            
+            # Normalize name (simple singularization)
+            if name.endswith("s") and not name.endswith("ss"):
+                name = name[:-1]
+            
+            key = f"{name}_{unit}"
+            
+            if key not in consolidated:
+                consolidated[key] = {"name": name, "unit": unit, "qty": 0.0}
+            
+            consolidated[key]["qty"] += qty * count
 
-        return sorted(shopping_entries, key=str.lower)
+        # Group by category
+        by_category: Dict[str, List[str]] = {}
+        
+        for item in consolidated.values():
+            name = item["name"]
+            unit = item["unit"]
+            qty = item["qty"]
+            
+            category = self._categorize_item(name)
+            
+            # Format quantity
+            if qty == int(qty):
+                qty_str = str(int(qty))
+            else:
+                qty_str = f"{qty:.1f}"
+            
+            # Format entry
+            if unit:
+                entry = f"{name} ({qty_str} {unit})"
+            else:
+                entry = f"{name} ({qty_str})"
+                
+            if category not in by_category:
+                by_category[category] = []
+            by_category[category].append(entry)
+
+        # Build final list
+        final_list: List[str] = []
+        
+        # Order categories
+        cat_order = ["Fruits & Légumes", "Viande/Poisson", "Produits Laitiers", "Surgelés", "Épicerie", "Autre"]
+        
+        for cat in cat_order:
+            if cat in by_category:
+                items = sorted(by_category[cat])
+                for item in items:
+                    final_list.append(f"{cat}: {item}")
+                    
+        return final_list
 
     def _build_meal_prep_tips(
         self,
