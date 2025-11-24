@@ -10,6 +10,7 @@ import os
 import sys
 from collections import Counter
 from datetime import datetime, timedelta
+import pytz
 from typing import Any, Dict, List, Optional, Type
 
 from crewai import Crew, LLM, Process
@@ -1022,6 +1023,80 @@ class MealPlanningCrew:
 
         return ""
 
+
+    @staticmethod
+    def _format_telegram_message(daily_plan: Dict[str, Any]) -> str:
+        """Format a daily meal plan into a Telegram-friendly HTML message."""
+        day_name = daily_plan.get("day_name", "Unknown Day")
+        date_str = daily_plan.get("date", "")
+        
+        # Format date (e.g., 2025-11-24 -> 24/11)
+        formatted_date = ""
+        if date_str:
+            try:
+                dt = datetime.strptime(date_str, "%Y-%m-%d")
+                formatted_date = dt.strftime("%d/%m")
+            except ValueError:
+                formatted_date = date_str
+
+        # Header
+        message = f"📅 <b>{day_name} {formatted_date}</b>\n\n"
+        
+        # Meals
+        meals = daily_plan.get("meals", [])
+        meal_emojis = {
+            "Breakfast": "🥣",
+            "Lunch": "🥗",
+            "Dinner": "🍽️",
+            "Snack": "🍎",
+            "Pre-workout": "⚡",
+            "Post-workout": "💪"
+        }
+        
+        for meal in meals:
+            m_type = meal.get("meal_type", "Meal")
+            m_name = meal.get("meal_name", "Unknown")
+            emoji = meal_emojis.get(m_type, "🥘")
+            
+            # Simple bold header for meal type
+            message += f"{emoji} <b>{m_type}</b>: {m_name}\n"
+            
+            # Optional: Add macros for main meals if desired, but keeping it clean for now
+            # message += f"   <i>({meal.get('calories', 0)}kcal)</i>\n"
+        
+        message += "\n"
+        
+        # Daily Totals
+        totals = daily_plan.get("daily_totals", {})
+        cals = totals.get("calories", 0)
+        p = totals.get("protein_g", 0)
+        c = totals.get("carbs_g", 0)
+        f = totals.get("fat_g", 0)
+        
+        message += f"📊 <b>Total</b>: {cals}kcal\n"
+        message += f"Protocol: {p}P / {c}C / {f}F"
+        
+        return message
+
+    @staticmethod
+    def _calculate_schedule_timestamp(date_str: str) -> int:
+        """Calculate Unix timestamp for 07:00 AM Europe/Paris on the given date."""
+        if not date_str:
+            return 0
+            
+        try:
+            paris_tz = pytz.timezone("Europe/Paris")
+            # Parse date
+            dt = datetime.strptime(date_str, "%Y-%m-%d")
+            # Set to 07:00:00
+            dt_7am = dt.replace(hour=7, minute=0, second=0, microsecond=0)
+            # Localize to Paris time
+            dt_localized = paris_tz.localize(dt_7am)
+            # Return timestamp
+            return int(dt_localized.timestamp())
+        except Exception:
+            return 0
+
     def generate_meal_plan(self, week_start_date: str, days_to_generate: int = 7) -> Dict[str, Any]:
         """
         Generate a complete weekly meal plan.
@@ -1435,5 +1510,11 @@ class MealPlanningCrew:
             "shopping_list": shopping_list,  # Exposed at top level for n8n
             "summary": integration.get("summary", "Meal planning completed"),
         }
+
+        # Inject Telegram formatting into daily plans
+        if meal_plan and "daily_plans" in meal_plan:
+            for day in meal_plan["daily_plans"]:
+                day["telegram_message"] = self._format_telegram_message(day)
+                day["schedule_timestamp"] = self._calculate_schedule_timestamp(day.get("date"))
 
         return final_result
