@@ -40,7 +40,7 @@ PROMPTLESS_MODEL_HINTS: tuple = ()  # No model-level restrictions on our endpoin
 # Model Categories (from ccproxy /models endpoint)
 # All models use https://ccproxy.emottet.com/v1 endpoint
 COMPLEX_MODELS = (
-    "claude-sonnet-4-5-thinking",
+    "gemini-claude-sonnet-4-5-thinking",
     "gemini-3-pro-high",
     "gpt-5.1-high",
 )
