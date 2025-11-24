@@ -10,7 +10,7 @@
       "typeVersion": 1,
       "position": [
         -128,
-        -80
+        -128
       ],
       "id": "0c4caafa-8e2c-4b19-9c57-ccfbc3ca42e2",
       "name": "Strava Trigger",
@@ -28,7 +28,7 @@
       "typeVersion": 1,
       "position": [
         -128,
-        112
+        64
       ],
       "id": "a1b2c3d4-5e6f-7g8h-9i0j-k1l2m3n4o5p6",
       "name": "Manual Trigger"
@@ -42,7 +42,7 @@
       "typeVersion": 1.1,
       "position": [
         96,
-        112
+        64
       ],
       "id": "b2c3d4e5-6f7g-8h9i-0j1k-l2m3n4o5p6q7",
       "name": "Get Recent Activities",
@@ -103,7 +103,7 @@
       "typeVersion": 3.4,
       "position": [
         96,
-        -80
+        -128
       ]
     },
     {
@@ -114,7 +114,7 @@
       "typeVersion": 2.1,
       "position": [
         320,
-        16
+        -32
       ]
     },
     {
@@ -127,7 +127,7 @@
       "typeVersion": 1,
       "position": [
         544,
-        96
+        -32
       ],
       "credentials": {
         "spotifyOAuth2Api": {
@@ -138,37 +138,28 @@
     },
     {
       "parameters": {
-        "assignments": {
-          "assignments": [
-            {
-              "id": "unified-1",
-              "name": "object_type",
-              "type": "string",
-              "value": "activity"
-            },
-            {
-              "id": "unified-3",
-              "name": "object_data",
-              "type": "object",
-              "value": "={{ $('Merge Both Sources').first() }}"
-            },
-            {
-              "id": "unified-4",
-              "name": "spotify_recently_played",
-              "type": "object",
-              "value": "={{ { items: $('Get Spotify').all() } }}"
-            }
-          ]
-        },
-        "options": {}
+        "jsCode": "const mergeItems = $('Merge Both Sources').all();\nconst activities = {};\n\nfor (const item of items) {\n  if (!item.pairedItem) continue;\n  \n  const pairedIndex = item.pairedItem.item;\n  if (pairedIndex >= 0 && pairedIndex < mergeItems.length) {\n    const activityId = mergeItems[pairedIndex].json.id;\n    \n    if (!activities[activityId]) {\n      activities[activityId] = {\n        pairedItem: item.pairedItem,\n        tracks: []\n      };\n    }\n    activities[activityId].tracks.push(item.json);\n  }\n}\n\nconst result = [];\nfor (const id in activities) {\n  result.push({\n    json: {\n      data: activities[id].tracks,\n      activity_id: id\n    },\n    pairedItem: activities[id].pairedItem\n  });\n}\nreturn result;"
       },
-      "id": "3d4b3afc-37cf-47c3-a413-dcd8b793432b",
-      "name": "Format for CrewAI",
-      "type": "n8n-nodes-base.set",
-      "typeVersion": 3.4,
+      "id": "aggregate-spotify-123",
+      "name": "Group by Activity",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
       "position": [
-        768,
-        16
+        992,
+        -32
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get aggregated Spotify data from input\nconst spotifyAggregated = $input.first().json;\n\n// Get all activities from Merge Both Sources\nconst activities = $('Merge Both Sources').all();\n\n// Create one output item per activity, each with all Spotify tracks\nreturn activities.map(activity => ({\n  json: {\n    object_type: 'activity',\n    object_data: activity.json,\n    spotify_recently_played: { items: spotifyAggregated }\n  }\n}));"
+      },
+      "id": "code-format-activities",
+      "name": "Format Activities for CrewAI",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1216,
+        -32
       ]
     },
     {
@@ -180,8 +171,8 @@
       "type": "n8n-nodes-base.splitInBatches",
       "typeVersion": 3,
       "position": [
-        992,
-        16
+        1440,
+        -32
       ]
     },
     {
@@ -201,8 +192,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.3,
       "position": [
-        1216,
-        -64
+        1664,
+        -104
       ]
     },
     {
@@ -219,8 +210,8 @@
       "type": "n8n-nodes-base.strava",
       "typeVersion": 1.1,
       "position": [
-        1440,
-        16
+        1888,
+        -32
       ],
       "credentials": {
         "stravaOAuth2Api": {
@@ -228,6 +219,19 @@
           "name": "Strava account"
         }
       }
+    },
+    {
+      "parameters": {
+        "jsCode": "  // Get activity data from the input context\n  const activityData = $input.first().json;\n\n  // Since we don't have direct access to Merge Both Sources,\n  // we'll use a simpler approach: get the data from execution metadata\n  // Let's try accessing via the context\n  const mergeData = $('Merge Both Sources', 0);\n\n  if (!mergeData || !mergeData.start_date_local) {\n    // If we can't access the activity data, just return simplified items without filtering\n    return items.map(item => ({\n      json: {\n        track_name: item.json.track.name,\n        artist_name: item.json.track.artists[0].name,\n        album_name: item.json.track.album.name,\n        played_at: item.json.played_at,\n        duration_ms: item.json.track.duration_ms\n      },\n      pairedItem: item.pairedItem\n    }));\n  }\n\n  const startDate = new Date(mergeData.start_date_local);\n  const endDate = new Date(startDate.getTime() + (mergeData.moving_time * 1000));\n\n  // Filter tracks played during activity + simplify data\n  return items\n    .filter(item => {\n      const playedAt = new Date(item.json.played_at);\n      return playedAt >= startDate && playedAt <= endDate;\n    })\n    .map(item => ({\n      json: {\n        track_name: item.json.track.name,\n        artist_name: item.json.track.artists[0].name,\n        album_name: item.json.track.album.name,\n        played_at: item.json.played_at,\n        duration_ms: item.json.track.duration_ms\n      },\n      pairedItem: item.pairedItem\n    }));\n\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        768,
+        -32
+      ],
+      "id": "e065be0f-5ba8-494e-a5ba-aa4e2417ceb8",
+      "name": "Filter & Simplify Spotify"
     }
   ],
   "pinData": {},
@@ -276,18 +280,29 @@
         ]
       ]
     },
-    "Merge Both Sources": {
+    "Get Spotify": {
       "main": [
         [
           {
-            "node": "Get Spotify",
+            "node": "Filter & Simplify Spotify",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Format for CrewAI": {
+    "Group by Activity": {
+      "main": [
+        [
+          {
+            "node": "Format Activities for CrewAI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Activities for CrewAI": {
       "main": [
         [
           {
@@ -320,6 +335,17 @@
         ]
       ]
     },
+    "Merge Both Sources": {
+      "main": [
+        [
+          {
+            "node": "Get Spotify",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
     "Loop": {
       "main": [
         [],
@@ -332,11 +358,11 @@
         ]
       ]
     },
-    "Get Spotify": {
+    "Filter & Simplify Spotify": {
       "main": [
         [
           {
-            "node": "Format for CrewAI",
+            "node": "Group by Activity",
             "type": "main",
             "index": 0
           }
@@ -352,7 +378,7 @@
     "callerPolicy": "workflowsFromSameOwner",
     "availableInMCP": false
   },
-  "versionId": "6e341f70-1ff9-44ca-882f-b309ee4faf7e",
+  "versionId": "9bafeb6d-38e4-4e03-ab4c-b1fbf7939f59",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "089593b0375f52cffd2e682594e43cdd96459883230a04bef809490471c267bb"
