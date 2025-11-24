@@ -51,13 +51,18 @@ class StravaDescriptionCrew:
         base_url = os.getenv("OPENAI_API_BASE", "https://ccproxy.emottet.com/v1")
         base_url = os.getenv("OPENAI_API_BASE", "https://ccproxy.emottet.com/v1")
         
-        # Get default models from categories
+        # Get default models from categories (3-tier system)
         default_complex_model = get_model_for_category("complex")
+        default_intermediate_model = get_model_for_category("intermediate")
         default_simple_model = get_model_for_category("simple")
-        
+
         complex_model_name = os.getenv(
             "OPENAI_COMPLEX_MODEL_NAME",
             default_complex_model,
+        )
+        intermediate_model_name = os.getenv(
+            "OPENAI_INTERMEDIATE_MODEL_NAME",
+            default_intermediate_model,
         )
         simple_model_name = os.getenv(
             "OPENAI_SIMPLE_MODEL_NAME",
@@ -77,31 +82,31 @@ class StravaDescriptionCrew:
         os.environ["OPENAI_API_BASE"] = base_url
         os.environ["OPENAI_API_KEY"] = api_key
 
-        # Create per-agent LLMs with optional overrides
-        # This allows each agent to use a different model/endpoint for cost optimization
-        # IMPORTANT: Agents with tools CANNOT use codex endpoints (no tool support)
+        # Create per-agent LLMs with category-based defaults
+        # All endpoints now support tools - no restrictions needed
+
+        # COMPLEXE: Heavy MCP tool usage (Strava, Intervals.icu, Weather, Toolbox)
         self.description_llm = self._create_agent_llm(
             agent_name="DESCRIPTION",
             default_model=complex_model_name,
             default_base=base_url,
             default_key=api_key,
-            requires_tools=True,  # Uses Strava, Intervals.icu, Weather, Toolbox tools
         )
 
+        # INTERMÉDIAIRE: Data analysis (Spotify from n8n)
         self.music_llm = self._create_agent_llm(
             agent_name="MUSIC",
-            default_model=simple_model_name,
+            default_model=intermediate_model_name,
             default_base=base_url,
             default_key=api_key,
-            requires_tools=True,  # Uses Spotify tools
         )
 
+        # SIMPLE: Pure reasoning agents (no tools)
         self.privacy_llm = self._create_agent_llm(
             agent_name="PRIVACY",
             default_model=simple_model_name,
             default_base=base_url,
             default_key=api_key,
-            requires_tools=False,  # Pure reasoning, no tools
         )
 
         self.translation_llm = self._create_agent_llm(
@@ -109,7 +114,6 @@ class StravaDescriptionCrew:
             default_model=simple_model_name,
             default_base=base_url,
             default_key=api_key,
-            requires_tools=False,  # Pure reasoning, no tools
         )
 
         # ═══════════════════════════════════════════════════════════════════════════════
@@ -223,7 +227,6 @@ class StravaDescriptionCrew:
         default_model: str,
         default_base: str,
         default_key: str,
-        requires_tools: bool = False,
     ) -> LLM:
         """Create an LLM for a specific agent with optional per-agent overrides.
 
@@ -237,7 +240,6 @@ class StravaDescriptionCrew:
             default_model: Fallback model name
             default_base: Fallback API base URL
             default_key: API key to use
-            requires_tools: If True, reject codex endpoints (they don't support tool calls)
 
         Returns:
             Configured LLM instance
@@ -278,12 +280,10 @@ class StravaDescriptionCrew:
         if all_blacklisted:
             print(f"   🚫 Blacklist active: {', '.join(all_blacklisted[:3])}{'...' if len(all_blacklisted) > 3 else ''}", file=sys.stderr)
 
-        # Note: All our endpoints (/copilot/v1, /codex/v1, /claude/v1) support function calling.
-        # The validation has been removed as it was blocking valid configurations.
+        # Note: All our endpoints now support function calling - no restrictions needed
 
         # Log configuration for transparency
-        tools_status = "✅ with tools" if requires_tools else "⚪ no tools"
-        endpoint_type = "unknown"
+        endpoint_type = "ccproxy"
         if "/copilot/v1" in (agent_base or "").lower():
             endpoint_type = "copilot"
         elif "/codex/v1" in (agent_base or "").lower():
@@ -292,7 +292,7 @@ class StravaDescriptionCrew:
             endpoint_type = "claude"
 
         print(
-            f"🤖 {agent_name} Agent: {tools_status}\n"
+            f"🤖 {agent_name} Agent:\n"
             f"   Model: {agent_model}\n"
             f"   Endpoint: {endpoint_type} ({agent_base})\n",
             file=sys.stderr,
