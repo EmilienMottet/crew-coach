@@ -36,7 +36,7 @@ from tasks import (
     create_translation_task,
 )
 from mcp_auth_wrapper import MetaMCPAdapter
-from llm_provider_rotation import create_llm_with_rotation
+from llm_provider_rotation import create_llm_with_rotation, get_model_for_category
 from mcp_tool_wrapper import wrap_mcp_tools
 
 
@@ -49,14 +49,19 @@ class StravaDescriptionCrew:
 
         # Configure environment variables for LiteLLM/OpenAI
         base_url = os.getenv("OPENAI_API_BASE", "https://ccproxy.emottet.com/v1")
-        default_complex_model = os.getenv("OPENAI_MODEL_NAME") or "claude-sonnet-4-5"
+        base_url = os.getenv("OPENAI_API_BASE", "https://ccproxy.emottet.com/v1")
+        
+        # Get default models from categories
+        default_complex_model = get_model_for_category("complex")
+        default_simple_model = get_model_for_category("simple")
+        
         complex_model_name = os.getenv(
             "OPENAI_COMPLEX_MODEL_NAME",
             default_complex_model,
         )
         simple_model_name = os.getenv(
             "OPENAI_SIMPLE_MODEL_NAME",
-            "claude-haiku-4-5",
+            default_simple_model,
         )
 
         # Configure authentication - use Bearer token API key

@@ -37,8 +37,50 @@ PROMPTLESS_MODEL_HINTS: tuple = ()  # No model-level restrictions on our endpoin
 #   - Other: gemini-2.5-pro, grok-code-fast-1
 #
 # No restrictions needed - all combinations work with CrewAI tools/MCP
+# Model Categories
+COMPLEX_MODELS = (
+    "claude-sonnet-4-5-thinking",
+    "gemini-3-pro-high",
+    "gpt-5.1-high",
+)
+
+INTERMEDIATE_MODELS = (
+    "claude-sonnet-4.5-copilot",
+    "claude-sonnet-4-5",
+    "claude-sonnet-4-5-20250929",
+    "gpt-5.1-medium",
+    "gpt-5.1-codex-medium",
+    "gemini-2.5-pro",
+)
+
+SIMPLE_MODELS = (
+    "gpt-5.1-low",
+    "gemini-2.5-flash",
+    "claude-haiku-4-5-20251001",
+    "claude-haiku-4.5-copilot",
+)
+
+FALLBACK_MODELS = (
+    "gpt-5-mini",
+    "raptor-mini",
+)
+
 TOOL_FREE_ENDPOINT_HINTS: tuple = ()  # No endpoint blocks tools
 TOOL_FREE_MODEL_HINTS: tuple = ()     # No model blocks tools
+
+
+def get_model_for_category(category: str) -> str:
+    """Return a random available model for a given category."""
+    category = category.lower()
+    if category == "complex":
+        return random.choice(COMPLEX_MODELS)
+    elif category == "intermediate":
+        return random.choice(INTERMEDIATE_MODELS)
+    elif category == "simple":
+        return random.choice(SIMPLE_MODELS)
+    elif category == "fallback":
+        return random.choice(FALLBACK_MODELS)
+    return random.choice(FALLBACK_MODELS)
 
 
 @dataclass(frozen=True)
