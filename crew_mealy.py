@@ -9,6 +9,7 @@ import json
 import os
 import sys
 from collections import Counter
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Type
 
 from crewai import Crew, LLM, Process
@@ -44,7 +45,7 @@ from tasks.hexis_analysis_task_fallback import create_hexis_analysis_task_fallba
 # NOTE: load_catalog_tool_names kept for compatibility but currently unused
 from mcp_utils import build_mcp_references, load_catalog_tool_names
 from mcp_auth_wrapper import MetaMCPAdapter
-from llm_provider_rotation import create_llm_with_rotation
+from llm_provider_rotation import create_llm_with_rotation, get_model_for_category
 
 
 class MealPlanningCrew:
@@ -56,14 +57,24 @@ class MealPlanningCrew:
 
         # Get configuration
         base_url = os.getenv("OPENAI_API_BASE", "https://ccproxy.emottet.com/v1")
-        default_complex_model = os.getenv("OPENAI_MODEL_NAME") or "claude-sonnet-4-5"
+        base_url = os.getenv("OPENAI_API_BASE", "https://ccproxy.emottet.com/v1")
+        
+        # Get default models from categories
+        default_complex_model = get_model_for_category("complex")
+        default_intermediate_model = get_model_for_category("intermediate")
+        default_simple_model = get_model_for_category("simple")
+        
         complex_model_name = os.getenv(
             "OPENAI_COMPLEX_MODEL_NAME",
             default_complex_model,
         )
+        intermediate_model_name = os.getenv(
+            "OPENAI_INTERMEDIATE_MODEL_NAME",
+            default_intermediate_model,
+        )
         simple_model_name = os.getenv(
             "OPENAI_SIMPLE_MODEL_NAME",
-            "claude-haiku-4.5",
+            default_simple_model,
         )
 
         # Get configured API key (already set by llm_auth_init)
@@ -87,7 +98,7 @@ class MealPlanningCrew:
 
         self.meal_generation_llm = self._create_agent_llm(
             agent_name="MEAL_GENERATION",
-            default_model=complex_model_name,
+            default_model=intermediate_model_name,
             default_base=base_url,
             default_key=api_key
         )
@@ -1020,6 +1031,50 @@ class MealPlanningCrew:
             f"\n🚀 Starting Meal Planning for week of {week_start_date} (requested {days_to_generate} day(s))\n",
             file=sys.stderr,
         )
+
+        # ===================================================================
+        # STEP 0: Sync Integration Data - Ensure latest training data
+        # ===================================================================
+        print("\n🔄 Step 0: Syncing integration data from intervals.icu...\n", file=sys.stderr)
+
+        # Calculate date range (sync 7 days prior to cover training context)
+        try:
+            start_dt = datetime.fromisoformat(week_start_date)
+            from_date = (start_dt - timedelta(days=7)).strftime("%Y-%m-%d")
+            end_dt = start_dt + timedelta(days=6)
+            to_date = end_dt.strftime("%Y-%m-%d")
+
+            print(f"   Sync window: {from_date} → {to_date}\n", file=sys.stderr)
+        except (ValueError, TypeError) as e:
+            print(f"⚠️  Invalid date format '{week_start_date}': {e}\n", file=sys.stderr)
+            print("   Continuing without sync...\n", file=sys.stderr)
+            from_date = None
+            to_date = None
+
+        # Find hexis_trigger_integration_sync tool
+        sync_tool = None
+        if from_date and to_date:
+            sync_tool = next(
+                (t for t in self.mcp_tools if "hexis_trigger_integration_sync" in t.name.lower()),
+                None
+            )
+
+        if sync_tool:
+            try:
+                print("   Calling hexis_trigger_integration_sync...\n", file=sys.stderr)
+                sync_result = sync_tool.invoke({
+                    "modules": ["PLANNED_WORKOUTS", "COMPLETED_WORKOUTS", "WELLNESS"],
+                    "from_date": from_date,
+                    "to_date": to_date
+                })
+                print(f"   ✅ Integration sync complete: {sync_result}\n", file=sys.stderr)
+            except Exception as e:
+                print(f"   ⚠️  Integration sync failed: {e}\n", file=sys.stderr)
+                print("   Continuing with existing Hexis data...\n", file=sys.stderr)
+        else:
+            if from_date and to_date:
+                print("   ⚠️  hexis_trigger_integration_sync tool not available\n", file=sys.stderr)
+            print("   Continuing with existing Hexis data...\n", file=sys.stderr)
 
         # ===================================================================
         # STEP 1: Hexis Analysis - Analyze training data to determine needs
