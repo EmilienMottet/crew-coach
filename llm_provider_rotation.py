@@ -19,7 +19,7 @@ from crewai.utilities.types import LLMMessage
 from pydantic import BaseModel
 
 
-RATE_LIMIT_KEYWORDS = ("rate limit", "quota", "429", "token_expired", "no quota")
+RATE_LIMIT_KEYWORDS = ("rate limit", "quota", "429", "token_expired", "no quota", "unknown provider", "404", "not found", "model not available")
 
 # Codex endpoint requires system prompts to be stripped and merged into user message
 # This is specific to the /codex/v1 endpoint optimization for code generation
@@ -37,7 +37,8 @@ PROMPTLESS_MODEL_HINTS: tuple = ()  # No model-level restrictions on our endpoin
 #   - Other: gemini-2.5-pro, grok-code-fast-1
 #
 # No restrictions needed - all combinations work with CrewAI tools/MCP
-# Model Categories
+# Model Categories (from ccproxy /models endpoint)
+# All models use https://ccproxy.emottet.com/v1 endpoint
 COMPLEX_MODELS = (
     "claude-sonnet-4-5-thinking",
     "gemini-3-pro-high",
@@ -65,22 +66,105 @@ FALLBACK_MODELS = (
     "raptor-mini",
 )
 
+# Category cascade order (from highest to lowest tier)
+CATEGORY_CASCADE = ["complex", "intermediate", "simple", "fallback"]
+
 TOOL_FREE_ENDPOINT_HINTS: tuple = ()  # No endpoint blocks tools
 TOOL_FREE_MODEL_HINTS: tuple = ()     # No model blocks tools
 
 
-def get_model_for_category(category: str) -> str:
-    """Return a random available model for a given category."""
+def get_models_for_category(category: str) -> tuple[str, ...]:
+    """Return all models for a given category."""
     category = category.lower()
     if category == "complex":
-        return random.choice(COMPLEX_MODELS)
+        return COMPLEX_MODELS
     elif category == "intermediate":
-        return random.choice(INTERMEDIATE_MODELS)
+        return INTERMEDIATE_MODELS
     elif category == "simple":
-        return random.choice(SIMPLE_MODELS)
+        return SIMPLE_MODELS
     elif category == "fallback":
-        return random.choice(FALLBACK_MODELS)
-    return random.choice(FALLBACK_MODELS)
+        return FALLBACK_MODELS
+    return FALLBACK_MODELS
+
+
+def get_model_for_category(category: str) -> str:
+    """Return a random available model for a given category."""
+    models = get_models_for_category(category)
+    return random.choice(models)
+
+
+def build_category_cascade(starting_category: str, endpoint_url: str, api_key: str, agent_name: str = "") -> List[ProviderCandidate]:
+    """Build a provider chain with category cascade (random selection + fallback to lower tiers).
+
+    Logic:
+    1. Start with requested category (e.g., "complex")
+    2. Add ALL models from that category in random order (excluding blacklisted models)
+    3. Cascade to next lower tier (complex → intermediate → simple → fallback)
+    4. If fallback fails → crash (no recovery)
+
+    Args:
+        starting_category: One of "complex", "intermediate", "simple", "fallback"
+        endpoint_url: API endpoint URL (typically https://ccproxy.emottet.com/v1)
+        api_key: API key for authentication
+        agent_name: Name of the agent (for agent-specific blacklists)
+
+    Returns:
+        List of ProviderCandidate in cascade order
+    """
+    starting_category = starting_category.lower()
+
+    # Find starting position in cascade
+    try:
+        start_index = CATEGORY_CASCADE.index(starting_category)
+    except ValueError:
+        # Unknown category → default to fallback
+        print(f"⚠️  Unknown category '{starting_category}', defaulting to 'fallback'", file=sys.stderr)
+        start_index = CATEGORY_CASCADE.index("fallback")
+
+    # Get blacklisted models from global and agent-specific sources
+    global_blacklist = os.getenv("GLOBAL_BLACKLISTED_MODELS", "").split(",") if os.getenv("GLOBAL_BLACKLISTED_MODELS") else []
+    agent_blacklist = os.getenv(f"{agent_name}_BLACKLISTED_MODELS", "").split(",") if agent_name and os.getenv(f"{agent_name}_BLACKLISTED_MODELS") else []
+
+    # Combine and clean blacklists
+    all_blacklisted = [m.strip() for m in global_blacklist + agent_blacklist if m.strip()]
+
+    # Apply default blacklist for specific agents
+    if agent_name == "HEXIS_ANALYSIS" and not agent_blacklist:
+        default_blacklist = ["gpt-5", "gpt-5-codex"]
+        all_blacklisted.extend(default_blacklist)
+
+    if all_blacklisted:
+        print(f"   🚫 Filtering blacklisted models: {', '.join(all_blacklisted[:3])}{'...' if len(all_blacklisted) > 3 else ''}", file=sys.stderr)
+
+    providers = []
+
+    # Build cascade from starting category to fallback
+    for category in CATEGORY_CASCADE[start_index:]:
+        models = list(get_models_for_category(category))
+
+        # Filter out blacklisted models
+        models = [m for m in models if m not in all_blacklisted]
+
+        if not models:
+            print(f"   ⚠️  All models in category '{category}' are blacklisted, skipping category", file=sys.stderr)
+            continue
+
+        # Randomize order within category for load balancing
+        random.shuffle(models)
+
+        for model in models:
+            providers.append(
+                ProviderCandidate(
+                    label=f"{category}:{model}",
+                    model=model,
+                    api_base=endpoint_url,
+                    api_key=api_key,
+                    disable_system_prompt=_requires_promptless_mode(endpoint_url, model),
+                    tool_free_only=_requires_tool_free_context(endpoint_url, model),
+                )
+            )
+
+    return providers
 
 
 @dataclass(frozen=True)
@@ -165,8 +249,23 @@ def _apply_blacklist_if_needed(agent_name: str, model_name: str, api_base: str) 
 def create_llm_with_rotation(
     *, agent_name: str, model_name: str, api_base: str, api_key: str
 ) -> BaseLLM:
-    """Create an LLM wrapped with provider rotation logic when enabled."""
+    """Create an LLM wrapped with provider rotation logic when enabled.
 
+    Auto-detects if model_name is a category and uses category cascade if so.
+    """
+
+    # Check if model_name is actually a category
+    category_names = ["complex", "intermediate", "simple", "fallback"]
+    if model_name.lower() in category_names:
+        # Use category-based cascade
+        return create_llm_with_category(
+            agent_name=agent_name,
+            category=model_name,
+            api_base=api_base,
+            api_key=api_key,
+        )
+
+    # Normal model-based rotation
     normalized_model = _normalize_model_name(model_name, api_base)
 
     # Apply blacklist after model normalization (this fixes the issue)
@@ -186,6 +285,61 @@ def create_llm_with_rotation(
         f"\n🔁 {agent_name or 'LLM'} provider chain: {labels}\n",
         file=sys.stderr,
     )
+    return RotatingLLM(agent_name or "LLM", provider_chain)
+
+
+def create_llm_with_category(
+    *, agent_name: str, category: str, api_base: str, api_key: str
+) -> BaseLLM:
+    """Create an LLM with category-based cascade (random selection + auto-fallback).
+
+    New unified approach:
+    - All models use the same endpoint (https://ccproxy.emottet.com/v1)
+    - Random selection within category for load balancing
+    - Automatic cascade to lower tiers on quota/404 errors
+    - Crash if fallback category fails (no silent failures)
+
+    Args:
+        agent_name: Name of the agent (for logging)
+        category: Starting category ("complex", "intermediate", "simple", "fallback")
+        api_base: API endpoint URL (typically https://ccproxy.emottet.com/v1)
+        api_key: API key for authentication
+
+    Returns:
+        RotatingLLM instance with category cascade chain
+
+    Example:
+        llm = create_llm_with_category(
+            agent_name="HEXIS_ANALYSIS",
+            category="complex",
+            api_base="https://ccproxy.emottet.com/v1",
+            api_key=api_key
+        )
+    """
+    # Build cascade chain from category
+    provider_chain = build_category_cascade(
+        starting_category=category,
+        endpoint_url=api_base,
+        api_key=api_key,
+        agent_name=agent_name,
+    )
+
+    # Log cascade for transparency
+    labels = ", ".join(f"{p.label.split(':')[0]}:{len([x for x in provider_chain if x.label.startswith(p.label.split(':')[0])])}" for p in provider_chain[:1])  # Show count per category
+    category_counts = {}
+    for p in provider_chain:
+        cat = p.label.split(':')[0]
+        category_counts[cat] = category_counts.get(cat, 0) + 1
+
+    cascade_summary = " → ".join(f"{cat}({count})" for cat, count in category_counts.items())
+
+    print(
+        f"\n🎯 {agent_name or 'LLM'} category cascade: {cascade_summary}\n"
+        f"   Starting with: {category}\n"
+        f"   Total providers: {len(provider_chain)}\n",
+        file=sys.stderr,
+    )
+
     return RotatingLLM(agent_name or "LLM", provider_chain)
 
 
@@ -1034,6 +1188,12 @@ class RotatingLLM(BaseLLM):
         # Force LiteLLM routing for Claude models with custom api_base
         # This prevents CrewAI from using native Anthropic provider which would bypass our proxy
         if target.api_base and "claude" in model.lower() and not model.startswith("openai/"):
+            model = f"openai/{model}"
+            print(f"   ℹ️  Forcing LiteLLM routing for {target.model} → {model}", file=sys.stderr)
+        
+        # Force LiteLLM routing for Gemini models with custom api_base
+        # This prevents CrewAI from trying to use native Google Gen AI provider
+        if target.api_base and "gemini" in model.lower() and not model.startswith("openai/"):
             model = f"openai/{model}"
             print(f"   ℹ️  Forcing LiteLLM routing for {target.model} → {model}", file=sys.stderr)
         return LLM(model=model, api_base=target.api_base, api_key=target.api_key)

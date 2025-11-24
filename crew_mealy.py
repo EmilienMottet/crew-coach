@@ -58,23 +58,21 @@ class MealPlanningCrew:
         # Get configuration
         base_url = os.getenv("OPENAI_API_BASE", "https://ccproxy.emottet.com/v1")
         base_url = os.getenv("OPENAI_API_BASE", "https://ccproxy.emottet.com/v1")
-        
-        # Get default models from categories
-        default_complex_model = get_model_for_category("complex")
-        default_intermediate_model = get_model_for_category("intermediate")
-        default_simple_model = get_model_for_category("simple")
-        
+
+        # Use category names directly to enable automatic cascade fallback
+        # If a specific model is set via env var, use it instead of the category
+        # This enables: complex → intermediate → simple → fallback cascade on errors
         complex_model_name = os.getenv(
             "OPENAI_COMPLEX_MODEL_NAME",
-            default_complex_model,
+            "complex",  # Use category instead of random model for automatic cascade
         )
         intermediate_model_name = os.getenv(
             "OPENAI_INTERMEDIATE_MODEL_NAME",
-            default_intermediate_model,
+            "intermediate",  # Use category instead of random model
         )
         simple_model_name = os.getenv(
             "OPENAI_SIMPLE_MODEL_NAME",
-            default_simple_model,
+            "simple",  # Use category instead of random model
         )
 
         # Get configured API key (already set by llm_auth_init)
@@ -82,6 +80,7 @@ class MealPlanningCrew:
 
         # Create per-agent LLMs with optional overrides
         # This allows each agent to use a different model/endpoint for cost optimization
+        # COMPLEXE agents (MCP tools + analysis/creativity)
         self.hexis_analysis_llm = self._create_agent_llm(
             agent_name="HEXIS_ANALYSIS",
             default_model=complex_model_name,
@@ -89,30 +88,32 @@ class MealPlanningCrew:
             default_key=api_key
         )
 
-        self.weekly_structure_llm = self._create_agent_llm(
-            agent_name="WEEKLY_STRUCTURE",
+        self.meal_generation_llm = self._create_agent_llm(
+            agent_name="MEAL_GENERATION",
             default_model=complex_model_name,
             default_base=base_url,
             default_key=api_key
         )
 
-        self.meal_generation_llm = self._create_agent_llm(
-            agent_name="MEAL_GENERATION",
+        # INTERMÉDIAIRE agents (planning/validation logic)
+        self.weekly_structure_llm = self._create_agent_llm(
+            agent_name="WEEKLY_STRUCTURE",
             default_model=intermediate_model_name,
-            default_base=base_url,
-            default_key=api_key
-        )
-
-        self.meal_compilation_llm = self._create_agent_llm(
-            agent_name="MEAL_COMPILATION",
-            default_model=simple_model_name,
             default_base=base_url,
             default_key=api_key
         )
 
         self.nutritional_validation_llm = self._create_agent_llm(
             agent_name="NUTRITIONAL_VALIDATION",
-            default_model=complex_model_name,
+            default_model=intermediate_model_name,
+            default_base=base_url,
+            default_key=api_key
+        )
+
+        # SIMPLE agents (JSON aggregation/formatting)
+        self.meal_compilation_llm = self._create_agent_llm(
+            agent_name="MEAL_COMPILATION",
+            default_model=simple_model_name,
             default_base=base_url,
             default_key=api_key
         )
@@ -276,13 +277,23 @@ class MealPlanningCrew:
         if all_blacklisted:
             print(f"   🚫 Blacklist active: {', '.join(all_blacklisted[:3])}{'...' if len(all_blacklisted) > 3 else ''}", file=sys.stderr)
 
+        # Note: All our endpoints now support function calling - no restrictions needed
+
         # Log configuration for transparency
-        if os.getenv(model_key) or os.getenv(base_key):
-            print(
-                f"🔧 {agent_name} Agent: Using config "
-                f"(model={agent_model}, base={agent_base})",
-                file=sys.stderr,
-            )
+        endpoint_type = "ccproxy"
+        if "/copilot/v1" in (agent_base or "").lower():
+            endpoint_type = "copilot"
+        elif "/codex/v1" in (agent_base or "").lower():
+            endpoint_type = "codex"
+        elif "/claude/v1" in (agent_base or "").lower():
+            endpoint_type = "claude"
+
+        print(
+            f"🤖 {agent_name} Agent:\n"
+            f"   Model: {agent_model}\n"
+            f"   Endpoint: {endpoint_type} ({agent_base})\n",
+            file=sys.stderr,
+        )
 
         return self._create_llm(
             agent_model,
