@@ -813,9 +813,17 @@ class StravaDescriptionCrew:
         object_data = activity_data.get("object_data", {})
         start_date_local = object_data.get("start_date_local", "N/A")
         moving_time = object_data.get("moving_time", "N/A")
+        # Intervals.icu fields: 'feel' and 'icu_rpe'
+        icu_feel = object_data.get("feel")
+        icu_rpe = object_data.get("icu_rpe")
+        
         print(f"📅 Activity timing:", file=sys.stderr)
         print(f"   Start: {start_date_local}", file=sys.stderr)
         print(f"   Duration: {moving_time}s", file=sys.stderr)
+        if icu_feel is not None:
+            print(f"   Feel (ICU): {icu_feel}", file=sys.stderr)
+        if icu_rpe is not None:
+            print(f"   RPE (ICU): {icu_rpe}/10", file=sys.stderr)
 
         # Check if n8n provided Spotify data
         spotify_data = activity_data.get("spotify_recently_played", {})

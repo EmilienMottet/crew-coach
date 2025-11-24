@@ -17,6 +17,16 @@ def create_lyrics_task(
     object_data = activity_data.get("object_data", {})
     sport_type = object_data.get("type", "Activity")
     
+    # Extract sensation/RPE data
+    icu_feel = object_data.get("feel")
+    icu_rpe = object_data.get("icu_rpe")
+    
+    sensation_info = ""
+    if icu_feel is not None:
+        sensation_info = f"SENSATION (Intervals.icu): {icu_feel}"
+    elif icu_rpe is not None:
+        sensation_info = f"RPE (Perceived Exertion): {icu_rpe}/10"
+    
     description = f"""
     Verify the lyrics of the following candidate tracks and update the activity description.
 
@@ -27,6 +37,7 @@ def create_lyrics_task(
     {original_description}
 
     SPORT TYPE: {sport_type}
+    {sensation_info}
 
     REQUIREMENTS:
     1. For each candidate track:
@@ -38,6 +49,9 @@ def create_lyrics_task(
     
     2. Select a Quote:
        - Choose a quote that is thematic with {sport_type}, inspiring, motivating, or related to Michelin.
+       - If SENSATION/RPE data is available above, use it to tailor the quote:
+         - High exertion/Hard feeling -> Quote about resilience, suffering, or overcoming limits.
+         - Low exertion/Good feeling -> Quote about joy, flow, or enjoying the moment.
        - You can use a line from one of the ACCEPTED songs if it fits.
        - Decide where to place the quote:
          - At the BEGINNING if it sets a good tone.
