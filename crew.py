@@ -22,18 +22,21 @@ from agents import (
     create_music_agent,
     create_privacy_agent,
     create_translation_agent,
+    create_lyrics_agent,
 )
 from schemas import (
     ActivityMusicSelection,
     GeneratedActivityContent,
     PrivacyAssessment,
     TranslationPayload,
+    LyricsVerificationResult,
 )
 from tasks import (
     create_description_task,
     create_music_task,
     create_privacy_task,
     create_translation_task,
+    create_lyrics_task,
 )
 from mcp_auth_wrapper import MetaMCPAdapter
 from llm_provider_rotation import create_llm_with_rotation, get_model_for_category
@@ -141,6 +144,7 @@ class StravaDescriptionCrew:
             # Note: Music data now comes from n8n (spotify_recently_played field)
             "Meteo": os.getenv("METEO_MCP_SERVER_URL", ""),
             "Toolbox": os.getenv("TOOLBOX_MCP_SERVER_URL", ""),
+            "Music": os.getenv("MUSIC_MCP_SERVER_URL", "https://mcp.emottet.com/metamcp/Music"),
         }
 
         # Filter out empty URLs
@@ -200,6 +204,11 @@ class StravaDescriptionCrew:
             print(f"🌤️  Found {len(weather_tools)} Weather tools\n", file=sys.stderr)
         if toolbox_tools:
             print(f"🛠️  Found {len(toolbox_tools)} Toolbox tools\n", file=sys.stderr)
+        
+        music_tools = [t for t in self.mcp_tools if "lyrics" in t.name.lower()]
+        if music_tools:
+            print(f"🎵 Found {len(music_tools)} Music tools\n", file=sys.stderr)
+        
         print(f"🎵 Music: Using n8n Spotify data (no MCP tools)\n", file=sys.stderr)
 
         # Create agents with MCP tools (using tools parameter, not mcps)
@@ -219,7 +228,20 @@ class StravaDescriptionCrew:
         self.privacy_agent = create_privacy_agent(self.privacy_llm)
 
         # Translation Agent: no MCP tools needed
+        # Translation Agent: no MCP tools needed
         self.translation_agent = create_translation_agent(self.translation_llm)
+
+        # Lyrics Agent: needs Music MCP tools
+        self.lyrics_llm = self._create_agent_llm(
+            agent_name="LYRICS",
+            default_model=intermediate_model_name,
+            default_base=base_url,
+            default_key=api_key,
+        )
+        self.lyrics_agent = create_lyrics_agent(
+            self.lyrics_llm,
+            tools=music_tools if music_tools else None
+        )
 
     def _create_agent_llm(
         self,
@@ -871,53 +893,64 @@ class StravaDescriptionCrew:
                 music_payload = music_model.model_dump()
                 print("📄 Parsed music payload:", file=sys.stderr)
                 print(f"   Keys: {list(music_payload.keys())}", file=sys.stderr)
-                print(f"   Updated description length: {len(music_payload.get('updated_description', ''))}", file=sys.stderr)
-                print(f"   Music tracks raw: {music_payload.get('music_tracks', [])}", file=sys.stderr)
-                print("", file=sys.stderr)
-
-                payload_tracks = music_payload.get("music_tracks", [])
-                if isinstance(payload_tracks, list):
-                    music_tracks = [
-                        track for track in payload_tracks if isinstance(track, str) and track
+                
+                # Extract candidate tracks
+                candidate_tracks = music_payload.get("candidate_tracks", [])
+                if isinstance(candidate_tracks, list):
+                    candidate_tracks = [
+                        track for track in candidate_tracks if isinstance(track, str) and track
                     ]
 
-                print(f"🎵 Filtered music tracks: {music_tracks}", file=sys.stderr)
-                print(f"   Count: {len(music_tracks)}\n", file=sys.stderr)
+                print(f"🎵 Candidate tracks: {candidate_tracks}", file=sys.stderr)
+                print(f"   Count: {len(candidate_tracks)}\n", file=sys.stderr)
 
-                # Only update description if music tracks were found
-                if music_tracks:
-                    updated_description = music_payload.get(
-                        "updated_description",
-                        generated_content.get("description", ""),
-                    )
-
-                    if not isinstance(updated_description, str):
-                        updated_description = generated_content.get("description", "")
-
-                    if len(updated_description) > 500:
-                        print(
-                            "\n⚠️  Warning: Music description exceeds 500 characters, trimming to limit.\n",
-                            file=sys.stderr,
-                        )
-                        updated_description = updated_description[:500]
-
-                    generated_content["description"] = updated_description
-
-                    metrics = generated_content.get("key_metrics")
-                    if not isinstance(metrics, dict):
-                        metrics = {}
-                    metrics["playlist_tracks"] = "; ".join(music_tracks)
-                    generated_content["key_metrics"] = metrics
-
-                    print(
-                        f"\n✅ Music enrichment complete: {len(music_tracks)} track(s) captured.\n",
-                        file=sys.stderr,
-                    )
+                # ------------------------------------------------------------------
+                # Step 3: Lyrics Verification and Quote Selection
+                # ------------------------------------------------------------------
+                print("\n🎤 Step 3: Verifying lyrics and selecting quote...\n", file=sys.stderr)
+                
+                current_description = generated_content.get("description", "")
+                
+                lyrics_task = create_lyrics_task(
+                    self.lyrics_agent,
+                    candidate_tracks,
+                    current_description,
+                    activity_data
+                )
+                
+                lyrics_crew = Crew(
+                    agents=[self.lyrics_agent],
+                    tasks=[lyrics_task],
+                    process=Process.sequential,
+                    verbose=True,
+                )
+                
+                lyrics_result = lyrics_crew.kickoff()
+                
+                lyrics_model = self._extract_model_from_output(
+                    lyrics_result, LyricsVerificationResult
+                )
+                
+                if lyrics_model:
+                    print("\n✅ Lyrics verification complete:", file=sys.stderr)
+                    print(f"   Accepted: {lyrics_model.accepted_tracks}", file=sys.stderr)
+                    print(f"   Rejected: {lyrics_model.rejected_tracks}", file=sys.stderr)
+                    print(f"   Quote: \"{lyrics_model.selected_quote}\" ({lyrics_model.quote_source})", file=sys.stderr)
+                    
+                    # Update description with the final version from Lyrics Agent
+                    generated_content["description"] = lyrics_model.final_description
+                    
+                    # Update key metrics with music info if available
+                    if lyrics_model.accepted_tracks:
+                        metrics = generated_content.get("key_metrics", {})
+                        metrics["music"] = f"{len(lyrics_model.accepted_tracks)} tracks"
+                        generated_content["key_metrics"] = metrics
                 else:
-                    print(
-                        "\n✅ No music detected during activity - keeping original description.\n",
-                        file=sys.stderr,
-                    )
+                    print("\n⚠️  Warning: Lyrics agent returned invalid JSON, using original description.\n", file=sys.stderr)
+                    # Fallback: append music tracks manually if lyrics agent failed but we have candidates
+                    if candidate_tracks:
+                        music_section = "\n\n🎧 Music: " + "; ".join(candidate_tracks)
+                        generated_content["description"] += music_section
 
         except Exception as exc:  # noqa: BLE001
             print(

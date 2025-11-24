@@ -21,16 +21,15 @@ class GeneratedActivityContent(BaseModel):
 
 
 class ActivityMusicSelection(BaseModel):
-    """Soundtrack enrichment appended to the generated description."""
+    """Soundtrack candidates selected from Spotify data."""
 
-    updated_description: str = Field(
+    original_description: str = Field(
         ...,
-        max_length=1000,
-        description="English activity description with soundtrack details appended",
+        description="The original activity description passed as input",
     )
-    music_tracks: List[str] = Field(
+    candidate_tracks: List[str] = Field(
         default_factory=list,
-        description="Ordered list of '<artist> – <track>' entries included in the summary",
+        description="Ordered list of '<artist> – <track>' candidates found in Spotify data",
     )
 
 
@@ -283,3 +282,28 @@ class HexisIntegrationResult(BaseModel):
 
 # Keep old name for backwards compatibility
 MealyIntegrationResult = HexisIntegrationResult
+
+
+class LyricsVerificationResult(BaseModel):
+    """Result of lyrics verification and quote selection."""
+
+    final_description: str = Field(
+        ...,
+        description="The complete updated description text with quote and music",
+    )
+    accepted_tracks: List[str] = Field(
+        default_factory=list,
+        description="List of tracks that passed verification",
+    )
+    rejected_tracks: List[str] = Field(
+        default_factory=list,
+        description="List of tracks rejected due to content",
+    )
+    selected_quote: str = Field(
+        ...,
+        description="The selected quote text",
+    )
+    quote_source: str = Field(
+        ...,
+        description="Source of the quote",
+    )
