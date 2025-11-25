@@ -196,7 +196,7 @@ def wrap_mcp_tool(tool: Any) -> Any:
     # Create a permissive schema that accepts any input as 'tool_input'
     PermissiveSchema = create_model(
         f"{tool_name.replace('-', '_').replace('__', '_').title()}PermissiveInput",
-        tool_input=(Any, Field(default=None, description="Tool input (any format accepted)", json_schema_extra={"type": "object"}))
+        tool_input=(Dict[str, Any], Field(default_factory=dict, description="Tool input (any format accepted)"))
     )
 
     # Store original schema for reference
@@ -253,8 +253,27 @@ def wrap_mcp_tool(tool: Any) -> Any:
             result = original_run(*args, **kwargs)
 
         # Log the result summary
-        result_summary = str(result)[:200] if result else "None"
-        print(f"   ✅ Result: {result_summary}{'...' if len(str(result)) > 200 else ''}\n", file=sys.stderr)
+        result_str = str(result)
+        result_len = len(result_str)
+        
+        # Truncate if too large (100KB limit to avoid Nginx 413 errors)
+        max_len = 100000
+        if result_len > max_len:
+            print(f"⚠️  Warning: Tool output too large ({result_len} chars), truncating to {max_len}...", file=sys.stderr)
+            truncated_msg = f"... [TRUNCATED due to size: {result_len} > {max_len} chars]"
+            
+            if isinstance(result, str):
+                result = result[:max_len] + truncated_msg
+            elif isinstance(result, dict) or isinstance(result, list):
+                # If it's a structured object, we can't easily truncate it while keeping it valid
+                # So we convert to string, truncate, and return that
+                # This might break tools expecting strict types, but it's better than a crash
+                result = str(result)[:max_len] + truncated_msg
+                
+            result_str = str(result)
+
+        result_summary = result_str[:200] if result else "None"
+        print(f"   ✅ Result: {result_summary}{'...' if len(result_str) > 200 else ''}\n", file=sys.stderr)
 
         return result
 

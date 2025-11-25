@@ -42,7 +42,7 @@ from tasks import (
     create_nutritional_validation_task,
     create_mealy_integration_task,
 )
-from tasks.hexis_analysis_task_fallback import create_hexis_analysis_task_fallback
+
 # NOTE: load_catalog_tool_names kept for compatibility but currently unused
 from mcp_utils import build_mcp_references, load_catalog_tool_names
 from mcp_auth_wrapper import MetaMCPAdapter
@@ -1174,7 +1174,7 @@ class MealPlanningCrew:
 
         # DIRECT FALLBACK: Use simplified task without tools to avoid infinite loops
         print(f"\n🔄 Using direct fallback task without tool calls to avoid loops...\n", file=sys.stderr)
-        hexis_task = create_hexis_analysis_task_fallback(
+        hexis_task = create_hexis_analysis_task(
             self.hexis_analysis_agent, week_start_date
         )
         hexis_crew = Crew(
@@ -1207,30 +1207,10 @@ class MealPlanningCrew:
             if candidates:
                 candidate_json = json.dumps(candidates[0], indent=2)[:2000]
                 print(f"❌ DEBUG: First candidate structure:\n{candidate_json}...\n", file=sys.stderr)
+            
+            # CRITICAL: Crash if Hexis analysis fails - no fallback allowed
+            raise ValueError(f"CRITICAL: {error_msg}. Cannot proceed without valid Hexis data.")
 
-            # FALLBACK: Use simplified task without tools
-            print(f"\n🔄 Using fallback task without tool calls...\n", file=sys.stderr)
-
-            hexis_fallback_task = create_hexis_analysis_task_fallback(
-                self.hexis_analysis_agent, week_start_date
-            )
-            hexis_fallback_crew = Crew(
-                agents=[self.hexis_analysis_agent],
-                tasks=[hexis_fallback_task],
-                process=Process.sequential,
-                verbose=True,
-                max_iter=5,
-                memory=False,
-            )
-
-            hexis_fallback_result = hexis_fallback_crew.kickoff()
-            hexis_model = self._extract_model_from_output(hexis_fallback_result, HexisWeeklyAnalysis)
-
-            if hexis_model is None:
-                print(f"\n❌ Even fallback task failed\n", file=sys.stderr)
-                return {"error": f"{error_msg} (fallback also failed)", "step": "hexis_analysis"}
-            else:
-                print(f"\n✅ Fallback task succeeded\n", file=sys.stderr)
 
         hexis_analysis = hexis_model.model_dump()
         print(
