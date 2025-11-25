@@ -66,82 +66,69 @@ def create_hexis_integration_task(
             - Count total meals to sync (expected ≈ {expected_meals} meals: 4 meals × {planned_days} day(s))
             - Initialize tracking for sync results
 
-        3. USE hexis_verify_meal TO LOG EACH MEAL
-
+        3. USE hexis_log_meal TO LOG EACH MEAL
+            
             For each day in the meal plan, for each meal:
-
-            A. Map meal_type to Hexis meal_id:
-               - "Breakfast" → "BREAKFAST"
-               - "Lunch" → "LUNCH"
-               - "Dinner" → "DINNER"
-               - "Afternoon Snack" or "Snack" → "SNACK"
-
-            B. Build the foods array with ONE food entry per meal:
-               foods = [{{
-                   "name": meal.meal_name,
-                   "calories": meal.calories,
-                   "protein": meal.protein_g,
-                   "carbs": meal.carbs_g,
-                   "fat": meal.fat_g
-               }}]
-
-            C. Determine carb_code based on carbs_g:
-               - carbs_g < 30 → "LOW"
-               - carbs_g < 60 → "MEDIUM"
-               - carbs_g >= 60 → "HIGH"
-
-            D. Call hexis_verify_meal for each meal:
-               hexis_verify_meal(
-                   meal_id="BREAKFAST",  # or LUNCH, DINNER, SNACK
-                   date="2025-01-06",    # ISO format
-                   foods=[{{"name": "...", "calories": 500, "protein": 30, "carbs": 50, "fat": 20}}],
-                   carb_code="MEDIUM",   # LOW, MEDIUM, or HIGH
-                   time=null,            # optional
-                   skipped=false         # false to verify the meal
-               )
-
-            E. Track the result:
-               - If successful: Mark sync status as success
-               - If failed: Log error message, mark as failed
+            
+            You MUST call `hexis_log_meal`. You cannot generate the Hexis ID yourself.
+            Any ID you invent will be wrong. You MUST get it from the tool.
+            
+            Call `hexis_log_meal` with:
+            - day_name
+            - date
+            - meal_type
+            - meal_name
+            - calories
+            - protein
+            - carbs
+            - fat
+            
+            The tool will return a success status and the Hexis ID.
+            
+            Track the result:
+            - If successful: Mark sync status as success
+            - If failed: Log error message, mark as failed
 
         4. HANDLE ERRORS GRACEFULLY
-            Common errors and how to handle:
-            - Invalid data format: Log error, suggest data fix
-            - Network timeout: Log error, suggest retry
-            - Authentication failure: Log error, check MCP configuration
+           Common errors and how to handle:
+           - Invalid data format: Log error, suggest data fix
+           - Network timeout: Log error, suggest retry
+           - Authentication failure: Log error, check MCP configuration
 
-            For each error:
-            - Log detailed error message
-            - Continue processing remaining meals
-            - Include error in sync_statuses
+           For each error:
+           - Log detailed error message
+           - Continue processing remaining meals
+           - Include error in sync_statuses
 
         5. CALCULATE SUMMARY STATISTICS
-            - Count total meals synced successfully
-            - Count total failures
-            - Calculate success rate: (successes / total) × 100%
+           - Count total meals synced successfully
+           - Count total failures
+           - Calculate success rate: (successes / total) × 100%
 
         6. WRITE INTEGRATION SUMMARY
-            Provide clear, actionable summary:
+           Provide clear, actionable summary:
 
-            Example (all successful):
-            "Successfully integrated every planned meal ({expected_meals} entries) for the requested period
-            from 2025-01-06 to 2025-01-12. All meals are now logged in Hexis."
+           Example (all successful):
+           "Successfully integrated every planned meal ({expected_meals} entries) for the requested period
+           from 2025-01-06 to 2025-01-12. All meals are now logged in Hexis."
 
-            Example (partial failure):
-            "Integrated most meals (all but two of the planned {expected_meals}) for the period
-            2025-01-06 to 2025-01-12. Remaining issues: Monday Dinner (API error), Wednesday Snack (network timeout).
-            Please retry failed meals manually in Hexis."
+           Example (partial failure):
+           "Integrated most meals (all but two of the planned {expected_meals}) for the period
+           2025-01-06 to 2025-01-12. Remaining issues: Monday Dinner (API error), Wednesday Snack (network timeout).
+           Please retry failed meals manually in Hexis."
 
-            Example (validation failed):
-            "Integration skipped: Meal plan did not pass validation. Issues found:
-            [list issues]. Please address validation issues before integration."
+           Example (validation failed):
+           "Integration skipped: Meal plan did not pass validation. Issues found:
+           [list issues]. Please address validation issues before integration."
 
         7. OUTPUT STRUCTURED RESULT
-            Return valid JSON matching HexisIntegrationResult schema:
-            - week_start_date, week_end_date
-            - total_meals_created (count of successes)
-            - sync_statuses (list of all sync attempts with results)
-            - summary (human-readable description)
+           - CRITICAL: Do NOT output this JSON until you have successfully called hexis_log_meal for all meals.
+           - If you have not called hexis_log_meal for a meal, GO BACK and do it.
+           Return valid JSON matching HexisIntegrationResult schema:
+           - week_start_date, week_end_date
+           - total_meals_created (count of successes)
+           - sync_statuses (list of all sync attempts with results)
+           - summary (human-readable description)
 
         IMPORTANT GUIDELINES:
 
@@ -151,6 +138,7 @@ def create_hexis_integration_task(
         - Log everything for debugging
         - Give actionable feedback to user
         - If MCP tools are unavailable, report clearly and fail gracefully
+        - CRITICAL: Do NOT try to search for individual ingredients. Use the Custom Food strategy.
 
         EXAMPLE OUTPUT STRUCTURE:
         {{

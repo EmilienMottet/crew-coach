@@ -712,7 +712,48 @@ def _provider_label(prefix: str, base_url: str, suffix: str | None = None) -> st
     return f"{prefix or 'fallback'}@{host}"
 
 
+
+def _clean_json_schema(schema: Any) -> Any:
+    """Recursively clean JSON schema to be Claude/OpenAI compatible.
+    
+    Removes unsupported fields, empty containers, and ensures structure is valid.
+    """
+    if not isinstance(schema, dict):
+        return schema
+    
+    cleaned = {}
+    for key, value in schema.items():
+        # Skip unsupported fields
+        if key in ['title', 'definitions', '$defs', 'allOf', 'anyOf', 'oneOf']:
+            continue
+        
+        # Skip None values
+        if value is None:
+            continue
+        
+        # Skip empty lists
+        if isinstance(value, list) and len(value) == 0:
+            continue
+        
+        # Skip empty dicts (except for 'properties' and 'required' which are allowed)
+        if isinstance(value, dict) and len(value) == 0 and key not in ['properties', 'required']:
+            continue
+        
+        # Recursively clean nested dicts
+        if isinstance(value, dict):
+            cleaned[key] = _clean_json_schema(value)
+        # Recursively clean dicts in lists
+        elif isinstance(value, list):
+            cleaned[key] = [_clean_json_schema(item) if isinstance(item, dict) else item for item in value]
+        # Keep other values as-is
+        else:
+            cleaned[key] = value
+    
+    return cleaned
+
+
 class RotatingLLM(BaseLLM):
+
     """BaseLLM wrapper that retries calls across multiple providers on 429 errors."""
 
     # Class-level tracking of disabled providers (shared across all instances)
@@ -761,6 +802,27 @@ class RotatingLLM(BaseLLM):
             file=sys.stderr
         )
 
+        # Ensure tools passed directly are also cleaned
+        if tools:
+            cleaned_tools = []
+            for tool in tools:
+                if isinstance(tool, dict) and "function" in tool:
+                    # It's already in tool format, clean the parameters
+                    if "parameters" in tool["function"]:
+                        tool["function"]["parameters"] = _clean_json_schema(tool["function"]["parameters"])
+                        
+                        # Ensure required fields exist
+                        if "type" not in tool["function"]["parameters"]:
+                            tool["function"]["parameters"]["type"] = "object"
+                        if "properties" not in tool["function"]["parameters"]:
+                            tool["function"]["parameters"]["properties"] = {}
+                    cleaned_tools.append(tool)
+                else:
+                    # It might be a raw tool object, let the extraction logic handle it if needed
+                    # But usually 'tools' arg is already formatted by CrewAI
+                    cleaned_tools.append(tool)
+            tools = cleaned_tools
+
         # CRITICAL FIX: CrewAI doesn't pass tools parameter, extract from agent
         if not tools and from_agent:
             agent_tools = getattr(from_agent, 'tools', None)
@@ -773,48 +835,20 @@ class RotatingLLM(BaseLLM):
                     }
                     print(
                         f"   ℹ️  Extracted {len(available_functions)} tools from agent\n",
-                        file=sys.stderr,
                     )
+                
+                # Clean tools if they were extracted from agent
+                # This ensures they are compatible with Claude/OpenAI
+                if available_functions:
+                    # We'll do the cleaning in the conversion loop below
+                    pass
                 
                 # ALWAYS try to convert to tools format for function calling
                 try:
                     from crewai.tools.base_tool import BaseTool as CrewBaseTool
                     import json
                     
-                    def clean_schema(schema):
-                        """Recursively clean JSON schema to be Claude/OpenAI compatible"""
-                        if not isinstance(schema, dict):
-                            return schema
-                        
-                        cleaned = {}
-                        for key, value in schema.items():
-                            # Skip unsupported fields
-                            if key in ['title', 'definitions', '$defs', 'allOf', 'anyOf', 'oneOf']:
-                                continue
-                            
-                            # Skip None values
-                            if value is None:
-                                continue
-                            
-                            # Skip empty lists
-                            if isinstance(value, list) and len(value) == 0:
-                                continue
-                            
-                            # Skip empty dicts (except for 'properties' and 'required' which are allowed)
-                            if isinstance(value, dict) and len(value) == 0 and key not in ['properties', 'required']:
-                                continue
-                            
-                            # Recursively clean nested dicts
-                            if isinstance(value, dict):
-                                cleaned[key] = clean_schema(value)
-                            # Recursively clean dicts in lists
-                            elif isinstance(value, list):
-                                cleaned[key] = [clean_schema(item) if isinstance(item, dict) else item for item in value]
-                            # Keep other values as-is
-                            else:
-                                cleaned[key] = value
-                        
-                        return cleaned
+
                     
                     tools = []
                     for tool in agent_tools:
@@ -827,7 +861,7 @@ class RotatingLLM(BaseLLM):
                                 if hasattr(schema, 'model_json_schema'):
                                     json_schema = schema.model_json_schema()
                                     # Deep clean the schema
-                                    json_schema = clean_schema(json_schema)
+                                    json_schema = _clean_json_schema(json_schema)
                                     
                                     # Ensure required fields exist after cleaning
                                     if 'type' not in json_schema:
@@ -855,7 +889,7 @@ class RotatingLLM(BaseLLM):
                                 if 'function' in func_def and 'parameters' in func_def['function']:
                                     params = func_def['function']['parameters']
                                     # Deep clean the entire schema
-                                    func_def['function']['parameters'] = clean_schema(params)
+                                    func_def['function']['parameters'] = _clean_json_schema(params)
                                     
                                     # Ensure required fields exist after cleaning
                                     if 'type' not in func_def['function']['parameters']:

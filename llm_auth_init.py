@@ -167,6 +167,14 @@ def patch_crewai_llm_call() -> None:
             else:
                 formatted_messages = messages
             
+            # DEBUG: Print messages to see what the LLM sees
+            print(f"   📨 LLM.call received {len(formatted_messages)} messages", file=sys.stderr)
+            if len(formatted_messages) > 0:
+                last_msg = formatted_messages[-1]
+                print(f"   Last message role: {last_msg.get('role')}", file=sys.stderr)
+                if last_msg.get('role') == 'tool':
+                     print(f"   Last message content: {last_msg.get('content')}", file=sys.stderr)
+            
             # Call litellm directly
             try:
                 response = litellm.completion(

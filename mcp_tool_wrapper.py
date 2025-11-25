@@ -16,7 +16,7 @@ import sys
 from typing import Any, Callable, Dict, List, Optional
 
 from crewai.tools import BaseTool
-from pydantic import BaseModel, Field, create_model
+from pydantic import BaseModel, ConfigDict, Field, create_model
 
 # Global counter for tracking tool calls
 _tool_call_counter: Dict[str, int] = {}
@@ -196,7 +196,8 @@ def wrap_mcp_tool(tool: Any) -> Any:
     # Create a permissive schema that accepts any input as 'tool_input'
     PermissiveSchema = create_model(
         f"{tool_name.replace('-', '_').replace('__', '_').title()}PermissiveInput",
-        tool_input=(Dict[str, Any], Field(default_factory=dict, description="Tool input (any format accepted)"))
+        tool_input=(Dict[str, Any], Field(default_factory=dict, description="Tool input (any format accepted)")),
+        __config__=ConfigDict(json_schema_extra={"type": "object"})
     )
 
     # Store original schema for reference
