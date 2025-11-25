@@ -196,7 +196,7 @@ def wrap_mcp_tool(tool: Any) -> Any:
     # Create a permissive schema that accepts any input as 'tool_input'
     PermissiveSchema = create_model(
         f"{tool_name.replace('-', '_').replace('__', '_').title()}PermissiveInput",
-        tool_input=(Any, Field(default=None, description="Tool input (any format accepted)"))
+        tool_input=(Any, Field(default=None, description="Tool input (any format accepted)", json_schema_extra={"type": "object"}))
     )
 
     # Store original schema for reference
