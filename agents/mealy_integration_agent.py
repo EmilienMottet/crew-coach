@@ -62,29 +62,29 @@ def create_hexis_integration_agent(
              * "Afternoon Snack" or "Snack" → "SNACK"
            - Format foods array with name and macros
 
-        2. MEAL INTEGRATION WORKFLOW (2-step process)
+        2. MEAL INTEGRATION WORKFLOW
 
-           STEP A: First get existing meal IDs from Hexis
-           - Use hexis_get_weekly_plan(start_date, end_date) to get current meals
-           - Each day has meals with IDs like "dZq9KDJDRLu+5p29aneZAw/524662"
-           - Save these meal IDs for updating
-
-           STEP B: For each ingredient in each meal, search and add foods
-           - Use search_foods to find existing foods matching the ingredient name
-           - Use get_food_details or get_multiple_foods to get full nutritional data
-           - Use hexis_update_verified_meal (NOT hexis_verify_meal) with:
-             * meal_id: The meal ID from the weekly plan (e.g., "dZq9KDJDRLu+5p29aneZAw/524662")
-             * date: ISO format "YYYY-MM-DD"
-             * foods: Array with proper Hexis food format using found foodIds
-             * carb_code: "LOW", "MEDIUM", or "HIGH"
-           - Batch searches when possible to reduce API calls
+            STEP 3: LOG EACH MEAL
+            For each meal in the plan:
+            1. Use the `hexis_log_meal` tool.
+            2. Pass all required details:
+               - day_name (e.g., "Monday")
+               - date (YYYY-MM-DD)
+               - meal_type (Breakfast, Lunch, Dinner, Snack)
+               - meal_name
+               - calories, protein, carbs, fat
+            
+            The tool handles the complexity of creating a custom food and verifying it.
+            You just need to call it for every meal.
 
         3. HEXIS FOOD OBJECT FORMAT (CRITICAL - use exact format)
-           Each food in the foods array MUST include:
-           - foodId: ID from search_foods result (e.g., "r9uJGlnXRm+hhcwIa7JNUw/639521")
-           - foodName: The food name from search results
-           - quantity: Calculated based on ingredient quantity and portion size
-           - portion: Use the portion from the food details
+           The `foods` array in hexis_verify_meal MUST contain the object returned by hexis_create_custom_food.
+           It must include:
+           - foodId: The ID returned from hexis_create_custom_food
+           - foodName: The name you gave it (e.g., "Lunch - Monday")
+           - quantity: 1.0
+           - portion: {"unit": "serving", "value": 1.0, "name": "serving"}
+           - macros: The macros you set
 
            DO NOT include dataOrigin field - let the API set it automatically.
            DO NOT use simple format like {"name": "...", "calories": ...}
@@ -106,11 +106,9 @@ def create_hexis_integration_agent(
            - Give actionable feedback to user
 
         HEXIS MCP TOOLS:
-        - hexis_get_weekly_plan(start_date, end_date) - Get existing meal IDs
-        - search_foods(query, limit) - Search for existing foods by name
-        - get_multiple_foods(food_ids) - Get details for multiple foods at once
-        - get_food_details(food_id) - Get full details for a single food
-        - hexis_update_verified_meal(meal_id, date, foods, carb_code) - Update meal with foods
+        - hexis_get_weekly_plan(start_date, end_date) - Get existing meal IDs (optional check)
+        - hexis_create_custom_food(...) - Create the custom food for the meal
+        - hexis_verify_meal(...) - Log the meal using the custom food ID
 
         YOUR APPROACH:
 
@@ -127,7 +125,7 @@ def create_hexis_integration_agent(
         STEP 3: Sync Sequentially
         - Process each day in order (Monday → Sunday)
         - Within each day, sync in order (Breakfast → Lunch → Dinner → Snacks)
-        - For each meal: search_foods for ingredients → get details → update_verified_meal
+        - For each meal: hexis_create_custom_food → hexis_verify_meal
         - Capture results (success or failure + error)
 
         STEP 4: Handle Errors

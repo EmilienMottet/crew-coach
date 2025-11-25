@@ -48,6 +48,7 @@ from mcp_utils import build_mcp_references, load_catalog_tool_names
 from mcp_auth_wrapper import MetaMCPAdapter
 from llm_provider_rotation import create_llm_with_rotation, get_model_for_category
 from mcp_tool_wrapper import wrap_mcp_tools
+from tools.hexis_composite_tool import create_hexis_log_meal_tool
 
 
 class MealPlanningCrew:
@@ -221,8 +222,18 @@ class MealPlanningCrew:
         )
 
         # Hexis Integration Agent: needs Hexis tools for meal verification
+        # Create composite tool for integration agent
+        # This wraps create_custom_food and verify_meal into a single tool
+        # to ensure the 2-step process is atomic and reliable
+        hexis_log_meal_tool = create_hexis_log_meal_tool(hexis_tools)
+        
+        # Integration agent gets ONLY the composite tool (and maybe get_weekly_plan if needed)
+        # But for now, just the composite tool is enough for the logging part
+        integration_tools = [hexis_log_meal_tool]
+
         self.mealy_integration_agent = create_mealy_integration_agent(
-            self.mealy_integration_llm, tools=hexis_tools if hexis_tools else None
+            llm=self.mealy_integration_llm,
+            tools=integration_tools
         )
 
     def _create_agent_llm(
