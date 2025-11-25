@@ -82,7 +82,12 @@ VARIETY AND PRACTICALITY RULES:
 - Do not repeat meals already present in PREVIOUS DAYS.
 - Rotate protein sources, cooking methods, and cuisines across the week.
 - Keep preparation realistic (breakfast < 15 min, snack < 10 min, lunch/dinner < 45 min).
-- Use whole foods and avoid highly processed items.
+- Use whole foods and avoid highly processed items (but FROZEN vegetables/fruits are highly encouraged).
+- **INGREDIENT AVAILABILITY (FRANCE):**
+    - Use ONLY ingredients found in standard French supermarkets (Leclerc, Carrefour).
+    - **Prioritize FROZEN vegetables/fruits (Surgelés) where practical for convenience and cost.**
+    - Avoid US-specific items (e.g., "ranch dressing", "Monterey Jack", "collard greens").
+    - Use French culinary terms for cuts of meat/fish where appropriate.
 - Respect dietary note: never use smoked salmon; substitute with fresh fish options.
 - Align timing with training context (reference meal_timing_notes from the target).
 
