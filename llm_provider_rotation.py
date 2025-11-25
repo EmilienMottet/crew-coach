@@ -19,7 +19,7 @@ from crewai.utilities.types import LLMMessage
 from pydantic import BaseModel
 
 
-RATE_LIMIT_KEYWORDS = ("rate limit", "quota", "429", "token_expired", "no quota", "unknown provider", "404", "not found", "model not available")
+RATE_LIMIT_KEYWORDS = ("rate limit", "quota", "429", "token_expired", "no quota", "unknown provider", "404", "not found", "model not available", "auth_unavailable", "no auth available")
 
 # Codex endpoint requires system prompts to be stripped and merged into user message
 # This is specific to the /codex/v1 endpoint optimization for code generation
@@ -43,6 +43,7 @@ COMPLEX_MODELS = (
     "gemini-claude-sonnet-4-5-thinking",
     "gemini-3-pro-high",
     "gpt-5.1-high",
+    "gemini-3-pro-preview",
 )
 
 INTERMEDIATE_MODELS = (
@@ -55,6 +56,7 @@ INTERMEDIATE_MODELS = (
 )
 
 SIMPLE_MODELS = (
+    "gpt-oss-120b-medium",
     "gpt-5.1-low",
     "gemini-2.5-flash",
     "claude-haiku-4-5-20251001",

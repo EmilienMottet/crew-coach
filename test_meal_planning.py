@@ -28,7 +28,7 @@ def _preview_text(value: Any, fallback: str = "N/A") -> str:
 def test_meal_planning():
     """Test the meal planning crew with a sample week."""
     # Use the requested week (user confirmed Hexis has data for this week)
-    week_start_date = "2025-11-17"
+    week_start_date = "2025-11-24"
 
     days_env = os.getenv("MEAL_PLAN_DAYS")
     try:
@@ -55,6 +55,14 @@ def test_meal_planning():
         # Initialize crew
         print("⏳ Initializing crew...\n")
         crew = MealPlanningCrew()
+        
+        # DEBUG: Check API key
+        llm = crew.meal_generation_llm
+        key = getattr(llm, "api_key", "N/A")
+        masked_key = f"{key[:5]}...{key[-5:]}" if key and len(key) > 10 else key
+        print(f"🔑 DEBUG: Meal Generation LLM Key: {masked_key}")
+        print(f"   Base URL: {getattr(llm, 'base_url', 'N/A')}")
+        print(f"   Model: {getattr(llm, 'model', 'N/A')}\n")
 
         # Generate meal plan
         print("⏳ Generating meal plan (this may take 2-10 minutes)...\n")

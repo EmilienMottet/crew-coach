@@ -69,47 +69,47 @@ THEN: Based on the tool results, create this JSON analysis:
 {{
   "week_start_date": "{week_start_date}",
   "week_end_date": "{week_end_date}",
-  "training_load_summary": {{
+    "training_load_summary": {{
     "total_weekly_tss": 0,
     "total_training_time_minutes": 0,
     "training_days": 0,
-    "rest_days": 7,
+    "rest_days": 0,
     "key_sessions": [],
-    "weekly_load_classification": "Rest Week",
-    "ctl_trend": "Stable",
-    "atl_trend": "Stable",
-    "tsb_trend": "Positive"
+    "weekly_load_classification": "...",
+    "ctl_trend": "...",
+    "atl_trend": "...",
+    "tsb_trend": "..."
   }},
   "recovery_status": {{
-    "overall_assessment": "Excellent",
-    "key_observations": ["Rest week planned"],
-    "recovery_recommendations": ["Maintain hydration", "Focus on sleep quality"],
-    "readiness_indicators": ["High energy availability"]
+    "overall_assessment": "...",
+    "key_observations": ["..."],
+    "recovery_recommendations": ["..."],
+    "readiness_indicators": ["..."]
   }},
   "daily_energy_needs": {{
     "YYYY-MM-DD": {{
-      "bmr": 1500,
+      "bmr": 0,
       "exercise_calories": 0,
-      "neat_calories": 500,
-      "tdee": 2000,
-      "hexis_target": 1871,
-      "energy_balance": -129,
+      "neat_calories": 0,
+      "tdee": 0,
+      "hexis_target": 0,
+      "energy_balance": 0,
       "workout_energy_expenditure": 0
     }}
   }},
   "daily_macro_targets": {{
     "YYYY-MM-DD": {{
-      "protein_g": 150,
-      "carbs_g": 158,
-      "fat_g": 71,
-      "calories": 1871,
-      "carbs_per_kg": 2.1,
-      "protein_per_kg": 2.0,
-      "fat_per_kg": 0.9,
+      "protein_g": 0,
+      "carbs_g": 0,
+      "fat_g": 0,
+      "calories": 0,
+      "carbs_per_kg": 0.0,
+      "protein_per_kg": 0.0,
+      "fat_per_kg": 0.0,
       "hexis_source": "HEXIS"
     }}
   }},
-  "nutritional_priorities": ["Maintain protein intake", "Stay hydrated", "Focus on recovery nutrition"]
+  "nutritional_priorities": ["...", "...", "..."]
 }}
 
 Fill in actual data from Hexis where available. Use the tool results to populate real macro targets and energy needs for each day.
