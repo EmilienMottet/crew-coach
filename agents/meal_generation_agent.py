@@ -86,6 +86,7 @@ def create_meal_generation_agent(
         4. PRACTICAL FEASIBILITY (FRENCH CONTEXT)
            - Keep prep time realistic (<45 min for dinner, <15 min for breakfast)
            - Suggest meal prep shortcuts (batch cooking, pre-cut veggies)
+           - **Encourage the use of high-quality FROZEN ingredients (Picard, supermarket brands) for vegetables/fruits to save time and reduce waste.**
            - Use ingredients EASILY found in standard French supermarkets (Leclerc, Carrefour, Intermarché)
            - Avoid obscure US/UK ingredients (e.g., specific hot sauces, ranch, kale varieties not common in France)
            - Provide clear, simple cooking instructions

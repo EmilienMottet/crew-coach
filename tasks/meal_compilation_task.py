@@ -29,10 +29,17 @@ REQUIRED OUTPUT (WeeklyMealPlan schema):
 - Keep the day order identical to the input.
 - Copy meals exactly as provided. Never rename or modify ingredients, macros, or notes.
 - For each day, ensure daily_totals reflect the sum of the four meals. Recalculate if necessary.
-- Build a **smart, categorized shopping list in FRENCH**.
+- Build a **smart, categorized shopping list in FRENCH** optimized for "Drive" (grocery pickup).
     - **Consolidate**: Sum up quantities for identical items (e.g., "200g poulet" + "300g poulet" = "500g poulet").
-    - **Categorize**: Group items by section (Fruits & Légumes, Viande/Poisson, Produits Laitiers, Épicerie, Surgelés, etc.).
-    - **Format**: Use the format "Category: Item (Quantity)" (e.g., "Fruits & Légumes: Bananes (6)", "Viande/Poisson: Blanc de poulet (500g)").
+    - **Categorize**: Group items strictly by these sections:
+        - **Fruits & Légumes** (Fresh produce)
+        - **Viande & Poisson** (Fresh meat and fish)
+        - **Crèmerie & Oeufs** (Dairy, eggs, cheese)
+        - **Épicerie Salée** (Pasta, rice, oils, spices, canned goods)
+        - **Épicerie Sucrée** (Honey, sugar, baking supplies)
+        - **Surgelés** (Frozen items)
+        - **Boissons** (Beverages)
+    - **Format**: Use the format "Category: Item (Quantity)" (e.g., "Fruits & Légumes: Bananes (6)", "Viande & Poisson: Blanc de poulet (500g)").
     - **Units**: **STRICTLY USE METRIC UNITS** (g, kg, ml, l) or standard French units (c.à.s, c.à.c, tranches). **DO NOT USE** oz, lb, cup, tbsp, tsp. Convert them if necessary.
     - **Pantry Staples**: For common spices/oils, just list the name or "Vérifier stock" unless a large specific amount is needed.
 - Provide at least six meal_prep_tips highlighting batch cooking, ingredient reuse, storage, and timing cues throughout the week.

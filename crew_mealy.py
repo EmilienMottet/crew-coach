@@ -785,21 +785,26 @@ class MealPlanningCrew:
         categories = {
             "Fruits & Légumes": [
                 "apple", "banana", "pear", "peach", "berry", "fruit", "spinach", "kale", "lettuce", "tomato", "cucumber", "pepper", "onion", "garlic", "ginger", "potato", "carrot", "broccoli", "cauliflower", "zucchini", "mushroom", "herb", "parsley", "cilantro", "basil", "lime", "lemon", "avocado",
-                "pomme", "banane", "poire", "pêche", "fruit", "épinard", "chou", "laitue", "salade", "tomate", "concombre", "poivron", "oignon", "ail", "gingembre", "patate", "carotte", "brocoli", "chou-fleur", "courgette", "champignon", "herbe", "persil", "coriandre", "basilic", "citron", "avocat", "aubergine", "haricot vert", "poireau", "courge"
+                "pomme", "banane", "poire", "pêche", "fruit", "épinard", "chou", "laitue", "salade", "tomate", "concombre", "poivron", "oignon", "ail", "gingembre", "patate", "carotte", "brocoli", "chou-fleur", "courgette", "champignon", "herbe", "persil", "coriandre", "basilic", "citron", "avocat", "aubergine", "haricot vert", "poireau", "courge", "navet", "radis", "céleri", "fenouil"
             ],
-            "Viande/Poisson": [
+            "Viande & Poisson": [
                 "chicken", "beef", "pork", "lamb", "turkey", "fish", "salmon", "tuna", "cod", "shrimp", "prawn", "steak", "breast", "thigh", "mince", "sausage", "bacon", "egg",
-                "poulet", "boeuf", "porc", "agneau", "dinde", "poisson", "saumon", "thon", "cabillaud", "crevette", "steak", "blanc", "cuisse", "haché", "saucisse", "lardon", "oeuf", "jambon", "viande"
+                "poulet", "boeuf", "porc", "agneau", "dinde", "poisson", "saumon", "thon", "cabillaud", "crevette", "steak", "blanc de poulet", "blanc de dinde", "cuisse", "haché", "saucisse", "lardon", "jambon", "viande", "veau", "canard", "colin", "merlu", "sardine", "maquereau"
             ],
-            "Produits Laitiers": [
-                "milk", "yogurt", "cheese", "butter", "cream", "ghee", "kefir", "whey", "casein",
-                "lait", "yaourt", "fromage", "beurre", "crème", "skyr", "faisselle", "blanc battu", "emmental", "mozzarella", "parmesan"
+            "Crèmerie & Oeufs": [
+                "milk", "yogurt", "cheese", "butter", "cream", "ghee", "kefir", "whey", "casein", "egg",
+                "lait", "yaourt", "fromage", "beurre", "crème", "skyr", "faisselle", "blanc battu", "emmental", "mozzarella", "parmesan", "comté", "gruyère", "chèvre", "brebis", "oeuf"
             ],
-            "Épicerie": [
-                "rice", "pasta", "quinoa", "oat", "couscous", "bread", "flour", "sugar", "honey", "syrup", "oil", "olive", "coconut", "vinegar", "sauce", "soy", "tamari", "spice", "salt", "pepper", "cinnamon", "curry", "paprika", "cumin", "turmeric", "powder", "nut", "seed", "almond", "walnut", "chia", "flax", "peanut", "cashew", "bean", "lentil", "chickpea", "stock", "broth", "can",
-                "riz", "pâte", "quinoa", "avoine", "couscous", "pain", "farine", "sucre", "miel", "sirop", "huile", "olive", "coco", "vinaigre", "sauce", "soja", "épice", "sel", "poivre", "cannelle", "curry", "paprika", "cumin", "curcuma", "poudre", "noix", "graine", "amande", "chia", "lin", "cacahuète", "cajou", "haricot", "lentille", "pois chiche", "bouillon", "conserve", "bocal", "moutarde", "mayonnaise"
+            "Épicerie Salée": [
+                "rice", "pasta", "quinoa", "oat", "couscous", "bread", "flour", "oil", "olive", "coconut", "vinegar", "sauce", "soy", "tamari", "spice", "salt", "pepper", "curry", "paprika", "cumin", "turmeric", "powder", "nut", "seed", "almond", "walnut", "chia", "flax", "peanut", "cashew", "bean", "lentil", "chickpea", "stock", "broth", "can",
+                "riz", "pâte", "quinoa", "avoine", "couscous", "pain", "farine", "huile", "olive", "coco", "vinaigre", "sauce", "soja", "épice", "sel", "poivre", "curry", "paprika", "cumin", "curcuma", "poudre", "noix", "graine", "amande", "chia", "lin", "cacahuète", "cajou", "haricot", "lentille", "pois chiche", "bouillon", "conserve", "bocal", "moutarde", "mayonnaise", "cornichon", "thon en boîte", "sardine en boîte"
             ],
-            "Surgelés": ["frozen", "surgelé", "glace"],
+            "Épicerie Sucrée": [
+                "sugar", "honey", "syrup", "chocolate", "cocoa", "jam", "biscuit", "cookie",
+                "sucre", "miel", "sirop", "chocolat", "cacao", "confiture", "biscuit", "gâteau", "vanille", "cannelle", "levure"
+            ],
+            "Surgelés": ["frozen", "surgelé", "glace", "sorbet"],
+            "Boissons": ["water", "juice", "tea", "coffee", "eau", "jus", "thé", "café", "boisson", "sirop"],
         }
         
         for category, keywords in categories.items():
@@ -902,7 +907,7 @@ class MealPlanningCrew:
         final_list: List[str] = []
         
         # Order categories
-        cat_order = ["Fruits & Légumes", "Viande/Poisson", "Produits Laitiers", "Surgelés", "Épicerie", "Autre"]
+        cat_order = ["Fruits & Légumes", "Viande & Poisson", "Crèmerie & Oeufs", "Surgelés", "Épicerie Salée", "Épicerie Sucrée", "Boissons", "Autre"]
         
         for cat in cat_order:
             if cat in by_category:
