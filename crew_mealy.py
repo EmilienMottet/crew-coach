@@ -47,6 +47,7 @@ from tasks.hexis_analysis_task_fallback import create_hexis_analysis_task_fallba
 from mcp_utils import build_mcp_references, load_catalog_tool_names
 from mcp_auth_wrapper import MetaMCPAdapter
 from llm_provider_rotation import create_llm_with_rotation, get_model_for_category
+from mcp_tool_wrapper import wrap_mcp_tools
 
 
 class MealPlanningCrew:
@@ -164,6 +165,10 @@ class MealPlanningCrew:
                         print(f"{error_msg} (continuing without this server)", file=sys.stderr)
 
             print(f"\n✅ MCP connection complete! Total tools discovered: {len(self.mcp_tools)}\n", file=sys.stderr)
+
+            # Wrap MCP tools with input validation to fix malformed inputs from LLM
+            print("🛡️  Wrapping MCP tools with input validation...\n", file=sys.stderr)
+            self.mcp_tools = wrap_mcp_tools(self.mcp_tools)
         elif require_mcp:
             error_msg = (
                 "\n❌ Error: MCP configuration missing. "
