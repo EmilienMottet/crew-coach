@@ -839,7 +839,7 @@ class MealPlanningCrew:
     def _convert_to_metric(qty: float, unit: str) -> Tuple[float, str]:
         """Convert Imperial units to Metric (approximate for shopping)."""
         unit = unit.lower()
-        
+
         conversions = {
             # Weight
             "oz": (28.35, "g"),
@@ -849,7 +849,7 @@ class MealPlanningCrew:
             "lbs": (453.59, "g"),
             "pound": (453.59, "g"),
             "pounds": (453.59, "g"),
-            
+
             # Volume
             "cup": (240.0, "ml"),
             "cups": (240.0, "ml"),
@@ -863,16 +863,127 @@ class MealPlanningCrew:
             "teaspoons": (1.0, "c.à.c"),
             "fl oz": (29.57, "ml"),
             "fluid ounce": (29.57, "ml"),
-            
+
             # Length (rare but possible)
             "inch": (2.54, "cm"),
             "inches": (2.54, "cm"),
         }
-        
+
         if unit in conversions:
             factor, new_unit = conversions[unit]
             return qty * factor, new_unit
-            
+
+        return qty, unit
+
+    def _normalize_unit_by_category(self, name: str, qty: float, unit: str) -> Tuple[float, str]:
+        """
+        Normalize units based on ingredient category for better consolidation.
+
+        Strategy:
+        - Fruits & Légumes: Prefer pieces (convert g → pieces using average weights)
+        - Viande & Poisson: Always in grams
+        - Crèmerie: Hybrid (pieces for yogurt/eggs, grams for cheese/butter)
+        - Épicerie: Keep as-is (g, ml, c.à.s, c.à.c)
+        """
+        category = self._categorize_item(name)
+        name_lower = name.lower()
+
+        # Average weights for common produce (in grams per piece)
+        produce_weights = {
+            "courgette": 150,
+            "zucchini": 150,
+            "tomate": 120,
+            "tomato": 120,
+            "pomme": 150,
+            "apple": 150,
+            "banane": 120,
+            "banana": 120,
+            "poire": 150,
+            "pear": 150,
+            "orange": 150,
+            "citron": 80,
+            "lemon": 80,
+            "oignon": 120,
+            "onion": 120,
+            "poivron": 150,
+            "pepper": 150,
+            "concombre": 300,
+            "cucumber": 300,
+            "carotte": 80,
+            "carrot": 80,
+            "aubergine": 250,
+            "eggplant": 250,
+            "avocat": 150,
+            "avocado": 150,
+            "patate douce": 200,
+            "sweet potato": 200,
+            "pomme de terre": 150,
+            "potato": 150,
+        }
+
+        # Fruits & Légumes: Convert g → pieces when possible
+        if category == "Fruits & Légumes":
+            # If already in pieces/countable units, keep as-is
+            if unit in ["", "pièce", "pièces", "piece", "pieces"]:
+                return qty, "pièce"
+
+            # If in grams, try to convert to pieces
+            if unit in ["g", "gram", "grams", "gramme", "grammes"]:
+                # Find matching produce weight
+                for produce_name, avg_weight in produce_weights.items():
+                    if produce_name in name_lower:
+                        # Convert grams to pieces
+                        pieces = qty / avg_weight
+                        # Round to nearest 0.5 (half pieces make sense for shopping)
+                        pieces = round(pieces * 2) / 2
+                        return pieces, "pièce"
+
+                # If no match found and quantity is small (< 500g), assume 1 piece
+                if qty <= 500:
+                    return 1.0, "pièce"
+
+            # If in kg, convert to grams first, then try pieces
+            if unit in ["kg", "kilogram", "kilograms", "kilogramme", "kilogrammes"]:
+                gram_qty = qty * 1000
+                # Try conversion again
+                for produce_name, avg_weight in produce_weights.items():
+                    if produce_name in name_lower:
+                        pieces = gram_qty / avg_weight
+                        pieces = round(pieces * 2) / 2
+                        return pieces, "pièce"
+                # Keep in grams if large quantity
+                return gram_qty, "g"
+
+        # Viande & Poisson: Always in grams
+        elif category == "Viande & Poisson":
+            if unit in ["kg", "kilogram", "kilograms", "kilogramme", "kilogrammes"]:
+                return qty * 1000, "g"
+            if unit in ["", "pièce", "pièces", "piece", "pieces"]:
+                # Assume average piece weight (e.g., chicken breast = 200g)
+                return qty * 200, "g"
+            if unit in ["g", "gram", "grams", "gramme", "grammes"]:
+                return qty, "g"
+
+        # Crèmerie & Oeufs: Hybrid
+        elif category == "Crèmerie & Oeufs":
+            if "yaourt" in name_lower or "yogurt" in name_lower or "oeuf" in name_lower or "egg" in name_lower:
+                # Yogurts and eggs in pieces
+                if unit in ["g", "kg"]:
+                    # 1 yogurt ≈ 125g, 1 egg ≈ 60g
+                    avg_weight = 125 if "yaourt" in name_lower or "yogurt" in name_lower else 60
+                    pieces = qty / avg_weight if unit == "g" else (qty * 1000) / avg_weight
+                    return round(pieces), "pièce"
+                return qty, "pièce"
+            else:
+                # Cheese, butter, cream in grams
+                if unit in ["kg", "kilogram", "kilogrammes"]:
+                    return qty * 1000, "g"
+                if unit in ["", "pièce", "pièces"]:
+                    # Assume average cheese portion = 30g
+                    return qty * 30, "g"
+                return qty, unit
+
+        # Default: keep as-is
         return qty, unit
 
     def _build_shopping_list(self, ingredient_counter: Counter[str]) -> List[str]:
@@ -884,19 +995,23 @@ class MealPlanningCrew:
         
         for raw_ingredient, count in ingredient_counter.items():
             qty, unit, name = self._parse_ingredient(raw_ingredient)
-            
+
             # Convert to Metric
             qty, unit = self._convert_to_metric(qty, unit)
-            
+
             # Normalize name (simple singularization)
             if name.endswith("s") and not name.endswith("ss"):
                 name = name[:-1]
-            
+
+            # Normalize units by category for better consolidation
+            # (e.g., convert "150g courgette" + "2 courgettes" → all in pieces)
+            qty, unit = self._normalize_unit_by_category(name, qty, unit)
+
             key = f"{name}_{unit}"
-            
+
             if key not in consolidated:
                 consolidated[key] = {"name": name, "unit": unit, "qty": 0.0}
-            
+
             consolidated[key]["qty"] += qty * count
 
         # Group by category
@@ -914,10 +1029,17 @@ class MealPlanningCrew:
                 qty_str = str(int(qty))
             else:
                 qty_str = f"{qty:.1f}"
-            
-            # Format entry
+
+            # Format entry with proper pluralization
             if unit:
-                entry = f"{name} ({qty_str} {unit})"
+                # Handle piece/pièce pluralization
+                if unit == "pièce":
+                    if qty <= 1:
+                        entry = f"{name} ({qty_str})"  # Just the number, no unit for single piece
+                    else:
+                        entry = f"{name} ({qty_str} pièces)"  # Plural for multiple pieces
+                else:
+                    entry = f"{name} ({qty_str} {unit})"
             else:
                 entry = f"{name} ({qty_str})"
                 

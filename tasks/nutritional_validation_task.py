@@ -204,5 +204,7 @@ def create_nutritional_validation_task(
         description=description,
         agent=agent,
         expected_output="Valid JSON adhering to the NutritionalValidation schema with complete validation assessment",
-        output_json=NutritionalValidation,
+        # DISABLED: output_json causes auth issues with instructor when using custom LLM configs
+        # The JSON is parsed manually in crew_mealy.py instead
+        # output_json=NutritionalValidation,
     )

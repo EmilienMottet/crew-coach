@@ -107,6 +107,18 @@ def patch_litellm_for_tools() -> None:
     # Store original completion function
     _original_completion = litellm.completion
     
+    def _get_tool_name(tool: Dict) -> str:
+        """Extract tool name from either OpenAI or Anthropic format."""
+        if not isinstance(tool, dict):
+            return 'invalid'
+        # OpenAI format: {"type": "function", "function": {"name": "..."}}
+        if 'function' in tool:
+            return tool.get('function', {}).get('name', 'unnamed')
+        # Anthropic format: {"name": "...", "description": "...", "input_schema": {...}}
+        if 'name' in tool:
+            return tool.get('name', 'unnamed')
+        return 'no-name'
+
     @wraps(_original_completion)
     def _completion_with_tool_logging(*args, **kwargs):
         """Wrapper that logs when tools are passed to completion."""
@@ -116,7 +128,7 @@ def patch_litellm_for_tools() -> None:
             print(
                 f"🛠️  LiteLLM completion called with {len(tools)} tools\n"
                 f"   Model: {kwargs.get('model', 'unknown')}\n"
-                f"   Tool names: {[t.get('function', {}).get('name', 'unnamed') for t in tools[:5]]}\n",
+                f"   Tool names: {[_get_tool_name(t) for t in tools[:5]]}\n",
                 file=sys.stderr
             )
         else:
