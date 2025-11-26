@@ -8,7 +8,11 @@ from typing import Any, Dict
 
 from crewai import Task
 
+from observability import setup_structured_logger
 from schemas import ActivityMusicSelection
+
+# Initialize structured logger for music workflow
+logger = setup_structured_logger("crew.music_task")
 
 
 def create_music_task(
@@ -39,6 +43,65 @@ def create_music_task(
         print(f"⚠️  Warning: Failed to parse timestamps: {e}", file=sys.stderr)
         print(f"   Using raw start: {start_iso}\n", file=sys.stderr)
 
+    # Extract Spotify track count for logging
+    spotify_items = spotify_data.get("items", []) if isinstance(spotify_data, dict) else []
+
+    # ENHANCED LOGGING: Log activity timing and Spotify availability
+    logger.info(
+        "Music task initialized",
+        extra={"extra_fields": {
+            "activity_id": activity_id,
+            "start_utc": start_iso,
+            "end_utc": end_iso,
+            "moving_time_seconds": moving_time,
+            "spotify_tracks_available": len(spotify_items),
+        }}
+    )
+
+    # ENHANCED LOGGING: Log Spotify data structure for debugging
+    if spotify_items:
+        # Log first track structure as sample
+        sample_track = spotify_items[0]
+        logger.debug(
+            "Spotify data structure sample",
+            extra={"extra_fields": {
+                "sample_track_keys": list(sample_track.keys()) if isinstance(sample_track, dict) else None,
+                "track_structure": {
+                    "played_at": sample_track.get("played_at") if isinstance(sample_track, dict) else None,
+                    "track_name": sample_track.get("track", {}).get("name") if isinstance(sample_track, dict) else None,
+                    "artist_name": sample_track.get("track", {}).get("artists", [{}])[0].get("name") if isinstance(sample_track, dict) else None,
+                }
+            }}
+        )
+
+        # ENHANCED LOGGING: Track-by-track time window filtering
+        logger.debug(
+            "Track time window analysis",
+            extra={"extra_fields": {
+                "activity_window": {"start": start_iso, "end": end_iso},
+                "tracks_analyzed": [{
+                    "played_at": item.get("played_at"),
+                    "track_name": item.get("track", {}).get("name"),
+                    "artist": item.get("track", {}).get("artists", [{}])[0].get("name"),
+                    "in_window": (
+                        start_iso <= item.get("played_at", "") <= end_iso
+                        if isinstance(item, dict) and item.get("played_at")
+                        else None
+                    )
+                } for item in spotify_items[:10]]  # Log first 10 tracks
+            }}
+        )
+    else:
+        # ENHANCED LOGGING: No Spotify tracks warning
+        logger.warning(
+            "No Spotify tracks available",
+            extra={"extra_fields": {
+                "activity_id": activity_id,
+                "spotify_data_empty": True,
+                "spotify_data_type": type(spotify_data).__name__,
+            }}
+        )
+
     existing_title = generated_content.get("title", "")
     existing_description = generated_content.get("description", "")
 
@@ -48,8 +111,7 @@ def create_music_task(
     model_name = getattr(agent.llm, 'model', '').lower() if hasattr(agent, 'llm') and hasattr(agent.llm, 'model') else ''
     api_base = getattr(agent.llm, 'api_base', '').lower() if hasattr(agent, 'llm') and hasattr(agent.llm, 'api_base') else ''
 
-    # Extract Spotify track count for logging
-    spotify_items = spotify_data.get("items", []) if isinstance(spotify_data, dict) else []
+    # Keep existing stderr logging for backward compatibility
     print(f"🎵 Spotify data from n8n:", file=sys.stderr)
     print(f"   Tracks available: {len(spotify_items)}", file=sys.stderr)
 

@@ -11,6 +11,7 @@ _run() method. To work around this, we create a custom BaseTool wrapper that:
 3. Delegates to the original MCP tool
 """
 
+import asyncio
 import json
 import sys
 from typing import Any, Callable, Dict, List, Optional
@@ -168,6 +169,15 @@ class PermissiveToolWrapper(BaseTool):
         else:
             raise RuntimeError(f"Tool {tool_name} has no _run or run method")
 
+    async def _arun(self, **kwargs: Any) -> Any:
+        """
+        Asynchronously run the tool.
+        
+        Since the underlying validation and original tool might be sync,
+        we offload the execution to a thread to avoid blocking the loop.
+        """
+        return await asyncio.to_thread(self._run, **kwargs)
+
 
 def wrap_mcp_tool(tool: Any) -> Any:
     """
@@ -283,6 +293,12 @@ def wrap_mcp_tool(tool: Any) -> Any:
         tool._run = validated_run
     elif hasattr(tool, 'run'):
         tool.run = validated_run
+
+    # Add async run method if not present, wrapping the sync validated run
+    if not hasattr(tool, '_arun'):
+        async def validated_arun(*args, **kwargs) -> Any:
+            return await asyncio.to_thread(validated_run, *args, **kwargs)
+        tool._arun = validated_arun
 
     # Also wrap the __call__ method if it exists (CrewAI may call this directly)
     if hasattr(tool, '__call__') and callable(tool):

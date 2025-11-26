@@ -77,8 +77,8 @@ def create_hexis_integration_task(
             - day_name
             - date
             - meal_type
-            - meal_name
-            - calories
+            - meal_name (CRITICAL: Use a descriptive name like "Chicken Salad" or "Oatmeal", NOT "Lunch" or "Dinner")
+            - description (Optional: ingredients or details to help search)            - calories
             - protein
             - carbs
             - fat

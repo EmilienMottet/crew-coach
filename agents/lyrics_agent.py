@@ -27,8 +27,9 @@ def create_lyrics_agent(
             "3. Accept songs that are engaged but respectful (e.g., against violence).\n\n"
             "After filtering the songs, you must select a quote to add to the description.\n"
             "CRITICAL RULE: The quote MUST be an actual line from one of the accepted songs.\n"
-            "Do not invent quotes or use generic motivational quotes. If no suitable line is found in the lyrics, do not provide a quote.\n\n"
-            "You will output the final description including the approved music tracks and the selected lyric quote."
+            "Do not invent quotes or use generic motivational quotes. \n"
+            "You should make every effort to find a suitable quote. It doesn't have to be perfect, just interesting or relevant.\n\n"
+            "You will output the final description including **ALL** the approved music tracks and the selected lyric quote."
         ),
         "verbose": True,
         "allow_delegation": False,

@@ -41,6 +41,7 @@ from tasks import (
 from mcp_auth_wrapper import MetaMCPAdapter
 from llm_provider_rotation import create_llm_with_rotation, get_model_for_category
 from mcp_tool_wrapper import wrap_mcp_tools
+from observability import setup_structured_logger
 
 
 class StravaDescriptionCrew:
@@ -49,6 +50,9 @@ class StravaDescriptionCrew:
     def __init__(self):
         """Initialize the crew with LLM and agents."""
         load_dotenv()
+
+        # Initialize structured logger
+        self.logger = setup_structured_logger("crew.main")
 
         # Configure environment variables for LiteLLM/OpenAI
         base_url = os.getenv("OPENAI_API_BASE", "https://ccproxy.emottet.com/v1")
@@ -868,9 +872,95 @@ class StravaDescriptionCrew:
                 print(f"   Pydantic: {music_result.pydantic}", file=sys.stderr)
             print("", file=sys.stderr)
 
-            music_model = self._extract_model_from_output(
-                music_result, ActivityMusicSelection
+            # ENHANCED LOGGING: Log music crew execution completion
+            self.logger.info(
+                "Music crew execution completed",
+                extra={"extra_fields": {
+                    "result_type": type(music_result).__name__,
+                    "has_raw": hasattr(music_result, 'raw'),
+                    "has_json_dict": hasattr(music_result, 'json_dict'),
+                    "has_pydantic": hasattr(music_result, 'pydantic'),
+                }}
             )
+
+            # ENHANCED LOGGING: Log raw output for debugging
+            if hasattr(music_result, 'raw'):
+                raw_output = music_result.raw
+                self.logger.debug(
+                    "Music raw output",
+                    extra={"extra_fields": {
+                        "raw_output": str(raw_output)[:1000],  # First 1000 chars
+                        "raw_output_length": len(str(raw_output)),
+                    }}
+                )
+
+            # ENHANCED LOGGING: Log JSON extraction strategies
+            json_extraction_attempts = []
+
+            # Strategy 1: Direct json_dict
+            if hasattr(music_result, 'json_dict') and music_result.json_dict:
+                json_extraction_attempts.append({
+                    "strategy": "direct_json_dict",
+                    "success": True,
+                    "data_preview": str(music_result.json_dict)[:500],
+                })
+
+            # Strategy 2: Pydantic model
+            if hasattr(music_result, 'pydantic') and music_result.pydantic:
+                json_extraction_attempts.append({
+                    "strategy": "pydantic_model",
+                    "success": True,
+                    "model_type": type(music_result.pydantic).__name__,
+                })
+
+            # Strategy 3: _extract_json_from_text (from raw)
+            if hasattr(music_result, 'raw'):
+                try:
+                    extracted_json = self._extract_json_from_text(str(music_result.raw))
+                    json_extraction_attempts.append({
+                        "strategy": "extract_json_from_text",
+                        "success": extracted_json is not None,
+                        "data_preview": str(extracted_json)[:500] if extracted_json else None,
+                    })
+                except Exception as e:
+                    json_extraction_attempts.append({
+                        "strategy": "extract_json_from_text",
+                        "success": False,
+                        "error": str(e),
+                    })
+
+            self.logger.info(
+                "JSON extraction strategies attempted",
+                extra={"extra_fields": {
+                    "attempts": json_extraction_attempts,
+                    "total_strategies": len(json_extraction_attempts),
+                    "successful_strategies": sum(1 for a in json_extraction_attempts if a.get("success", False)),
+                }}
+            )
+
+            # ENHANCED LOGGING: Log Pydantic validation with detailed error handling
+            music_model = None
+            try:
+                music_model = self._extract_model_from_output(
+                    music_result, ActivityMusicSelection
+                )
+            except ValidationError as e:
+                self.logger.error(
+                    "Pydantic validation failed for music result",
+                    extra={"extra_fields": {
+                        "validation_errors": [
+                            {
+                                "loc": str(err["loc"]),
+                                "msg": err["msg"],
+                                "type": err["type"],
+                            }
+                            for err in e.errors()
+                        ],
+                        "error_count": len(e.errors()),
+                    }},
+                    exc_info=True,
+                )
+                print(f"❌ Pydantic validation failed: {e}\n", file=sys.stderr)
 
             print(f"🔍 Music model extraction result: {music_model is not None}\n", file=sys.stderr)
 
@@ -939,13 +1029,37 @@ class StravaDescriptionCrew:
                     lyrics_model = self._extract_model_from_output(
                         lyrics_result, LyricsVerificationResult
                     )
-                    
+
                     if lyrics_model:
                         print("\n✅ Lyrics verification complete:", file=sys.stderr)
                         print(f"   Accepted: {lyrics_model.accepted_tracks}", file=sys.stderr)
                         print(f"   Rejected: {lyrics_model.rejected_tracks}", file=sys.stderr)
                         print(f"   Quote: \"{lyrics_model.selected_quote}\" ({lyrics_model.quote_source})", file=sys.stderr)
-                        
+
+                        # ENHANCED LOGGING: Log lyrics verification results
+                        self.logger.info(
+                            "Lyrics verification completed",
+                            extra={"extra_fields": {
+                                "accepted_tracks_count": len(lyrics_model.accepted_tracks),
+                                "rejected_tracks_count": len(lyrics_model.rejected_tracks),
+                                "accepted_tracks": lyrics_model.accepted_tracks,
+                                "rejected_tracks": lyrics_model.rejected_tracks,
+                                "quote_selected": lyrics_model.selected_quote,
+                                "quote_source": lyrics_model.quote_source,
+                            }}
+                        )
+
+                        # ENHANCED LOGGING: Log rejection reasoning for each rejected track
+                        if lyrics_model.rejected_tracks:
+                            for track in lyrics_model.rejected_tracks:
+                                self.logger.info(
+                                    f"Track rejected: {track}",
+                                    extra={"extra_fields": {
+                                        "track_name": track,
+                                        "rejection_reason": "political_content",  # Infer from agent backstory
+                                    }}
+                                )
+
                         # Update description with the final version from Lyrics Agent
                         generated_content["description"] = lyrics_model.final_description
                         
