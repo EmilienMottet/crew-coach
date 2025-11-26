@@ -15,6 +15,8 @@ class LogMealSchema(BaseModel):
     protein: float = Field(..., description="Total protein in grams")
     carbs: float = Field(..., description="Total carbs in grams")
     fat: float = Field(..., description="Total fat in grams")
+    hexis_food_id: Optional[str] = Field(None, description="Hexis Food ID if known")
+    data_origin: Optional[str] = Field(None, description="Data origin if known")
 
 class HexisLogMealTool(BaseTool):
     name: str = "hexis_log_meal"
@@ -94,11 +96,9 @@ class HexisLogMealTool(BaseTool):
             if not meal_name_input:
                 return f"Error: 'meal_name' is required. Please provide a descriptive name (e.g., 'Chicken Salad') to avoid generic entries."
 
-            search_query = meal_name_input
+            food_id = kwargs.get("hexis_food_id")
+            data_origin = kwargs.get("data_origin")
             custom_food_name = meal_name_input
-            
-            food_id = None
-            data_origin = None
             
             # Macros from the plan (we will use these to overwrite/verify)
             macros = {
@@ -108,64 +108,69 @@ class HexisLogMealTool(BaseTool):
                 "energy": kwargs.get("calories")
             }
 
-            try:
-                # Search for the food
-                print(f"🔍 Searching Hexis for: '{search_query}'")
-                search_result = self._search_tool.run(query=search_query)
-                if isinstance(search_result, str):
-                    try:
-                        search_result = json.loads(search_result)
-                    except json.JSONDecodeError:
-                        pass # Keep as string if not JSON
+            if food_id:
+                print(f"✅ Using provided Hexis Food ID: {food_id} ({data_origin})")
+            else:
+                search_query = meal_name_input
                 
-                found_food = None
-                if isinstance(search_result, list) and len(search_result) > 0:
-                    found_food = search_result[0]
-                elif isinstance(search_result, dict) and "data" in search_result and isinstance(search_result["data"], list) and len(search_result["data"]) > 0:
-                    found_food = search_result["data"][0]
-                
-                if found_food:
-                    food_id = found_food.get("id")
-                    data_origin = found_food.get("dataOrigin", "CUSTOM_FOOD")
-                    print(f"✅ Found existing food '{found_food.get('name')}' (ID: {food_id})")
-                else:
-                    print(f"⚠️  Food '{search_query}' not found in Hexis.")
+                try:
+                    # Search for the food
+                    print(f"🔍 Searching Hexis for: '{search_query}'")
+                    search_result = self._search_tool.run(query=search_query)
+                    if isinstance(search_result, str):
+                        try:
+                            search_result = json.loads(search_result)
+                        except json.JSONDecodeError:
+                            pass # Keep as string if not JSON
+                    
+                    found_food = None
+                    if isinstance(search_result, list) and len(search_result) > 0:
+                        found_food = search_result[0]
+                    elif isinstance(search_result, dict) and "data" in search_result and isinstance(search_result["data"], list) and len(search_result["data"]) > 0:
+                        found_food = search_result["data"][0]
+                    
+                    if found_food:
+                        food_id = found_food.get("id")
+                        data_origin = found_food.get("dataOrigin", "CUSTOM_FOOD")
+                        print(f"✅ Found existing food '{found_food.get('name')}' (ID: {food_id})")
+                    else:
+                        print(f"⚠️  Food '{search_query}' not found in Hexis.")
+                        # Fallback to custom food creation
+
+                except Exception as e:
+                    print(f"❌ Error searching for food '{search_query}': {e}")
                     # Fallback to custom food creation
 
-            except Exception as e:
-                print(f"❌ Error searching for food '{search_query}': {e}")
-                # Fallback to custom food creation
-
-            if not food_id:
-                # Fallback: Create Custom Food
-                print(f"🍱 Creating custom food: '{custom_food_name}'")
-                try:
-                    create_result = self._create_tool.run(
-                        food_name=custom_food_name,
-                        energy=macros["energy"],
-                        protein=macros["protein"],
-                        carb=macros["carb"],
-                        fat=macros["fat"],
-                        serving_value=1,
-                        serving_unit="serving",
-                        serving_name="serving"
-                    )
-                    
-                    if isinstance(create_result, str):
-                        try:
-                            create_result = json.loads(create_result)
-                        except json.JSONDecodeError:
-                            pass
-                    
-                    if isinstance(create_result, dict) and "id" in create_result:
-                        food_id = create_result["id"]
-                        data_origin = "CUSTOM_FOOD"
-                        print(f"✅ Created custom food '{custom_food_name}' (ID: {food_id})")
-                    else:
-                        return f"Error: Failed to create custom food '{custom_food_name}'. Result: {create_result}"
+                if not food_id:
+                    # Fallback: Create Custom Food
+                    print(f"🍱 Creating custom food: '{custom_food_name}'")
+                    try:
+                        create_result = self._create_tool.run(
+                            food_name=custom_food_name,
+                            energy=macros["energy"],
+                            protein=macros["protein"],
+                            carb=macros["carb"],
+                            fat=macros["fat"],
+                            serving_value=1,
+                            serving_unit="serving",
+                            serving_name="serving"
+                        )
                         
-                except Exception as e:
-                    return f"Error creating custom food '{custom_food_name}': {e}"
+                        if isinstance(create_result, str):
+                            try:
+                                create_result = json.loads(create_result)
+                            except json.JSONDecodeError:
+                                pass
+                        
+                        if isinstance(create_result, dict) and "id" in create_result:
+                            food_id = create_result["id"]
+                            data_origin = "CUSTOM_FOOD"
+                            print(f"✅ Created custom food '{custom_food_name}' (ID: {food_id})")
+                        else:
+                            return f"Error: Failed to create custom food '{custom_food_name}'. Result: {create_result}"
+                            
+                    except Exception as e:
+                        return f"Error creating custom food '{custom_food_name}': {e}"
 
             # 3. Verify Meal (Overwrite)
             food_object = {

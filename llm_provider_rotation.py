@@ -19,7 +19,7 @@ from crewai.utilities.types import LLMMessage
 from pydantic import BaseModel
 
 
-RATE_LIMIT_KEYWORDS = ("rate limit", "quota", "429", "token_expired", "no quota", "unknown provider", "404", "not found", "model not available", "auth_unavailable", "no auth available")
+RATE_LIMIT_KEYWORDS = ("rate limit", "quota", "429", "token_expired", "no quota", "unknown provider", "404", "not found", "model not available", "auth_unavailable", "no auth available", "authorized for use with claude code")
 
 # Codex endpoint requires system prompts to be stripped and merged into user message
 # This is specific to the /codex/v1 endpoint optimization for code generation
@@ -715,30 +715,30 @@ def _provider_label(prefix: str, base_url: str, suffix: str | None = None) -> st
 
 def _clean_json_schema(schema: Any) -> Any:
     """Recursively clean JSON schema to be Claude/OpenAI compatible.
-    
+
     Removes unsupported fields, empty containers, and ensures structure is valid.
     """
     if not isinstance(schema, dict):
         return schema
-    
+
     cleaned = {}
     for key, value in schema.items():
         # Skip unsupported fields
         if key in ['title', 'definitions', '$defs', 'allOf', 'anyOf', 'oneOf']:
             continue
-        
+
         # Skip None values
         if value is None:
             continue
-        
+
         # Skip empty lists
         if isinstance(value, list) and len(value) == 0:
             continue
-        
+
         # Skip empty dicts (except for 'properties' and 'required' which are allowed)
         if isinstance(value, dict) and len(value) == 0 and key not in ['properties', 'required']:
             continue
-        
+
         # Recursively clean nested dicts
         if isinstance(value, dict):
             cleaned[key] = _clean_json_schema(value)
@@ -748,8 +748,57 @@ def _clean_json_schema(schema: Any) -> Any:
         # Keep other values as-is
         else:
             cleaned[key] = value
-    
+
     return cleaned
+
+
+def _requires_anthropic_format(model_name: str) -> bool:
+    """Check if model requires Anthropic-style tool format instead of OpenAI format.
+
+    Some hybrid models (e.g., gemini-claude-sonnet-4-5-thinking) use Anthropic's tool format
+    which expects tools.custom.input_schema instead of tools.function.parameters.
+    """
+    model_lower = model_name.lower()
+
+    # Models that require Anthropic format
+    anthropic_format_models = [
+        "gemini-claude",  # Hybrid Gemini+Claude models
+        "claude-sonnet-4-5-thinking",
+    ]
+
+    return any(hint in model_lower for hint in anthropic_format_models)
+
+
+def _convert_to_anthropic_format(openai_tools: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Convert OpenAI function calling format to Anthropic tool format.
+
+    OpenAI format:
+        {"type": "function", "function": {"name": "...", "description": "...", "parameters": {...}}}
+
+    Anthropic format:
+        {"type": "function", "name": "...", "description": "...", "input_schema": {...}}
+    """
+    anthropic_tools = []
+
+    for tool in openai_tools:
+        if not isinstance(tool, dict) or tool.get("type") != "function":
+            continue
+
+        func = tool.get("function", {})
+
+        # Build Anthropic-style tool
+        anthropic_tool = {
+            "name": func.get("name", ""),
+            "description": func.get("description", ""),
+            "input_schema": func.get("parameters", {
+                "type": "object",
+                "properties": {},
+            })
+        }
+
+        anthropic_tools.append(anthropic_tool)
+
+    return anthropic_tools
 
 
 class RotatingLLM(BaseLLM):
@@ -976,34 +1025,47 @@ class RotatingLLM(BaseLLM):
                         f"      API Base: {provider.api_base}\n",
                         file=sys.stderr
                     )
-                    
+
                     # Ensure messages are in correct format
                     if isinstance(effective_messages, str):
                         formatted_messages = [{"role": "user", "content": effective_messages}]
                     else:
                         formatted_messages = effective_messages
-                    
+
                     # Prepare API key - use Bearer token format (standard for OpenAI-compatible APIs)
                     api_key_str = str(provider.api_key) if provider.api_key else ""
-                    
+
                     # Determine custom_llm_provider based on API base and model
                     # All our endpoints are OpenAI-compatible
                     custom_provider = "openai"
-                    
+
                     # LiteLLM needs provider prefix for some models
                     model_for_litellm = provider.model
                     if "claude" in provider.model.lower() and not provider.model.lower().startswith("openai/"):
                         # Force openai/ prefix to ensure LiteLLM uses OpenAI format for tools
                         # This prevents LiteLLM from trying to adapt tools for Anthropic API
                         model_for_litellm = f"openai/{provider.model}"
-                    
+
+                    # Check if this model requires Anthropic tool format
+                    tools_for_api = tools
+                    if _requires_anthropic_format(provider.model):
+                        print(
+                            f"   🔄 Converting {len(tools)} tools to Anthropic format for {provider.model}\n",
+                            file=sys.stderr
+                        )
+                        tools_for_api = _convert_to_anthropic_format(tools)
+                        print(
+                            f"   ✅ Converted tools: {len(tools_for_api)} tools ready\n",
+                            file=sys.stderr
+                        )
+
                     # Call litellm directly with the necessary parameters
                     import litellm
                     try:
                         litellm_response = litellm.completion(
                             model=model_for_litellm,
                             messages=formatted_messages,
-                            tools=tools,
+                            tools=tools_for_api,
                             api_base=provider.api_base,
                             api_key=api_key_str,
                             custom_llm_provider=custom_provider,
@@ -1149,7 +1211,7 @@ class RotatingLLM(BaseLLM):
                         current_response = litellm.completion(
                             model=model_for_litellm,
                             messages=current_messages,
-                            tools=tools,
+                            tools=tools_for_api,  # Use converted tools (if Anthropic format required)
                             api_base=provider.api_base,
                             api_key=api_key_str,
                             custom_llm_provider=custom_provider,
