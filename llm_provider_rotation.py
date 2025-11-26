@@ -40,27 +40,71 @@ PROMPTLESS_MODEL_HINTS: tuple = ()  # No model-level restrictions on our endpoin
 # Model Categories (from ccproxy /models endpoint)
 # All models use https://ccproxy.emottet.com/v1 endpoint
 COMPLEX_MODELS = (
+    # Thinking models (extended reasoning)
+    "claude-opus-4-5-thinking-high",
+    "claude-opus-4-5-thinking",
+    "claude-sonnet-4-5-thinking",
     "gemini-claude-sonnet-4-5-thinking",
-    "gemini-3-pro-high",
+    "deepseek-r1",
+    "kimi-k2-thinking",
+    "qwen3-235b-a22b-thinking-2507",
+    "tstars2.0",
+    # High-performance models
+    "gpt-5.1-codex-max-xhigh",
+    "gpt-5.1-codex-max-high",
     "gpt-5.1-high",
+    # Premium models
+    "claude-opus-4-5-20251101",
     "gemini-3-pro-preview",
 )
 
 INTERMEDIATE_MODELS = (
-    "claude-sonnet-4.5-copilot",
-    "claude-sonnet-4-5",
+    # Latest Claude models
     "claude-sonnet-4-5-20250929",
+    # GPT models (standard)
+    "gpt-5.1",
+    "gpt-5.1-codex-max",
+    "gpt-5.1-codex",
     "gpt-5.1-medium",
     "gpt-5.1-codex-medium",
+    # Gemini models
     "gemini-2.5-pro",
+    "gemini-3-pro-image-preview",
+    # Chinese models (high-performance)
+    "deepseek-v3.2",
+    "kimi-k2",
+    "minimax-m2",
+    "qwen3-235b",
+    "qwen3-max",
 )
 
 SIMPLE_MODELS = (
-    "gpt-oss-120b-medium",
-    "gpt-5.1-low",
-    "gemini-2.5-flash",
+    # Claude lite models
     "claude-haiku-4-5-20251001",
     "claude-haiku-4.5-copilot",
+    # Gemini lite models
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
+    "gemini-2.5-flash-image",
+    "gemini-2.5-computer-use-preview-10-2025",
+    # GPT low/light models
+    "gpt-5.1-low",
+    "gpt-5.1-codex-low",
+    "gpt-5.1-codex-max-low",
+    "gpt-5.1-codex-max-medium",
+    "gpt-5.1-codex-mini-high",
+    "gpt-5.1-codex-mini-medium",
+    "gpt-5.1-none",
+    # Qwen models
+    "qwen3-32b",
+    "qwen3-coder",
+    "qwen3-coder-flash",
+    "qwen3-coder-plus",
+    "qwen3-max-preview",
+    "qwen3-vl-plus",
+    # Thinking models (low tier)
+    "claude-opus-4-5-thinking-medium",
+    "claude-opus-4-5-thinking-low",
 )
 
 FALLBACK_MODELS = (
