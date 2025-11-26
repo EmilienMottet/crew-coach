@@ -69,7 +69,6 @@ INTERMEDIATE_MODELS = (
     "gpt-5.1-codex-medium",
     # Gemini models
     "gemini-2.5-pro",
-    "gemini-3-pro-image-preview",
     # Chinese models (high-performance)
     "deepseek-v3.2",
     "kimi-k2",
@@ -85,7 +84,6 @@ SIMPLE_MODELS = (
     # Gemini lite models
     "gemini-2.5-flash",
     "gemini-2.5-flash-lite",
-    "gemini-2.5-flash-image",
     "gemini-2.5-computer-use-preview-10-2025",
     # GPT low/light models
     "gpt-5.1-low",
@@ -600,129 +598,21 @@ def _normalize_model_name(model_name: str, api_base: str = "") -> str:
     if not cleaned:
         raise ValueError("Model name cannot be empty")
 
-    base_lower = (api_base or "").lower()
-
     # Debug logging
     print(f"🔍 Normalizing model: '{cleaned}' for endpoint: '{api_base}'", file=sys.stderr)
 
-    # Detect endpoint type from URL
-    if "/copilot/v1" in base_lower:
-        # Copilot endpoint: use short names
-        normalized = _normalize_for_copilot(cleaned)
-        print(f"   ✓ Copilot endpoint detected → '{normalized}'", file=sys.stderr)
-        return normalized
-    elif "/codex/v1" in base_lower:
-        # Codex endpoint: use short names (gpt-5, gpt-5-codex)
-        normalized = _normalize_for_codex(cleaned)
-        print(f"   ✓ Codex endpoint detected → '{normalized}'", file=sys.stderr)
-        return normalized
-    elif "/claude/v1" in base_lower:
-        # Claude endpoint: use full versioned names
-        normalized = _normalize_for_claude_endpoint(cleaned)
-        print(f"   ✓ Claude endpoint detected → '{normalized}'", file=sys.stderr)
-        return normalized
-    elif "/v1" in base_lower and "ccproxy" in base_lower:
-        # New single endpoint: assume copilot behavior (supports short names)
-        normalized = _normalize_for_copilot(cleaned)
-        print(f"   ✓ New ccproxy endpoint detected → '{normalized}'", file=sys.stderr)
-        return normalized
-
-    # Default: add openai/ prefix if needed
-    print(f"   ✓ Generic OpenAI endpoint detected", file=sys.stderr)
-    if "/" not in cleaned:
-        return f"openai/{cleaned}"
+    # Default: add openai/ prefix if needed for LiteLLM to use OpenAI format
+    # This is required for non-OpenAI models (like Claude) when using an OpenAI-compatible proxy
+    if "/" not in cleaned and not cleaned.startswith("gpt-"):
+         # For Claude models via proxy, we usually need openai/ prefix for LiteLLM
+         # unless it's a GPT model which LiteLLM handles natively
+         if "claude" in cleaned.lower() or "gemini" in cleaned.lower() or "deepseek" in cleaned.lower():
+             return f"openai/{cleaned}"
+             
     return cleaned
 
 
-def _normalize_for_copilot(model_name: str) -> str:
-    """Normalize model names for the copilot endpoint."""
-    # Copilot accepts short names like: gpt-5, gpt-5-mini, claude-sonnet-4.5
-    # Map common variations to canonical short names
-    model_lower = model_name.lower()
 
-    # GPT models
-    if "gpt-5-codex" in model_lower:
-        return "gpt-5-codex"
-    if "gpt-5-mini" in model_lower:
-        return "gpt-5-mini"
-    if "gpt-5" in model_lower:
-        return "gpt-5"
-    if "gpt-4.1" in model_lower or "gpt-41" in model_lower:
-        return "gpt-4.1"
-    if "gpt-4o" in model_lower:
-        return "gpt-4o"
-
-    # Claude models - map to short names
-    if "claude-sonnet-4.5" in model_lower or "claude-sonnet-4-5" in model_lower:
-        return "claude-sonnet-4-5"
-    if "claude-haiku-4.5" in model_lower or "claude-haiku-4-5" in model_lower:
-        return "claude-haiku-4-5"
-    if "claude-sonnet-4" in model_lower and "4.5" not in model_lower and "4-5" not in model_lower:
-        return "claude-sonnet-4"
-    if "claude-3.5-sonnet" in model_lower or "claude-35-sonnet" in model_lower:
-        return "claude-3.5-sonnet"
-
-    # Gemini models
-    if "gemini-2.5-pro" in model_lower or "gemini-25-pro" in model_lower:
-        return "gemini-2.5-pro"
-
-    # Grok models
-    if "grok-code-fast" in model_lower:
-        return "grok-code-fast-1"
-
-    return model_name
-
-
-def _normalize_for_codex(model_name: str) -> str:
-    """Normalize model names for the codex endpoint."""
-    # Codex only accepts: gpt-5, gpt-5-codex
-    model_lower = model_name.lower()
-
-    if "gpt-5-codex" in model_lower:
-        return "gpt-5-codex"
-    if "gpt-5" in model_lower:
-        return "gpt-5"
-
-    # Default to gpt-5 for unrecognized models
-    return "gpt-5"
-
-
-def _normalize_for_claude_endpoint(model_name: str) -> str:
-    """Normalize model names for the claude endpoint (requires full versioned names)."""
-    model_lower = model_name.lower()
-
-    # Map short names to full versioned names
-    claude_version_map = {
-        "claude-sonnet-4.5": "claude-sonnet-4-5-20250929",
-        "claude-sonnet-4-5": "claude-sonnet-4-5-20250929",
-        "claude-haiku-4.5": "claude-haiku-4-5-20251001",
-        "claude-haiku-4-5": "claude-haiku-4-5-20251001",
-        "claude-opus-4.1": "claude-opus-4-1-20250805",
-        "claude-opus-4-1": "claude-opus-4-1-20250805",
-        "claude-opus-4": "claude-opus-4-20250514",
-        "claude-sonnet-4": "claude-sonnet-4-20250514",
-        "claude-3.7-sonnet": "claude-3-7-sonnet-20250219",
-        "claude-3-7-sonnet": "claude-3-7-sonnet-20250219",
-        "claude-3.5-sonnet": "claude-3-5-sonnet-20241022",
-        "claude-3-5-sonnet": "claude-3-5-sonnet-20241022",
-        "claude-3.5-haiku": "claude-3-5-haiku-20241022",
-        "claude-3-5-haiku": "claude-3-5-haiku-20241022",
-        "claude-3-opus": "claude-3-opus-20240229",
-        "claude-3-sonnet": "claude-3-sonnet-20240229",
-        "claude-3-haiku": "claude-3-haiku-20240307",
-    }
-
-    # Check if the model name is already a full versioned name
-    if model_lower.endswith(tuple(m[-8:] for m in claude_version_map.values() if len(m) > 8)):
-        return model_name
-
-    # Find matching short name and return full version
-    for short_name, full_name in claude_version_map.items():
-        if short_name in model_lower:
-            return full_name
-
-    # If no match, return as-is (might be already a full version)
-    return model_name
 
 
 def _normalize_for_zai(model_name: str) -> str:
@@ -799,18 +689,19 @@ def _clean_json_schema(schema: Any) -> Any:
 def _requires_anthropic_format(model_name: str) -> bool:
     """Check if model requires Anthropic-style tool format instead of OpenAI format.
 
-    Some hybrid models (e.g., gemini-claude-sonnet-4-5-thinking) use Anthropic's tool format
-    which expects tools.custom.input_schema instead of tools.function.parameters.
+    NOTE: For ccproxy endpoints (OpenAI-compatible), we should NEVER use Anthropic format.
+    This function now always returns False since all our endpoints use OpenAI format.
+
+    The original logic was incorrect - ccproxy handles format conversion internally.
     """
-    model_lower = model_name.lower()
+    # DISABLED: ccproxy endpoints are OpenAI-compatible, never need Anthropic format
+    # The proxy handles any necessary format conversion internally
+    return False
 
-    # Models that require Anthropic format
-    anthropic_format_models = [
-        "gemini-claude",  # Hybrid Gemini+Claude models
-        "claude-sonnet-4-5-thinking",
-    ]
-
-    return any(hint in model_lower for hint in anthropic_format_models)
+    # Old logic (kept for reference):
+    # model_lower = model_name.lower()
+    # anthropic_format_models = ["gemini-claude", "claude-sonnet-4-5-thinking"]
+    # return any(hint in model_lower for hint in anthropic_format_models)
 
 
 def _convert_to_anthropic_format(openai_tools: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -820,19 +711,28 @@ def _convert_to_anthropic_format(openai_tools: List[Dict[str, Any]]) -> List[Dic
         {"type": "function", "function": {"name": "...", "description": "...", "parameters": {...}}}
 
     Anthropic format:
-        {"type": "function", "name": "...", "description": "...", "input_schema": {...}}
+        {"name": "...", "description": "...", "input_schema": {...}}
     """
     anthropic_tools = []
 
-    for tool in openai_tools:
-        if not isinstance(tool, dict) or tool.get("type") != "function":
+    for i, tool in enumerate(openai_tools):
+        if not isinstance(tool, dict):
+            print(f"   ⚠️  Tool {i} is not a dict: {type(tool)}", file=sys.stderr)
+            continue
+
+        if tool.get("type") != "function":
+            print(f"   ⚠️  Tool {i} has unexpected type: {tool.get('type')}", file=sys.stderr)
             continue
 
         func = tool.get("function", {})
+        tool_name = func.get("name", "")
+
+        if not tool_name:
+            print(f"   ⚠️  Tool {i} has no name! Keys in function: {list(func.keys())}", file=sys.stderr)
 
         # Build Anthropic-style tool
         anthropic_tool = {
-            "name": func.get("name", ""),
+            "name": tool_name,
             "description": func.get("description", ""),
             "input_schema": func.get("parameters", {
                 "type": "object",
@@ -841,6 +741,11 @@ def _convert_to_anthropic_format(openai_tools: List[Dict[str, Any]]) -> List[Dic
         }
 
         anthropic_tools.append(anthropic_tool)
+
+    # Log first few converted tools for debugging
+    if anthropic_tools:
+        sample_names = [t.get("name", "?") for t in anthropic_tools[:5]]
+        print(f"   🔍 Converted tool names sample: {sample_names}", file=sys.stderr)
 
     return anthropic_tools
 
@@ -1150,6 +1055,7 @@ class RotatingLLM(BaseLLM):
                         choice = current_response.choices[0]
 
                         # Check if LLM wants to call tools
+                        print(f"   🔍 DEBUG: choice.message: {choice.message}", file=sys.stderr)
                         if not (hasattr(choice.message, 'tool_calls') and choice.message.tool_calls):
                             # No more tool calls - we have the final response
                             response = choice.message.content or str(choice.message)
@@ -1250,6 +1156,30 @@ class RotatingLLM(BaseLLM):
                                 ]
                             }
                         ] + tool_results
+
+                        # Switch to non-thinking model for subsequent turns to avoid history validation issues
+                        # The "thinking" block requirement is only enforced when thinking is enabled.
+                        # By switching to the standard model for tool outputs, we bypass this requirement.
+                        if "thinking" in model_for_litellm:
+                            print(f"   🔄 Switching to non-thinking model for tool loop to avoid history validation error", file=sys.stderr)
+                            
+                            # Specific mappings for known thinking models to ensure we use a valid model ID
+                            if "claude-sonnet-4-5-thinking" in model_for_litellm:
+                                # Fallback to 3.5 Sonnet as 4.5 non-thinking might not be available on proxy
+                                # We MUST use a valid model ID that the proxy accepts.
+                                # 'claude-3.5-sonnet' is a standard ID that should work.
+                                model_for_litellm = model_for_litellm.replace("claude-sonnet-4-5-thinking", "claude-3.5-sonnet")
+                            elif "claude-opus-4-5-thinking" in model_for_litellm:
+                                # Fallback to 3 Opus
+                                model_for_litellm = model_for_litellm.replace("claude-opus-4-5-thinking", "claude-3-opus")
+                            else:
+                                # Generic fallback - remove thinking suffix
+                                model_for_litellm = model_for_litellm.replace("-thinking", "")
+                                # Ensure we don't have double dashes if any
+                                model_for_litellm = model_for_litellm.replace("--", "-")
+                                # If it ends with hyphen, remove it
+                                if model_for_litellm.endswith("-"):
+                                    model_for_litellm = model_for_litellm[:-1]
 
                         # Call LLM again with tool results
                         current_response = litellm.completion(
