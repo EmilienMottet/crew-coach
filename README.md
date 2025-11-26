@@ -439,6 +439,107 @@ curl -X POST http://192.168.0.141:8181/v1/chat/completions \
 
 Si cela fonctionne, le problème est résolu dans la version actuelle du code.
 
+## 🧪 Tests
+
+Le projet inclut une suite de tests complète pour valider tous les aspects critiques du système.
+
+### Installation des dépendances de test
+
+```bash
+pip install -r requirements-test.txt
+```
+
+### Exécuter les tests
+
+```bash
+# Tous les tests
+pytest tests/
+
+# Tests par priorité
+pytest tests/ -m priority_high    # Tests critiques uniquement
+pytest tests/ -m priority_medium  # Tests moyens uniquement
+pytest tests/ -m priority_low     # Tests basse priorité
+
+# Tests par catégorie
+pytest tests/unit/                # Tests unitaires
+pytest tests/integration/         # Tests d'intégration
+pytest tests/robustness/          # Tests de robustesse
+pytest tests/contract/            # Tests de contrat/schéma
+
+# Tests spécifiques
+pytest tests/unit/test_privacy_agent.py          # Privacy agent uniquement
+pytest tests/unit/test_translation_agent.py      # Translation agent uniquement
+pytest tests/robustness/test_json_parsing.py     # JSON parsing uniquement
+```
+
+### Structure des tests
+
+```
+tests/
+├── conftest.py                  # Fixtures partagées
+├── fixtures/
+│   └── activities.py            # Données de test (activités)
+├── unit/
+│   ├── test_privacy_agent.py    # Tests du privacy agent
+│   └── test_translation_agent.py # Tests du translation agent
+├── integration/
+│   └── test_full_pipeline.py    # Tests du pipeline complet
+├── robustness/
+│   ├── test_json_parsing.py     # Tests de parsing JSON
+│   └── test_mcp_failures.py     # Tests de résilience MCP
+└── contract/
+    └── test_schemas.py          # Tests des schémas Pydantic
+```
+
+### Configuration requise
+
+Les tests nécessitent les variables d'environnement suivantes (définies dans `.env`):
+
+```bash
+OPENAI_API_BASE=https://ccproxy.emottet.com/v1
+OPENAI_API_KEY=your-api-key
+MCP_API_KEY=your-mcp-key
+STRAVA_MCP_SERVER_URL=https://mcp.emottet.com/metamcp/SocialNetworkSport/mcp
+INTERVALS_MCP_SERVER_URL=https://mcp.emottet.com/metamcp/IntervalsIcu/mcp
+```
+
+### Priorités des tests
+
+Les tests sont marqués par priorité:
+
+- **P0 (priority_high)**: Tests critiques pour les fonctionnalités essentielles
+  - Privacy detection (heures de travail)
+  - French translation validation
+  - JSON parsing robustness
+  - Character limits enforcement
+
+- **P1 (priority_medium)**: Tests importants mais non-bloquants
+  - Full pipeline integration
+  - MCP tool functionality
+  - Schema validation
+
+- **P2 (priority_low)**: Tests de complétude et edge cases
+  - MCP connection failures
+  - Malformed input handling
+
+### CI/CD (GitHub Actions)
+
+Les tests sont exécutés automatiquement sur chaque push/PR via GitHub Actions:
+
+- **Matrix testing**: Python 3.10, 3.11, 3.12
+- **Priority-based execution**: Tests P0 en premier
+- **Timeout protection**: 30s par test, 2min globalement
+- **Coverage reporting**: Couverture de code générée
+
+Voir `.github/workflows/tests.yml` pour la configuration complète.
+
+### Notes importantes
+
+- Les tests utilisent les **vraies connexions MCP/LLM** (pas de mocks)
+- Certains tests peuvent être lents (30-60s) car ils appellent le crew complet
+- Les tests de parsing JSON rapides (<1s) ne nécessitent pas de connexions externes
+- Le timeout par défaut est de 30s par test (configurable via `@pytest.mark.timeout(seconds)`)
+
 ## 📚 Documentation CrewAI
 
 - [CrewAI Documentation](https://docs.crewai.com/)

@@ -163,6 +163,12 @@ class MealItem(BaseModel):
     recipe_notes: Optional[str] = Field(
         default=None, description="Optional cooking instructions or tips"
     )
+    hexis_food_id: Optional[str] = Field(
+        default=None, description="Hexis Food ID if sourced from Hexis database"
+    )
+    data_origin: Optional[str] = Field(
+        default=None, description="Data origin (e.g., 'HEXIS_DATABASE') if sourced from Hexis"
+    )
 
     @field_validator('calories', mode='before')
     @classmethod

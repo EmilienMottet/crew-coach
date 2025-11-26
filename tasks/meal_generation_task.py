@@ -71,6 +71,14 @@ MANDATORY OUTPUT STRUCTURE:
 - Return valid JSON that fits the DailyMealPlan schema (day_name, date, meals array, daily_totals, notes optional).
 - Provide exactly FOUR meals in the listed order: Breakfast, Lunch, Afternoon Snack, Dinner.
 - Each meal must include: meal_type, meal_name, description, calories, protein_g, carbs_g, fat_g, preparation_time_min, ingredients (with precise quantities), recipe_notes.
+- **HEXIS INTEGRATION:**
+    - Use the `hexis_get_meal_inspiration` tool to find meals that match the nutritional targets.
+    - IMPORTANT: For `meal_type` argument, ONLY use "MAIN" (for Breakfast, Lunch, Dinner) or "SNACK" (for Snacks). Do NOT use "Breakfast", "Lunch", etc.
+    - If a suitable meal is found in Hexis:
+        - Use the EXACT `name` from Hexis as the `meal_name`.
+        - Populate `hexis_food_id` with the Hexis Food ID.
+        - Populate `data_origin` with the Hexis Data Origin (e.g., "HEXIS_DATABASE", "PASSIO", "USDA").
+    - If no suitable meal is found, generate a custom meal and leave `hexis_food_id` null.
 
 STRICT MACRO ACCURACY:
 - Calories within ±3 percent of the target.

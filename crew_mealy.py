@@ -12,6 +12,7 @@ from collections import Counter
 from datetime import datetime, timedelta
 import pytz
 from typing import Any, Dict, List, Optional, Type
+import json_repair  # Added for robust JSON parsing
 
 from crewai import Crew, LLM, Process
 from crewai.crews.crew_output import CrewOutput
@@ -201,8 +202,8 @@ class MealPlanningCrew:
             print(f"🛠️  Found {len(toolbox_tools)} Toolbox tools\n", file=sys.stderr)
 
         # Create agents with MCP tools
-        # Hexis Analysis Agent: needs Hexis, Intervals.icu, and Toolbox
-        hexis_analysis_tools = hexis_tools + intervals_tools + toolbox_tools
+        # Hexis Analysis Agent: needs Hexis tools only
+        hexis_analysis_tools = hexis_tools
         self.hexis_analysis_agent = create_hexis_analysis_agent(
             self.hexis_analysis_llm, tools=hexis_analysis_tools if hexis_analysis_tools else None
         )
@@ -391,7 +392,13 @@ class MealPlanningCrew:
                             if isinstance(potential, dict):
                                 parsed_raw = potential
                         except json.JSONDecodeError:
-                            continue
+                            # Fallback: Try json_repair for malformed JSON (e.g. unescaped newlines)
+                            try:
+                                potential = json_repair.repair_json(normalized, return_objects=True)
+                                if isinstance(potential, dict):
+                                    parsed_raw = potential
+                            except Exception:
+                                continue
 
                     if parsed_raw is not None:
                         payloads.append(parsed_raw)
