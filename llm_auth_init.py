@@ -4,6 +4,7 @@ This module MUST be imported first to ensure Basic Auth is properly configured
 for all LLM instances, including those created by CrewAI's structured output system.
 """
 import os
+import sys
 from typing import Any, Dict, List, Optional
 
 from dotenv import load_dotenv
@@ -20,15 +21,53 @@ def load_env_with_optional_override() -> None:
 # Load environment immediately while respecting explicit overrides
 load_env_with_optional_override()
 
-# CRITICAL: Disable CrewAI telemetry BEFORE any crewai imports
-# This must be set explicitly because CrewAI initializes OpenTelemetry on import
-os.environ["OTEL_SDK_DISABLED"] = "true"
-os.environ["OTEL_TRACES_EXPORTER"] = "none"
-os.environ["OTEL_METRICS_EXPORTER"] = "none"
-os.environ["OTEL_LOGS_EXPORTER"] = "none"
-# Disable CrewAI telemetry (prevents basic telemetry)
+# ============================================================================
+# CrewAI Telemetry Configuration (Conditional)
+# ============================================================================
+# Configure telemetry BEFORE any crewai imports (CrewAI initializes OTEL on import)
 # Reference: https://docs.crewai.com/en/telemetry
-os.environ["CREWAI_DISABLE_TELEMETRY"] = "true"
+# ============================================================================
+
+enable_telemetry = os.getenv("CREWAI_ENABLE_TELEMETRY", "true").lower() in ("true", "1", "yes")
+
+if enable_telemetry:
+    # Enable OpenTelemetry SDK
+    os.environ["OTEL_SDK_DISABLED"] = "false"
+
+    # Configure OTEL exporters for platform.crewai.com
+    os.environ["OTEL_EXPORTER_OTLP_ENDPOINT"] = os.getenv(
+        "OTEL_EXPORTER_OTLP_ENDPOINT",
+        "https://telemetry.crewai.com"  # Official CrewAI telemetry endpoint
+    )
+    os.environ["OTEL_EXPORTER_OTLP_PROTOCOL"] = os.getenv(
+        "OTEL_EXPORTER_OTLP_PROTOCOL",
+        "grpc"
+    )
+
+    # Set service name for identification on platform
+    os.environ["OTEL_SERVICE_NAME"] = os.getenv(
+        "OTEL_SERVICE_NAME",
+        "strava-description-crew"
+    )
+
+    # Enable all exporters
+    os.environ["OTEL_TRACES_EXPORTER"] = "otlp"
+    os.environ["OTEL_METRICS_EXPORTER"] = "otlp"
+    os.environ["OTEL_LOGS_EXPORTER"] = "otlp"
+
+    # Enable CrewAI telemetry
+    os.environ["CREWAI_DISABLE_TELEMETRY"] = "false"
+
+    print("✅ CrewAI telemetry ENABLED → platform.crewai.com\n", file=sys.stderr)
+else:
+    # Disable all telemetry
+    os.environ["OTEL_SDK_DISABLED"] = "true"
+    os.environ["OTEL_TRACES_EXPORTER"] = "none"
+    os.environ["OTEL_METRICS_EXPORTER"] = "none"
+    os.environ["OTEL_LOGS_EXPORTER"] = "none"
+    os.environ["CREWAI_DISABLE_TELEMETRY"] = "true"
+
+    print("⚠️  CrewAI telemetry DISABLED\n", file=sys.stderr)
 
 
 def initialize_basic_auth() -> str:

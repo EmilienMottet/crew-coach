@@ -121,9 +121,13 @@ class MealPlanningCrew:
             default_key=api_key
         )
 
+        # MEALY_INTEGRATION needs COMPLEX model for reliable tool calling
+        # This agent must call hexis_log_meal multiple times (once per meal: 8-28 calls)
+        # Simple/intermediate models often skip tool calls and generate fake JSON
+        # Complex models (Claude, GPT-4, Gemini Pro) handle sequential tool calls reliably
         self.mealy_integration_llm = self._create_agent_llm(
             agent_name="MEALY_INTEGRATION",
-            default_model=simple_model_name,
+            default_model=complex_model_name,  # Changed from simple to complex
             default_base=base_url,
             default_key=api_key
         )
