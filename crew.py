@@ -23,6 +23,10 @@ from agents import (
     create_privacy_agent,
     create_translation_agent,
     create_lyrics_agent,
+    # Supervisor/Executor/Reviewer pattern for DESCRIPTION
+    create_description_supervisor_agent,
+    create_data_retrieval_executor_agent,
+    create_description_reviewer_agent,
 )
 from schemas import (
     ActivityMusicSelection,
@@ -30,6 +34,9 @@ from schemas import (
     PrivacyAssessment,
     TranslationPayload,
     LyricsVerificationResult,
+    # Supervisor/Executor/Reviewer pattern schemas for DESCRIPTION
+    ActivityDataRetrievalPlan,
+    RawActivityData,
 )
 from tasks import (
     create_description_task,
@@ -37,9 +44,13 @@ from tasks import (
     create_privacy_task,
     create_translation_task,
     create_lyrics_task,
+    # Supervisor/Executor/Reviewer pattern tasks for DESCRIPTION
+    create_description_supervisor_task,
+    create_data_retrieval_executor_task,
+    create_description_reviewer_task,
 )
 from mcp_auth_wrapper import MetaMCPAdapter
-from llm_provider_rotation import create_llm_with_rotation, get_model_for_category
+from llm_provider_rotation import create_llm_with_rotation
 from mcp_tool_wrapper import wrap_mcp_tools
 from observability import setup_structured_logger
 
@@ -58,22 +69,20 @@ class StravaDescriptionCrew:
         base_url = os.getenv("OPENAI_API_BASE", "https://ccproxy.emottet.com/v1")
         base_url = os.getenv("OPENAI_API_BASE", "https://ccproxy.emottet.com/v1")
         
-        # Get default models from categories (3-tier system)
-        default_complex_model = get_model_for_category("complex")
-        default_intermediate_model = get_model_for_category("intermediate")
-        default_simple_model = get_model_for_category("simple")
-
+        # Use category names directly to enable automatic cascade fallback
+        # If a specific model is set via env var, use it instead of the category
+        # This enables: complex → intermediate → simple → fallback cascade on errors
         complex_model_name = os.getenv(
             "OPENAI_COMPLEX_MODEL_NAME",
-            default_complex_model,
+            "complex",  # Use category instead of random model for automatic cascade
         )
         intermediate_model_name = os.getenv(
             "OPENAI_INTERMEDIATE_MODEL_NAME",
-            default_intermediate_model,
+            "intermediate",  # Use category instead of random model
         )
         simple_model_name = os.getenv(
             "OPENAI_SIMPLE_MODEL_NAME",
-            default_simple_model,
+            "simple",  # Use category instead of random model
         )
 
         # Configure authentication - use Bearer token API key
@@ -93,27 +102,32 @@ class StravaDescriptionCrew:
         # All endpoints now support tools - no restrictions needed
 
         # COMPLEXE: Heavy MCP tool usage (Strava, Intervals.icu, Weather, Toolbox)
+        # has_tools=True excludes thinking models that hallucinate tool calls
         self.description_llm = self._create_agent_llm(
             agent_name="DESCRIPTION",
             default_model=complex_model_name,
             default_base=base_url,
             default_key=api_key,
+            has_tools=True,  # Agent uses MCP tools
         )
 
         # INTERMÉDIAIRE: Data analysis (Spotify from n8n)
+        # No tools - analyzes data provided by n8n (thinking models OK)
         self.music_llm = self._create_agent_llm(
             agent_name="MUSIC",
             default_model=intermediate_model_name,
             default_base=base_url,
             default_key=api_key,
+            # has_tools=False (default) - No MCP tools
         )
 
-        # SIMPLE: Pure reasoning agents (no tools)
+        # SIMPLE: Pure reasoning agents (no tools, thinking models OK)
         self.privacy_llm = self._create_agent_llm(
             agent_name="PRIVACY",
             default_model=simple_model_name,
             default_base=base_url,
             default_key=api_key,
+            # has_tools=False (default) - Pure reasoning
         )
 
         self.translation_llm = self._create_agent_llm(
@@ -121,6 +135,7 @@ class StravaDescriptionCrew:
             default_model=simple_model_name,
             default_base=base_url,
             default_key=api_key,
+            # has_tools=False (default) - Pure reasoning
         )
 
         # ═══════════════════════════════════════════════════════════════════════════════
@@ -236,15 +251,71 @@ class StravaDescriptionCrew:
         self.translation_agent = create_translation_agent(self.translation_llm)
 
         # Lyrics Agent: needs Music MCP tools
+        # has_tools=True excludes thinking models that hallucinate tool calls
         self.lyrics_llm = self._create_agent_llm(
             agent_name="LYRICS",
             default_model=intermediate_model_name,
             default_base=base_url,
             default_key=api_key,
+            has_tools=True,  # Agent uses MCP tools
         )
         self.lyrics_agent = create_lyrics_agent(
             self.lyrics_llm,
             tools=music_tools if music_tools else None
+        )
+
+        # ═══════════════════════════════════════════════════════════════════════════════
+        # Supervisor/Executor/Reviewer Pattern for DESCRIPTION
+        # ═══════════════════════════════════════════════════════════════════════════════
+        # Separates reasoning from tool execution to avoid thinking model tool hallucination
+        #
+        # Flow: Supervisor → Executor → Reviewer
+        #   1. Supervisor: Plans data retrieval (NO tools → thinking models OK)
+        #   2. Executor: Executes tool calls (HAS tools → thinking models EXCLUDED)
+        #   3. Reviewer: Creates description from raw data (NO tools → thinking models OK)
+        # ═══════════════════════════════════════════════════════════════════════════════
+
+        # DESCRIPTION_SUPERVISOR: Pure reasoning, plans tool calls (complex)
+        self.description_supervisor_llm = self._create_agent_llm(
+            agent_name="DESCRIPTION_SUPERVISOR",
+            default_model=complex_model_name,
+            default_base=base_url,
+            default_key=api_key,
+            # has_tools=False (default) - Pure reasoning
+        )
+
+        # DATA_RETRIEVAL_EXECUTOR: Executes planned tool calls (simple)
+        # has_tools=True excludes thinking models that hallucinate tool calls
+        self.data_retrieval_executor_llm = self._create_agent_llm(
+            agent_name="DATA_RETRIEVAL_EXECUTOR",
+            default_model=simple_model_name,
+            default_base=base_url,
+            default_key=api_key,
+            has_tools=True,  # Agent uses MCP tools
+        )
+
+        # DESCRIPTION_REVIEWER: Creates description from raw data (intermediate)
+        self.description_reviewer_llm = self._create_agent_llm(
+            agent_name="DESCRIPTION_REVIEWER",
+            default_model=intermediate_model_name,
+            default_base=base_url,
+            default_key=api_key,
+            # has_tools=False (default) - Pure reasoning
+        )
+
+        # Create Supervisor/Executor/Reviewer agents for DESCRIPTION
+        self.description_supervisor_agent = create_description_supervisor_agent(
+            self.description_supervisor_llm
+        )
+
+        # Executor needs Strava + Intervals.icu + Weather + Toolbox tools
+        self.data_retrieval_executor_agent = create_data_retrieval_executor_agent(
+            self.data_retrieval_executor_llm,
+            tools=description_tools if description_tools else None
+        )
+
+        self.description_reviewer_agent = create_description_reviewer_agent(
+            self.description_reviewer_llm
         )
 
     def _create_agent_llm(
@@ -253,6 +324,7 @@ class StravaDescriptionCrew:
         default_model: str,
         default_base: str,
         default_key: str,
+        has_tools: bool = False,
     ) -> LLM:
         """Create an LLM for a specific agent with optional per-agent overrides.
 
@@ -261,9 +333,12 @@ class StravaDescriptionCrew:
         - {AGENT_NAME}_AGENT_API_BASE: API base URL for this agent
         - {AGENT_NAME}_BLACKLISTED_MODELS: Comma-separated list of models to blacklist
 
+        Note: Blacklist handling is now centralized in llm_provider_rotation.py
+        via DEFAULT_AGENT_BLACKLISTS and build_category_cascade().
+
         Args:
             agent_name: Name prefix for env vars (e.g., "DESCRIPTION", "MUSIC")
-            default_model: Fallback model name
+            default_model: Fallback model name (or category like "complex")
             default_base: Fallback API base URL
             default_key: API key to use
 
@@ -273,40 +348,9 @@ class StravaDescriptionCrew:
         # Check for agent-specific overrides
         model_key = f"{agent_name}_AGENT_MODEL"
         base_key = f"{agent_name}_AGENT_API_BASE"
-        blacklist_key = f"{agent_name}_BLACKLISTED_MODELS"
 
         agent_model = os.getenv(model_key, default_model)
         agent_base = os.getenv(base_key, default_base)
-
-        # Get blacklisted models from global and agent-specific sources
-        global_blacklist = os.getenv("GLOBAL_BLACKLISTED_MODELS", "").split(",") if os.getenv("GLOBAL_BLACKLISTED_MODELS") else []
-        agent_blacklist = os.getenv(blacklist_key, "").split(",") if os.getenv(blacklist_key) else []
-
-        # Combine and clean blacklists (agent-specific takes precedence)
-        all_blacklisted = [m.strip() for m in global_blacklist + agent_blacklist if m.strip()]
-
-        # Model blacklist for specific agents (add defaults if needed)
-        if agent_name == "DESCRIPTION" and not agent_blacklist:
-            # Default blacklist for DESCRIPTION to avoid known problematic models
-            default_blacklist = []  # Add specific models if needed
-            if default_blacklist:
-                print(f"🚫 {agent_name} Agent: Using default blacklist for {default_blacklist}", file=sys.stderr)
-                all_blacklisted.extend(default_blacklist)
-
-        # Check if model is blacklisted
-        if agent_model in all_blacklisted:
-            source = "global" if agent_model in global_blacklist else "agent-specific"
-            print(f"⚠️  {agent_name} Agent: Model '{agent_model}' is blacklisted ({source}), using fallback", file=sys.stderr)
-            # Use safer fallback models
-            agent_model = "claude-sonnet-4.5"
-            if "codex" in agent_base.lower():
-                agent_model = "gpt-5-mini"  # Safer alternative for codex endpoint
-
-        # Show blacklist info for transparency
-        if all_blacklisted:
-            print(f"   🚫 Blacklist active: {', '.join(all_blacklisted[:3])}{'...' if len(all_blacklisted) > 3 else ''}", file=sys.stderr)
-
-        # Note: All our endpoints now support function calling - no restrictions needed
 
         # Log configuration for transparency
         endpoint_type = "ccproxy"
@@ -324,11 +368,14 @@ class StravaDescriptionCrew:
             file=sys.stderr,
         )
 
+        # Blacklist handling is now centralized in llm_provider_rotation.py
+        # via DEFAULT_AGENT_BLACKLISTS and build_category_cascade()
         return self._create_llm(
             agent_model,
             agent_base,
             default_key,
             agent_name=agent_name,
+            has_tools=has_tools,
         )
 
     @staticmethod
@@ -337,6 +384,7 @@ class StravaDescriptionCrew:
         api_base: str,
         api_key: str,
         agent_name: str,
+        has_tools: bool = False,
     ) -> LLM:
         """Instantiate an LLM with provider rotation support when enabled."""
 
@@ -345,6 +393,7 @@ class StravaDescriptionCrew:
             model_name=model_name,
             api_base=api_base,
             api_key=api_key,
+            has_tools=has_tools,
         )
 
     @staticmethod
@@ -768,39 +817,143 @@ class StravaDescriptionCrew:
         # Store activity data for fallback generation
         self.current_activity_data = activity_data
 
-        print("\n🚀 Step 1: Generating activity description...\n", file=sys.stderr)
+        # ═══════════════════════════════════════════════════════════════════════════════
+        # Step 1: Generate Activity Description (Supervisor/Executor/Reviewer Pattern)
+        # ═══════════════════════════════════════════════════════════════════════════════
+        # This pattern separates reasoning from tool execution to prevent thinking model
+        # tool hallucination. The flow is:
+        #   1a. Supervisor: Plans which tools to call (pure reasoning, no tools)
+        #   1b. Executor: Executes the planned tool calls (has tools, simple model)
+        #   1c. Reviewer: Creates description from raw data (pure reasoning, no tools)
+        # ═══════════════════════════════════════════════════════════════════════════════
 
-        description_task = create_description_task(self.description_agent, activity_data)
-        description_crew = Crew(
-            agents=[self.description_agent],
-            tasks=[description_task],
+        print("\n🚀 Step 1a: Planning data retrieval strategy...\n", file=sys.stderr)
+
+        supervisor_task = create_description_supervisor_task(
+            self.description_supervisor_agent,
+            activity_data,
+        )
+        supervisor_crew = Crew(
+            agents=[self.description_supervisor_agent],
+            tasks=[supervisor_task],
             process=Process.sequential,
             verbose=True,
         )
 
-        description_result = description_crew.kickoff()
+        supervisor_result = supervisor_crew.kickoff()
+        retrieval_plan = self._extract_model_from_output(
+            supervisor_result, ActivityDataRetrievalPlan
+        )
+
+        if retrieval_plan is None:
+            raw_supervisor = self._stringify_output(supervisor_result)
+            print(
+                f"\n⚠️  Supervisor returned invalid plan:\n"
+                f"   Raw output (first 500 chars): {raw_supervisor[:500] if raw_supervisor else '(empty)'}\n",
+                file=sys.stderr,
+            )
+            # Fallback: create a minimal retrieval plan
+            object_data = activity_data.get("object_data", {})
+            retrieval_plan = ActivityDataRetrievalPlan(
+                activity_id=str(object_data.get("id", "unknown")),
+                activity_date=object_data.get("start_date_local", "unknown"),
+                activity_type=object_data.get("type", "Run"),
+                tool_calls=[],  # Empty - Executor will use defaults
+                data_focus=["basic_metrics"],
+                description_style="engaging",
+            )
+            print("   Using fallback retrieval plan.\n", file=sys.stderr)
+        else:
+            print(
+                f"\n✅ Retrieval plan created:\n"
+                f"   Activity: {retrieval_plan.activity_id} ({retrieval_plan.activity_type})\n"
+                f"   Tool calls planned: {len(retrieval_plan.tool_calls)}\n"
+                f"   Data focus: {retrieval_plan.data_focus}\n",
+                file=sys.stderr,
+            )
+
+        print("\n🔧 Step 1b: Executing data retrieval...\n", file=sys.stderr)
+
+        executor_task = create_data_retrieval_executor_task(
+            self.data_retrieval_executor_agent,
+            activity_data,
+            retrieval_plan.model_dump(),
+        )
+        executor_crew = Crew(
+            agents=[self.data_retrieval_executor_agent],
+            tasks=[executor_task],
+            process=Process.sequential,
+            verbose=True,
+        )
+
+        executor_result = executor_crew.kickoff()
+        raw_activity_data = self._extract_model_from_output(
+            executor_result, RawActivityData
+        )
+
+        if raw_activity_data is None:
+            raw_executor = self._stringify_output(executor_result)
+            print(
+                f"\n⚠️  Executor returned invalid data:\n"
+                f"   Raw output (first 500 chars): {raw_executor[:500] if raw_executor else '(empty)'}\n",
+                file=sys.stderr,
+            )
+            # Fallback: create minimal raw data from activity_data
+            object_data = activity_data.get("object_data", {})
+            raw_activity_data = RawActivityData(
+                activity_id=str(object_data.get("id", "unknown")),
+                activity_date=object_data.get("start_date_local", "unknown"),
+                activity_type=object_data.get("type", "Run"),
+                tool_results=[],
+                total_calls=0,
+                successful_calls=0,
+                activity_details=object_data,  # Use original Strava data
+            )
+            print("   Using fallback raw data from Strava.\n", file=sys.stderr)
+        else:
+            print(
+                f"\n✅ Data retrieval complete:\n"
+                f"   Activity: {raw_activity_data.activity_id}\n"
+                f"   Tool calls: {raw_activity_data.successful_calls}/{raw_activity_data.total_calls} successful\n",
+                file=sys.stderr,
+            )
+
+        print("\n✍️  Step 1c: Creating activity description...\n", file=sys.stderr)
+
+        reviewer_task = create_description_reviewer_task(
+            self.description_reviewer_agent,
+            activity_data,
+            raw_activity_data.model_dump(),
+        )
+        reviewer_crew = Crew(
+            agents=[self.description_reviewer_agent],
+            tasks=[reviewer_task],
+            process=Process.sequential,
+            verbose=True,
+        )
+
+        reviewer_result = reviewer_crew.kickoff()
         generated_model = self._extract_model_from_output(
-            description_result, GeneratedActivityContent
+            reviewer_result, GeneratedActivityContent
         )
 
         if generated_model is None:
-            raw_summary = self._stringify_output(description_result)
+            raw_summary = self._stringify_output(reviewer_result)
             print(
-                f"\n📦 Raw description crew result:\n"
+                f"\n📦 Raw reviewer result:\n"
                 f"   Raw output (first 500 chars): {raw_summary[:500] if raw_summary else '(empty)'}\n"
-                f"   JSON dict: {description_result.json_dict}\n"
-                f"   Pydantic: {description_result.pydantic}\n",
+                f"   JSON dict: {reviewer_result.json_dict}\n"
+                f"   Pydantic: {reviewer_result.pydantic}\n",
                 file=sys.stderr,
             )
             if not raw_summary:
                 print(
-                    "   ❌ Description agent returned EMPTY output!\n",
+                    "   ❌ Reviewer returned EMPTY output!\n",
                     file=sys.stderr,
                 )
             generated_content = self._default_generated_content(raw_summary)
             print(
-                "\n⚠️  Warning: Description agent returned invalid JSON, using fallback."\
-                "\n",
+                "\n⚠️  Warning: Reviewer returned invalid JSON, using fallback.\n",
                 file=sys.stderr,
             )
         else:

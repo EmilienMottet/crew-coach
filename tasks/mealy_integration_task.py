@@ -67,24 +67,61 @@ def create_hexis_integration_task(
             - Initialize tracking for sync results
 
         3. USE hexis_log_meal TO LOG EACH MEAL
-            
+
+            ⚠️⚠️⚠️ CRITICAL - READ THIS FIRST ⚠️⚠️⚠️
+
+            **validated_ingredients IS MANDATORY** when present in the meal data!
+            If you do NOT pass validated_ingredients, the tool will search for the meal name
+            (e.g., "Greek Yogurt Protein Bowl") which will FAIL because composed recipes
+            don't exist in the Passio database - only individual foods do.
+
+            ❌ WRONG (will fail):
+            hexis_log_meal(
+                meal_type="Breakfast",
+                date="2025-12-04",
+                meal_name="Greek Yogurt Protein Bowl with Nuts",
+                calories=450,
+                protein=25,
+                carbs=55,
+                fat=12
+            )
+            → Error: "No food found for 'Greek Yogurt Protein Bowl with Nuts'"
+
+            ✅ CORRECT (will succeed):
+            hexis_log_meal(
+                meal_type="Breakfast",
+                date="2025-12-04",
+                meal_name="Greek Yogurt Protein Bowl with Nuts",
+                calories=450,
+                protein=25,
+                carbs=55,
+                fat=12,
+                validated_ingredients=[
+                    {{"name": "200g Greek yogurt", "passio_food_id": "abc123", "passio_food_name": "Greek Yogurt"}}
+                ]
+            )
+            → Success: Uses pre-validated Passio ID, skips search
+
             For each day in the meal plan, for each meal:
-            
+
             You MUST call `hexis_log_meal`. You cannot generate the Hexis ID yourself.
             Any ID you invent will be wrong. You MUST get it from the tool.
-            
+
             Call `hexis_log_meal` with:
             - day_name
             - date
             - meal_type
-            - meal_name (CRITICAL: Use a descriptive name like "Chicken Salad" or "Oatmeal", NOT "Lunch" or "Dinner")
-            - description (Optional: ingredients or details to help search)            - calories
+            - meal_name (descriptive name like "Chicken Salad", NOT "Lunch" or "Dinner")
+            - description (ingredients or details to help search if validated_ingredients missing)
+            - calories
             - protein
             - carbs
             - fat
-            
+            - **validated_ingredients** (MANDATORY if present in meal data - copy the entire array!)
+              Format: [{{"name": "120g chicken breast", "passio_food_id": "abc123", "passio_food_name": "Chicken Breast", "quantity_g": 120}}, ...]
+
             The tool will return a success status and the Hexis ID.
-            
+
             Track the result:
             - If successful: Mark sync status as success
             - If failed: Log error message, mark as failed

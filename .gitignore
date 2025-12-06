@@ -52,3 +52,6 @@ logs/
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Runtime state (persistent blacklist)
+.disabled_providers.json

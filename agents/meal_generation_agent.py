@@ -99,6 +99,18 @@ def create_meal_generation_agent(
            - Easily digestible pre-workout meals
            - Recovery-optimized post-workout meals
 
+        6. **INGREDIENT VALIDATION (CRITICAL FOR HEXIS INTEGRATION)**
+           - For EACH main ingredient, use `hexis_search_passio_foods` tool to verify it exists
+           - Search in English OR French (tool supports both languages)
+           - Save the `passio_food_id` and exact `passio_food_name` from the search result
+           - Populate the `validated_ingredients` array with these IDs
+           - This PREVENTS integration failures later - ingredients without Passio IDs cannot be logged to Hexis
+           - Example workflow:
+             1. Plan ingredient: "120g chicken breast"
+             2. Call: hexis_search_passio_foods(query="chicken breast")
+             3. Get result: {id: "abc123", name: "Chicken Breast, raw"}
+             4. Store in validated_ingredients: {name: "120g chicken breast", passio_food_id: "abc123", passio_food_name: "Chicken Breast, raw", quantity_g: 120}
+
         MEAL STRUCTURE YOU FOLLOW:
         - Breakfast: Balanced start, often carb-focused for energy
         - Morning snack: Optional, often fruit or yogurt

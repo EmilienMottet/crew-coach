@@ -80,6 +80,22 @@ MANDATORY OUTPUT STRUCTURE:
         - Populate `data_origin` with the Hexis Data Origin (e.g., "HEXIS_DATABASE", "PASSIO", "USDA").
     - If no suitable meal is found, generate a custom meal and leave `hexis_food_id` null.
 
+**INGREDIENT VALIDATION (CRITICAL - PREVENTS INTEGRATION FAILURES):**
+    - For EACH main ingredient in custom meals, call `hexis_search_passio_foods` to validate it exists.
+    - Search using simple ingredient names (e.g., "chicken breast", "quinoa", "broccoli") in English or French.
+    - For each validated ingredient, populate the `validated_ingredients` array with:
+      ```json
+      {{
+        "name": "120g chicken breast",  // Your recipe quantity + ingredient
+        "passio_food_id": "abc123",     // ID from search result
+        "passio_food_name": "Chicken Breast, raw",  // Exact name from Passio
+        "quantity_g": 120               // Quantity for macro calculation
+      }}
+      ```
+    - If an ingredient is NOT found in Passio, SUBSTITUTE it with a similar ingredient that IS found.
+    - This validation is MANDATORY - meals without validated_ingredients will FAIL during Hexis integration.
+    - Focus on main ingredients (proteins, carbs, fats) - spices/herbs can be omitted from validation.
+
 STRICT MACRO ACCURACY:
 - Calories within ±3 percent of the target.
 - Protein within ±5 g, carbs within ±10 g, fat within ±5 g.

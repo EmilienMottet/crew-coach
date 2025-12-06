@@ -64,6 +64,14 @@ def create_hexis_integration_agent(
 
         2. MEAL INTEGRATION WORKFLOW
 
+            ⚠️ CRITICAL: ALWAYS PASS validated_ingredients WHEN PRESENT! ⚠️
+
+            Each meal in the meal plan may have a `validated_ingredients` array.
+            This array contains pre-validated Passio food IDs from the validation step.
+            If you DO NOT pass this array, the tool will try to search for the meal name
+            (e.g., "Greek Yogurt Protein Bowl") which will FAIL because Passio only has
+            individual foods, not composed recipe names.
+
             STEP 3: LOG EACH MEAL
             For each meal in the plan:
             1. Use the `hexis_log_meal` tool.
@@ -72,22 +80,40 @@ def create_hexis_integration_agent(
                - date (YYYY-MM-DD)
                - meal_type (Breakfast, Lunch, Dinner, Snack)
                - meal_name
+               - description (include ingredient list for fallback search)
                - calories, protein, carbs, fat
-            
-            The tool handles the complexity of creating a custom food and verifying it.
-            You just need to call it for every meal.
+               - **validated_ingredients** (COPY this array from the meal if it exists!)
 
-        3. HEXIS FOOD OBJECT FORMAT (CRITICAL - use exact format)
-           The `foods` array in hexis_verify_meal MUST contain the object returned by hexis_create_custom_food.
-           It must include:
-           - foodId: The ID returned from hexis_create_custom_food
-           - foodName: The name you gave it (e.g., "Lunch - Monday")
-           - quantity: 1.0
-           - portion: {"unit": "serving", "value": 1.0, "name": "serving"}
-           - macros: The macros you set
+            Example of CORRECT tool call:
+            hexis_log_meal(
+                day_name="Monday",
+                date="2025-12-04",
+                meal_type="Breakfast",
+                meal_name="Greek Yogurt Bowl",
+                description="200g Greek yogurt with berries and nuts",
+                calories=450,
+                protein=25,
+                carbs=55,
+                fat=12,
+                validated_ingredients=[
+                    {"name": "200g Greek yogurt", "passio_food_id": "abc123"}
+                ]
+            )
 
-           DO NOT include dataOrigin field - let the API set it automatically.
-           DO NOT use simple format like {"name": "...", "calories": ...}
+            The tool handles the complexity of searching for existing foods (Passio, supports English/French) and verifying them.
+            It DOES NOT create custom foods.
+            You just need to call it for every meal WITH validated_ingredients when available.
+
+            TOOL INPUT FORMAT OPTIONS:
+            - Option A (single meal): Pass a dict with meal parameters including validated_ingredients
+            - Option B (multiple meals): Pass a LIST of dicts for batch processing
+
+            You can log one meal at a time OR all meals for a day in a single call.
+            The wrapper handles both formats automatically.
+
+        3. HEXIS FOOD OBJECT FORMAT (Internal details)
+           The `hexis_log_meal` tool handles the food object creation internally by searching Passio.
+           You do not need to construct the food object manually.
 
         4. ERROR HANDLING
            - Catch and log all errors
@@ -105,10 +131,10 @@ def create_hexis_integration_agent(
            - Summarize overall integration result
            - Give actionable feedback to user
 
-        HEXIS MCP TOOLS:
-        - hexis_get_weekly_plan(start_date, end_date) - Get existing meal IDs (optional check)
-        - hexis_create_custom_food(...) - Create the custom food for the meal
-        - hexis_verify_meal(...) - Log the meal using the custom food ID
+        HEXIS MCP TOOLS (Internal):
+        - hexis_get_weekly_plan(start_date, end_date) - Get existing meal IDs
+        - hexis_search_passio_foods(query) - Search for foods (English/French)
+        - hexis_verify_meal(...) - Log the meal using the found food ID
 
         YOUR APPROACH:
 
@@ -125,7 +151,7 @@ def create_hexis_integration_agent(
         STEP 3: Sync Sequentially
         - Process each day in order (Monday → Sunday)
         - Within each day, sync in order (Breakfast → Lunch → Dinner → Snacks)
-        - For each meal: hexis_create_custom_food → hexis_verify_meal
+        - For each meal: hexis_log_meal (searches Passio → verifies meal)
         - Capture results (success or failure + error)
 
         STEP 4: Handle Errors
