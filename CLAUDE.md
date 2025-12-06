@@ -207,10 +207,13 @@ Strava Description Crew (crew.py) connects to:
         └── ...
 
 Meal Planning Crew (crew_mealy.py) connects to:
-    ├── Food (20 nutrition tools)
+    ├── Food (26 nutrition tools)
     │   ├── hexis__hexis_get_nutrition_trend
     │   ├── hexis__hexis_get_meal_inspiration
-    │   ├── food-data-central__search-foods
+    │   ├── hexis__hexis_search_passio_foods (query, limit) - Primary food search
+    │   ├── hexis__hexis_search_passio_foods_advanced (query, limit, search_brands)
+    │   ├── hexis__hexis_get_passio_food_details (ref_code) - Get full food details
+    │   ├── hexis__hexis_search_passio_barcode (barcode) - Barcode lookup
     │   └── ...
     ├── IntervalsIcu (shared, 9 tools)
     └── Toolbox (shared, 14 tools)
@@ -222,7 +225,8 @@ Meal Planning Crew (crew_mealy.py) connects to:
 - **Spotify**: `spotify__methodName` (camelCase)
 - **OpenWeatherMap**: `OpenWeatherMap__method-name` (PascalCase + kebab-case)
 - **Hexis**: `hexis__hexis_method_name` (all lowercase + snake_case)
-- **Food Data Central**: `food-data-central__method-name` (kebab-case)
+  - **Food Search**: Use `hexis_search_passio_foods` with `limit=5` to avoid context overflow
+  - **IMPORTANT**: Always specify `limit` parameter (default injected: 5). Without limit, API returns 100+ results (~150K chars)
 - **Toolbox**: `Tool__method_name` (varies by tool)
 
 ### MCP Tool Distribution by Agent
@@ -240,20 +244,38 @@ Meal Planning Crew (crew_mealy.py) connects to:
 - **Translation Agent**: No MCP tools (pure reasoning)
 
 **Meal Planning Crew (`crew_mealy.py`):**
-- **Hexis Analysis Agent**: Hexis + Intervals.icu + Toolbox
-  - Analyzes training load from Hexis
-  - Cross-references with Intervals.icu data
-  - Uses time utilities for weekly planning
+
+**HEXIS_ANALYSIS (Supervisor/Executor/Reviewer pattern):**
+- **HEXIS_DATA_SUPERVISOR**: No MCP tools (pure reasoning)
+  - Plans which Hexis tools to call and what data to retrieve
+  - Creates `HexisDataRetrievalPlan` schema
+  - Can use thinking models (no tool calls)
+- **HEXIS_DATA_EXECUTOR**: Hexis tools (`hexis_get_weekly_plan`)
+  - Executes the planned tool calls
+  - Returns raw `RawHexisData` schema
+  - NO thinking models (has_tools=True)
+- **HEXIS_ANALYSIS_REVIEWER**: No MCP tools (pure reasoning)
+  - Analyzes raw data and creates `HexisWeeklyAnalysis`
+  - Can use thinking models (no tool calls)
+
+**MEAL_GENERATION (Supervisor/Executor/Reviewer pattern):**
+- **MEAL_PLANNING_SUPERVISOR**: No MCP tools (pure reasoning)
+  - Designs meals and creates `MealPlanTemplate` schema
+  - Can use thinking models (no tool calls)
+- **INGREDIENT_VALIDATION_EXECUTOR**: `hexis_search_passio_foods`
+  - Validates ingredients via Passio API
+  - Returns `ValidatedIngredientsList` schema
+  - NO thinking models (has_tools=True)
+- **MEAL_RECIPE_REVIEWER**: No MCP tools (pure reasoning)
+  - Calculates macros and finalizes meals
+  - Can use thinking models (no tool calls)
+
+**Other Agents:**
 - **Weekly Structure Agent**: No MCP tools (pure reasoning)
-- **Meal Generation Agent**: Hexis + Food Data Central + Toolbox
-  - Hexis for meal inspiration and recipes
-  - Food Data Central for nutritional data
-  - Toolbox for date calculations
-- **Nutritional Validation Agent**: Food Data Central + Hexis
-  - Validates meal nutritional accuracy
-  - Cross-checks with food databases
-- **Mealy Integration Agent**: Hexis
+- **Nutritional Validation Agent**: No MCP tools (pure reasoning)
+- **Mealy Integration Agent**: Hexis (`hexis_log_meal` composite tool)
   - Integrates with Hexis meal planning system
+  - NO thinking models (has_tools=True)
 
 ### Using mcp-proxy for stdio Clients
 
@@ -353,6 +375,97 @@ Strava Webhook → n8n → crew.py (stdin JSON)
 Final JSON (stdout) → n8n → Update Strava
 ```
 
+### Supervisor/Executor/Reviewer Pattern
+
+**Problem**: Thinking models (e.g., `claude-opus-4-5-thinking-*`) hallucinate tool calls when agents have MCP tools. They simulate ReAct reasoning in their content output while returning `tool_calls=None`, causing the agent to fail.
+
+**Solution**: Separate agents that need tools into a 3-agent pattern:
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  SUPERVISOR (Pure Reasoning)                                        │
+│  - Plans what data/actions are needed                               │
+│  - Creates structured plan (Pydantic schema)                        │
+│  - NO tools → thinking models allowed                               │
+│  - Model tier: complex                                              │
+└─────────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼ (plan schema)
+┌─────────────────────────────────────────────────────────────────────┐
+│  EXECUTOR (Tool Execution Only)                                     │
+│  - Executes tool calls as specified by Supervisor                   │
+│  - Returns raw results (Pydantic schema)                            │
+│  - HAS tools → thinking models EXCLUDED (has_tools=True)            │
+│  - Model tier: simple (fast, reliable tool execution)               │
+└─────────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼ (raw data schema)
+┌─────────────────────────────────────────────────────────────────────┐
+│  REVIEWER (Pure Reasoning)                                          │
+│  - Analyzes raw data from Executor                                  │
+│  - Creates final structured output (Pydantic schema)                │
+│  - NO tools → thinking models allowed                               │
+│  - Model tier: intermediate                                         │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+**Implementation in crew_mealy.py:**
+
+```python
+# LLM creation with has_tools parameter
+self.hexis_data_supervisor_llm = self._create_agent_llm(
+    agent_name="HEXIS_DATA_SUPERVISOR",
+    default_model=complex_model_name,
+    has_tools=False,  # Pure reasoning → thinking models OK
+)
+
+self.hexis_data_executor_llm = self._create_agent_llm(
+    agent_name="HEXIS_DATA_EXECUTOR",
+    default_model=simple_model_name,
+    has_tools=True,  # Has tools → thinking models EXCLUDED
+)
+
+self.hexis_analysis_reviewer_llm = self._create_agent_llm(
+    agent_name="HEXIS_ANALYSIS_REVIEWER",
+    default_model=intermediate_model_name,
+    has_tools=False,  # Pure reasoning → thinking models OK
+)
+```
+
+**Inter-Agent Communication via Pydantic Schemas:**
+
+```python
+# schemas.py defines the data flow contracts
+class HexisDataRetrievalPlan(BaseModel):
+    """SUPERVISOR output → EXECUTOR input"""
+    week_start_date: str
+    week_end_date: str
+    tool_calls: List[HexisToolCall]
+    analysis_focus: List[str]
+
+class RawHexisData(BaseModel):
+    """EXECUTOR output → REVIEWER input"""
+    week_start_date: str
+    tool_results: List[HexisToolResult]
+    weekly_plan_data: Optional[Dict[str, Any]]
+
+class HexisWeeklyAnalysis(BaseModel):
+    """REVIEWER output → Final result"""
+    training_load_summary: TrainingLoadSummary
+    daily_energy_needs: Dict[str, DailyEnergyNeeds]
+    daily_macro_targets: Dict[str, DailyMacroTargets]
+```
+
+**Current Implementations:**
+1. **HEXIS_ANALYSIS**: `hexis_data_supervisor` → `hexis_data_executor` → `hexis_analysis_reviewer`
+2. **MEAL_GENERATION**: `meal_planning_supervisor` → `ingredient_validation_executor` → `meal_recipe_reviewer`
+
+**When to Use This Pattern:**
+- Agent mixes reasoning with tool calls
+- Rate limiting issues (Executors use simple/cheap models)
+- Need to support thinking models for complex reasoning
+- Want to separate concerns for easier debugging
+
 ### MCP Integration (Model Context Protocol)
 
 The Description Agent uses **CrewAI's MCP DSL** to dynamically load tools at runtime:
@@ -428,72 +541,95 @@ curl -X POST https://ccproxy.emottet.com/v1/chat/completions \
 
 ### Provider Rotation and Automatic Disabling
 
-**Automatic Quota Error Handling**:
+**Automatic Quota Error Handling with Persistent Blacklist**:
 
 When a provider reaches its quota or rate limit (HTTP 402/429 or rate limit error), the system automatically:
 1. **Disables the provider** to prevent repeated failed attempts
 2. **Rotates to the next available provider** in the chain
-3. **Shares the disabled state** across all agents (class-level tracking)
-4. **Re-enables automatically** after a configurable TTL
+3. **Persists disabled state** to JSON file (survives process restarts)
+4. **Increments strike count** with exponential backoff TTL
+5. **Resets strikes** after successful call (provider recovers)
+
+**Strike-based TTL Progression (Exponential Backoff)**:
+
+| Strike # | TTL | Description |
+|----------|-----|-------------|
+| 1 | 1 hour | First failure |
+| 2 | 6 hours | Second failure |
+| 3 | 24 hours | Third failure |
+| 4+ | 72 hours | Repeated failures (cap) |
 
 **Configuration**:
 ```bash
 # Enable/disable provider rotation (default: true)
 ENABLE_LLM_PROVIDER_ROTATION=true
 
-# Time-to-live before re-enabling disabled providers
-# Default: 0 = disabled for entire execution, re-enabled on next process start
-# Set to >0 (e.g., 3600) to re-enable after X seconds during the same execution
-PROVIDER_DISABLED_TTL_SECONDS=0
+# Persistent blacklist file (default: .disabled_providers.json)
+DISABLED_PROVIDERS_FILE=.disabled_providers.json
+
+# Base TTL in seconds for strike #1 (default: 3600 = 1 hour)
+# PROVIDER_BASE_TTL_SECONDS=3600
+
+# Maximum TTL cap in seconds (default: 259200 = 72 hours)
+# PROVIDER_MAX_TTL_SECONDS=259200
+
+# Disable persistence (use in-memory only, like old behavior)
+# DISABLE_PERSISTENT_BLACKLIST=false
 
 # Define rotation chain (optional)
-LLM_PROVIDER_ROTATION="fallback1|gpt-5-mini|https://endpoint1.com/v1|OPENAI_API_KEY; fallback2|gpt-5|https://endpoint2.com/v1|OPENAI_API_KEY"
+LLM_PROVIDER_ROTATION="fallback1|gpt-5-mini|https://endpoint1.com/v1|OPENAI_API_KEY"
 ```
 
-**How it works (TTL=0, default)**:
+**Blacklist File Format** (`.disabled_providers.json`):
+```json
+{
+  "version": 1,
+  "providers": {
+    "claude-sonnet-4.5@https://ccproxy.emottet.com/v1": {
+      "disabled_at": 1732900000.0,
+      "strike_count": 2,
+      "last_error": "429 rate limit exceeded",
+      "ttl_seconds": 21600
+    }
+  }
+}
+```
+
+**How it works (Persistent with Strikes)**:
 ```
 Execution 1:
-  Call 1: Primary provider → 429 error → DISABLED (permanent for this execution)
-  Call 2: Primary provider SKIPPED → Fallback used
-  Call 3: Primary provider SKIPPED → Fallback used
+  Call 1: Provider A → 429 error → DISABLED (strike #1, 1h TTL) → Saved to file
+  Call 2: Provider A SKIPPED → Fallback used
 
-Execution 2 (new process):
-  Call 1: Primary provider available again → Try primary first
-```
+Execution 2 (new process, within 1h):
+  Call 1: Provider A SKIPPED (loaded from file) → Fallback used directly
 
-**How it works (TTL>0, e.g., 3600)**:
-```
-Call 1: Primary provider → 429 error → DISABLED for 1 hour → Rotate to fallback
-Call 2: Primary provider SKIPPED (disabled) → Fallback used directly
-Call 3 (after 1h): Primary provider RE-ENABLED automatically
+Execution 3 (after 1h):
+  Call 1: Provider A available again → Try provider A
+  Call 2: Provider A → 429 error → DISABLED (strike #2, 6h TTL) → Saved to file
+
+Execution 4 (same provider succeeds after recovery):
+  Call 1: Provider A → SUCCESS → Strikes reset to 0, removed from blacklist
 ```
 
 **Detected error types**:
 - HTTP status codes: `402` (quota exceeded), `429` (rate limit)
 - Exception classes: `RateLimitError`, `RateLimitException`
 - Error message keywords: `"rate limit"`, `"quota"`, `"429"`
+- Truncated responses (incomplete output)
 
-**Logs (TTL=0, default)**:
+**Logs (Persistent Blacklist)**:
 ```
-🚫 DESCRIPTION: provider primary DISABLED due to quota/rate limit
-   Disabled for the remainder of this execution
-   Will be available again on next execution (next process start)
-   (Configure TTL via PROVIDER_DISABLED_TTL_SECONDS env var, 0 = permanent)
+🚫 Blacklist: provider DISABLED (strike #2)
+   Provider: claude-sonnet-4.5@https://ccproxy.emottet.com/v1
+   Error: 429 rate limit exceeded
+   TTL: 6 hours (until 2024-11-30 02:30:00)
+   Next TTL will be: 24 hours
 
-⏭️  DESCRIPTION: SKIPPING primary (gpt-5-mini)
-   Reason: Provider is temporarily disabled due to quota/rate limit
-```
+⏭️  DESCRIPTION: SKIPPING intermediate:claude-sonnet-4-5-20250929 (claude-sonnet-4-5-20250929)
+   Reason: Disabled (strike #2), 5 hours remaining
 
-**Logs (TTL>0, e.g., 3600)**:
-```
-🚫 DESCRIPTION: provider primary DISABLED due to quota/rate limit
-   Will be re-enabled after 60 minutes
-   (Configure via PROVIDER_DISABLED_TTL_SECONDS env var)
-
-⏭️  DESCRIPTION: SKIPPING primary (gpt-5-mini)
-   Reason: Provider is temporarily disabled due to quota/rate limit
-
-✅ DESCRIPTION: provider primary re-enabled after 60min TTL
+✅ Blacklist: provider claude-sonnet-4.5@... SUCCESS, resetting 2 strike(s)
 ```
 
 **Testing**:
@@ -535,6 +671,10 @@ MCP_SERVER_URL=https://mcp.emottet.com/metamcp/.../mcp?api_key=...
 # MCP Enforcement (default: true)
 # Set to false to allow running without MCP (not recommended for production)
 REQUIRE_MCP=true
+
+# Passio Food Search (optional)
+# Default limit for hexis_search_passio_foods to avoid context overflow
+PASSIO_DEFAULT_LIMIT=5  # default: 5, max recommended: 10
 
 # Privacy Policy (required)
 WORK_START_MORNING=08:30

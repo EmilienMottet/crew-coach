@@ -228,6 +228,20 @@ def patch_crewai_llm_call() -> None:
             
             # Call litellm directly
             try:
+                # Filter out non-serializable and CrewAI-specific kwargs
+                excluded_keys = {'from_agent', 'from_task', 'tools', 'available_functions', 'callbacks', 'response_model'}
+                safe_kwargs = {}
+                for k, v in kwargs.items():
+                    if k in excluded_keys:
+                        continue
+                    # Skip non-JSON-serializable objects
+                    try:
+                        import json
+                        json.dumps(v)
+                        safe_kwargs[k] = v
+                    except (TypeError, ValueError):
+                        continue
+
                 response = litellm.completion(
                     model=self.model,
                     messages=formatted_messages,
@@ -236,9 +250,14 @@ def patch_crewai_llm_call() -> None:
                     api_key=getattr(self, 'api_key', None),
                     drop_params=True,  # Ignore unsupported params
                     max_tokens=32000,  # Increased for weekly meal plans (7 days with full recipes)
-                    **{k: v for k, v in kwargs.items() if k not in ['from_agent', 'from_task', 'tools', 'available_functions']}
+                    **safe_kwargs
                 )
-                
+
+                # Validate response before accessing choices
+                if response is None or not hasattr(response, 'choices') or response.choices is None or len(response.choices) == 0:
+                    print(f"   ❌ Invalid LLM response (no choices), falling back\n", file=sys.stderr)
+                    return _original_call(self, messages, **kwargs)
+
                 # Return the content or function call
                 choice = response.choices[0]
                 if hasattr(choice.message, 'tool_calls') and choice.message.tool_calls:

@@ -11,7 +11,7 @@ import sys
 from collections import Counter
 from datetime import datetime, timedelta
 import pytz
-from typing import Any, Dict, List, Optional, Type
+from typing import Any, Dict, List, Optional, Tuple, Type
 import json_repair  # Added for robust JSON parsing
 
 from crewai import Crew, LLM, Process
@@ -26,6 +26,14 @@ from agents import (
     create_meal_compilation_agent,
     create_nutritional_validation_agent,
     create_mealy_integration_agent,
+    # Supervisor/Executor/Reviewer pattern for MEAL_GENERATION
+    create_meal_planning_supervisor_agent,
+    create_ingredient_validation_executor_agent,
+    create_meal_recipe_reviewer_agent,
+    # Supervisor/Executor/Reviewer pattern for HEXIS_ANALYSIS
+    create_hexis_data_supervisor_agent,
+    create_hexis_data_executor_agent,
+    create_hexis_analysis_reviewer_agent,
 )
 from schemas import (
     HexisWeeklyAnalysis,
@@ -34,6 +42,12 @@ from schemas import (
     WeeklyMealPlan,
     NutritionalValidation,
     MealyIntegrationResult,
+    # Supervisor/Executor/Reviewer inter-agent schemas for MEAL_GENERATION
+    MealPlanTemplate,
+    ValidatedIngredientsList,
+    # Supervisor/Executor/Reviewer inter-agent schemas for HEXIS_ANALYSIS
+    HexisDataRetrievalPlan,
+    RawHexisData,
 )
 from tasks import (
     create_hexis_analysis_task,
@@ -42,13 +56,21 @@ from tasks import (
     create_meal_compilation_task,
     create_nutritional_validation_task,
     create_mealy_integration_task,
+    # Supervisor/Executor/Reviewer pattern for MEAL_GENERATION
+    create_meal_planning_supervisor_task,
+    create_ingredient_validation_executor_task,
+    create_meal_recipe_reviewer_task,
+    # Supervisor/Executor/Reviewer pattern for HEXIS_ANALYSIS
+    create_hexis_data_supervisor_task,
+    create_hexis_data_executor_task,
+    create_hexis_analysis_reviewer_task,
 )
 
 # NOTE: load_catalog_tool_names kept for compatibility but currently unused
 from mcp_utils import build_mcp_references, load_catalog_tool_names
 from mcp_auth_wrapper import MetaMCPAdapter
 from llm_provider_rotation import create_llm_with_rotation, get_model_for_category
-from mcp_tool_wrapper import wrap_mcp_tools
+from mcp_tool_wrapper import wrap_mcp_tools, wrap_mcp_tool
 from tools.hexis_composite_tool import create_hexis_log_meal_tool
 
 
@@ -84,53 +106,124 @@ class MealPlanningCrew:
 
         # Create per-agent LLMs with optional overrides
         # This allows each agent to use a different model/endpoint for cost optimization
-        # COMPLEXE agents (MCP tools + analysis/creativity)
+        # EXECUTOR agents (MCP tools) - has_tools=True excludes thinking models
+        # Thinking models hallucinate tool calls (ReAct in content) instead of using tool_calls
         self.hexis_analysis_llm = self._create_agent_llm(
             agent_name="HEXIS_ANALYSIS",
             default_model=complex_model_name,
             default_base=base_url,
-            default_key=api_key
+            default_key=api_key,
+            has_tools=True,  # Agent uses MCP tools
         )
 
         self.meal_generation_llm = self._create_agent_llm(
             agent_name="MEAL_GENERATION",
             default_model=complex_model_name,
             default_base=base_url,
-            default_key=api_key
+            default_key=api_key,
+            has_tools=True,  # Agent uses MCP tools
         )
 
-        # INTERMÉDIAIRE agents (planning/validation logic)
+        # =====================================================================
+        # Supervisor/Executor/Reviewer pattern for MEAL_GENERATION
+        # Separates reasoning from tool execution to avoid thinking model issues
+        # =====================================================================
+
+        # MEAL_PLANNING_SUPERVISOR: Pure reasoning (no tools) - thinking models OK
+        self.meal_planning_supervisor_llm = self._create_agent_llm(
+            agent_name="MEAL_PLANNING_SUPERVISOR",
+            default_model=complex_model_name,
+            default_base=base_url,
+            default_key=api_key,
+            has_tools=False,  # Pure reasoning - thinking models allowed
+        )
+
+        # INGREDIENT_VALIDATION_EXECUTOR: Tool execution only - NO thinking models
+        self.ingredient_validation_executor_llm = self._create_agent_llm(
+            agent_name="INGREDIENT_VALIDATION_EXECUTOR",
+            default_model=simple_model_name,
+            default_base=base_url,
+            default_key=api_key,
+            has_tools=True,  # Uses hexis_search_passio_foods - NO thinking models
+        )
+
+        # MEAL_RECIPE_REVIEWER: Pure reasoning (no tools) - thinking models OK
+        self.meal_recipe_reviewer_llm = self._create_agent_llm(
+            agent_name="MEAL_RECIPE_REVIEWER",
+            default_model=intermediate_model_name,
+            default_base=base_url,
+            default_key=api_key,
+            has_tools=False,  # Pure reasoning - thinking models allowed
+        )
+
+        # =====================================================================
+        # Supervisor/Executor/Reviewer pattern for HEXIS_ANALYSIS
+        # Separates reasoning from tool execution to avoid thinking model issues
+        # =====================================================================
+
+        # HEXIS_DATA_SUPERVISOR: Pure reasoning (no tools) - thinking models OK
+        self.hexis_data_supervisor_llm = self._create_agent_llm(
+            agent_name="HEXIS_DATA_SUPERVISOR",
+            default_model=complex_model_name,
+            default_base=base_url,
+            default_key=api_key,
+            has_tools=False,  # Pure reasoning - thinking models allowed
+        )
+
+        # HEXIS_DATA_EXECUTOR: Tool execution only - NO thinking models
+        self.hexis_data_executor_llm = self._create_agent_llm(
+            agent_name="HEXIS_DATA_EXECUTOR",
+            default_model=simple_model_name,
+            default_base=base_url,
+            default_key=api_key,
+            has_tools=True,  # Uses hexis_get_weekly_plan - NO thinking models
+        )
+
+        # HEXIS_ANALYSIS_REVIEWER: Pure reasoning (no tools) - thinking models OK
+        self.hexis_analysis_reviewer_llm = self._create_agent_llm(
+            agent_name="HEXIS_ANALYSIS_REVIEWER",
+            default_model=intermediate_model_name,
+            default_base=base_url,
+            default_key=api_key,
+            has_tools=False,  # Pure reasoning - thinking models allowed
+        )
+
+        # SUPERVISOR/REVIEWER agents (pure reasoning, no tools - thinking models OK)
         self.weekly_structure_llm = self._create_agent_llm(
             agent_name="WEEKLY_STRUCTURE",
             default_model=intermediate_model_name,
             default_base=base_url,
-            default_key=api_key
+            default_key=api_key,
+            # has_tools=False (default) - Pure reasoning/planning
         )
 
         self.nutritional_validation_llm = self._create_agent_llm(
             agent_name="NUTRITIONAL_VALIDATION",
             default_model=intermediate_model_name,
             default_base=base_url,
-            default_key=api_key
+            default_key=api_key,
+            # has_tools=False (default) - Pure reasoning/validation
         )
 
-        # SIMPLE agents (JSON aggregation/formatting)
+        # SIMPLE agents (JSON aggregation/formatting, no tools - thinking models OK)
         self.meal_compilation_llm = self._create_agent_llm(
             agent_name="MEAL_COMPILATION",
             default_model=simple_model_name,
             default_base=base_url,
-            default_key=api_key
+            default_key=api_key,
+            # has_tools=False (default) - Pure formatting
         )
 
-        # MEALY_INTEGRATION needs COMPLEX model for reliable tool calling
+        # MEALY_INTEGRATION - EXECUTOR with tools (CRITICAL)
         # This agent must call hexis_log_meal multiple times (once per meal: 8-28 calls)
-        # Simple/intermediate models often skip tool calls and generate fake JSON
-        # Complex models (Claude, GPT-4, Gemini Pro) handle sequential tool calls reliably
+        # has_tools=True excludes thinking models that hallucinate tool calls
+        # Thinking models return tool_calls=None while simulating ReAct in content
         self.mealy_integration_llm = self._create_agent_llm(
             agent_name="MEALY_INTEGRATION",
-            default_model=complex_model_name,  # Changed from simple to complex
+            default_model=complex_model_name,
             default_base=base_url,
-            default_key=api_key
+            default_key=api_key,
+            has_tools=True,  # Agent uses MCP tools - THIS WAS THE BUG
         )
 
         # Initialize MCP adapters with MetaMCP authentication fix
@@ -211,10 +304,72 @@ class MealPlanningCrew:
         # Weekly Structure Agent: no MCP tools needed (pure reasoning)
         self.weekly_structure_agent = create_weekly_structure_agent(self.weekly_structure_llm)
 
-        # Meal Generation Agent: needs all food-related tools
+        # Meal Generation Agent: needs all food-related tools (LEGACY - kept for backwards compatibility)
         meal_generation_tools = hexis_tools + food_data_tools + toolbox_tools
         self.meal_generation_agent = create_meal_generation_agent(
             self.meal_generation_llm, tools=meal_generation_tools if meal_generation_tools else None
+        )
+
+        # =====================================================================
+        # Supervisor/Executor/Reviewer agents for MEAL_GENERATION
+        # This pattern separates reasoning from tool execution
+        # =====================================================================
+
+        # SUPERVISOR: Pure reasoning - designs meals (NO TOOLS)
+        self.meal_planning_supervisor_agent = create_meal_planning_supervisor_agent(
+            self.meal_planning_supervisor_llm
+        )
+
+        # EXECUTOR: Tool execution - validates ingredients (hexis_search_passio_foods)
+        # Only needs the search tool, not all hexis tools
+        passio_search_tool = next(
+            (t for t in hexis_tools if "search_passio" in t.name.lower()),
+            None
+        )
+        executor_tools = [passio_search_tool] if passio_search_tool else []
+        self.ingredient_validation_executor_agent = create_ingredient_validation_executor_agent(
+            self.ingredient_validation_executor_llm,
+            tools=executor_tools if executor_tools else None
+        )
+        if passio_search_tool:
+            print(f"   ✅ Executor agent has hexis_search_passio_foods tool\n", file=sys.stderr)
+        else:
+            print(f"   ⚠️  Executor agent missing hexis_search_passio_foods tool!\n", file=sys.stderr)
+
+        # REVIEWER: Pure reasoning - calculates macros and finalizes (NO TOOLS)
+        self.meal_recipe_reviewer_agent = create_meal_recipe_reviewer_agent(
+            self.meal_recipe_reviewer_llm
+        )
+
+        # =====================================================================
+        # Supervisor/Executor/Reviewer agents for HEXIS_ANALYSIS
+        # This pattern separates reasoning from tool execution
+        # =====================================================================
+
+        # SUPERVISOR: Pure reasoning - plans data retrieval (NO TOOLS)
+        self.hexis_data_supervisor_agent = create_hexis_data_supervisor_agent(
+            self.hexis_data_supervisor_llm
+        )
+
+        # EXECUTOR: Tool execution - retrieves Hexis data (hexis_get_weekly_plan)
+        # Only needs the weekly plan tool
+        hexis_weekly_plan_tool = next(
+            (t for t in hexis_tools if "get_weekly_plan" in t.name.lower()),
+            None
+        )
+        hexis_executor_tools = [hexis_weekly_plan_tool] if hexis_weekly_plan_tool else hexis_tools
+        self.hexis_data_executor_agent = create_hexis_data_executor_agent(
+            self.hexis_data_executor_llm,
+            tools=hexis_executor_tools if hexis_executor_tools else None
+        )
+        if hexis_weekly_plan_tool:
+            print(f"   ✅ HEXIS Executor agent has hexis_get_weekly_plan tool\n", file=sys.stderr)
+        else:
+            print(f"   ⚠️  HEXIS Executor using all Hexis tools (hexis_get_weekly_plan not found)\n", file=sys.stderr)
+
+        # REVIEWER: Pure reasoning - analyzes data and creates final output (NO TOOLS)
+        self.hexis_analysis_reviewer_agent = create_hexis_analysis_reviewer_agent(
+            self.hexis_analysis_reviewer_llm
         )
 
         self.meal_compilation_agent = create_meal_compilation_agent(self.meal_compilation_llm)
@@ -231,7 +386,12 @@ class MealPlanningCrew:
         # This wraps create_custom_food and verify_meal into a single tool
         # to ensure the 2-step process is atomic and reliable
         hexis_log_meal_tool = create_hexis_log_meal_tool(hexis_tools)
-        
+
+        # Wrap composite tool with input validation to handle list inputs from LLM
+        # This is critical: LLMs may pass multiple meals as a list instead of calling once per meal
+        print("🛡️  Wrapping hexis_log_meal composite tool with input validation...\n", file=sys.stderr)
+        hexis_log_meal_tool = wrap_mcp_tool(hexis_log_meal_tool)
+
         # Integration agent gets ONLY the composite tool (and maybe get_weekly_plan if needed)
         # But for now, just the composite tool is enough for the logging part
         integration_tools = [hexis_log_meal_tool]
@@ -247,6 +407,7 @@ class MealPlanningCrew:
         default_model: str,
         default_base: str,
         default_key: str,
+        has_tools: bool = False,
     ) -> LLM:
         """Create an LLM for a specific agent with optional per-agent overrides.
 
@@ -255,11 +416,15 @@ class MealPlanningCrew:
         - {AGENT_NAME}_AGENT_API_BASE: API base URL for this agent
         - {AGENT_NAME}_BLACKLISTED_MODELS: Comma-separated list of models to blacklist
 
+        Note: Blacklist handling is now centralized in llm_provider_rotation.py
+        via DEFAULT_AGENT_BLACKLISTS and build_category_cascade().
+
         Args:
             agent_name: Name prefix for env vars (e.g., "HEXIS_ANALYSIS", "MEAL_GENERATION")
-            default_model: Fallback model name
+            default_model: Fallback model name (or category like "complex")
             default_base: Fallback API base URL
             default_key: API key to use
+            has_tools: If True, exclude thinking models that hallucinate tool calls
 
         Returns:
             Configured LLM instance
@@ -267,39 +432,9 @@ class MealPlanningCrew:
         # Check for agent-specific overrides
         model_key = f"{agent_name}_AGENT_MODEL"
         base_key = f"{agent_name}_AGENT_API_BASE"
-        blacklist_key = f"{agent_name}_BLACKLISTED_MODELS"
 
         agent_model = os.getenv(model_key, default_model)
         agent_base = os.getenv(base_key, default_base)
-
-        # Get blacklisted models from global and agent-specific sources
-        global_blacklist = os.getenv("GLOBAL_BLACKLISTED_MODELS", "").split(",") if os.getenv("GLOBAL_BLACKLISTED_MODELS") else []
-        agent_blacklist = os.getenv(blacklist_key, "").split(",") if os.getenv(blacklist_key) else []
-
-        # Combine and clean blacklists (agent-specific takes precedence)
-        all_blacklisted = [m.strip() for m in global_blacklist + agent_blacklist if m.strip()]
-
-        # Model blacklist for specific agents
-        if agent_name == "HEXIS_ANALYSIS" and not agent_blacklist:
-            # Default blacklist for HEXIS_ANALYSIS to avoid GPT-5 issues
-            default_blacklist = ["gpt-5", "gpt-5-codex"]
-            print(f"🚫 {agent_name} Agent: Using default blacklist for {default_blacklist}", file=sys.stderr)
-            all_blacklisted.extend(default_blacklist)
-
-        # Check if model is blacklisted
-        if agent_model in all_blacklisted:
-            source = "global" if agent_model in global_blacklist else ("default" if agent_name == "HEXIS_ANALYSIS" and not agent_blacklist else "agent-specific")
-            print(f"⚠️  {agent_name} Agent: Model '{agent_model}' is blacklisted ({source}), using fallback", file=sys.stderr)
-            # Use safer fallback models
-            agent_model = "claude-sonnet-4.5"
-            if "codex" in agent_base.lower():
-                agent_model = "gpt-5-mini"  # Safer alternative for codex endpoint
-
-        # Show blacklist info for transparency
-        if all_blacklisted:
-            print(f"   🚫 Blacklist active: {', '.join(all_blacklisted[:3])}{'...' if len(all_blacklisted) > 3 else ''}", file=sys.stderr)
-
-        # Note: All our endpoints now support function calling - no restrictions needed
 
         # Log configuration for transparency
         endpoint_type = "ccproxy"
@@ -317,11 +452,14 @@ class MealPlanningCrew:
             file=sys.stderr,
         )
 
+        # Blacklist handling is now centralized in llm_provider_rotation.py
+        # via DEFAULT_AGENT_BLACKLISTS and build_category_cascade()
         return self._create_llm(
             agent_model,
             agent_base,
             default_key,
             agent_name=agent_name,
+            has_tools=has_tools,
         )
 
     @staticmethod
@@ -330,6 +468,7 @@ class MealPlanningCrew:
         api_base: str,
         api_key: str,
         agent_name: str,
+        has_tools: bool = False,
     ) -> LLM:
         """Instantiate an LLM with provider rotation support when enabled."""
 
@@ -338,15 +477,21 @@ class MealPlanningCrew:
             model_name=model_name,
             api_base=api_base,
             api_key=api_key,
+            has_tools=has_tools,
         )
 
     @staticmethod
     def _clean_json_text(text: str) -> str:
-        """Remove markdown fences and whitespace from JSON text."""
+        """Remove markdown fences, thought blocks, and whitespace from JSON text."""
         import re
         # Remove markdown code fences (anywhere in text, including with leading/trailing whitespace)
         text = re.sub(r'```json\s*\n?', '', text)  # Remove opening fence
         text = re.sub(r'\n?\s*```', '', text)  # Remove closing fence
+        
+        # Remove <thought>...</thought> blocks (common in thinking models)
+        # Use dotall flag to match newlines within the block
+        text = re.sub(r'<thought>.*?</thought>', '', text, flags=re.DOTALL)
+        
         return text.strip()
 
     @staticmethod
@@ -402,6 +547,10 @@ class MealPlanningCrew:
 
                     if parsed_raw is not None:
                         payloads.append(parsed_raw)
+                    else:
+                        # Log failure to parse this candidate
+                        print(f"   ⚠️  Failed to parse candidate JSON: {normalized[:100]}...", file=sys.stderr)
+
             except json.JSONDecodeError:
                 pass
 
@@ -460,13 +609,114 @@ class MealPlanningCrew:
 
         return None
 
+    def _enrich_meal_template_with_targets(
+        self,
+        candidate: Dict[str, Any],
+        daily_target: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Inject target_* fields from daily_target if missing from LLM response.
+
+        This is a fallback mechanism to handle models that omit required fields
+        even when explicitly instructed to include them.
+        """
+        enriched = candidate.copy()
+
+        # Only inject if missing - don't override LLM values
+        if "target_calories" not in enriched:
+            enriched["target_calories"] = int(daily_target.get("calories", 0))
+            print(
+                f"   ℹ️  Injected missing target_calories: {enriched['target_calories']}",
+                file=sys.stderr,
+            )
+        if "target_protein" not in enriched:
+            enriched["target_protein"] = float(
+                daily_target.get("macros", {}).get("protein_g", 0)
+            )
+            print(
+                f"   ℹ️  Injected missing target_protein: {enriched['target_protein']}",
+                file=sys.stderr,
+            )
+        if "target_carbs" not in enriched:
+            enriched["target_carbs"] = float(
+                daily_target.get("macros", {}).get("carbs_g", 0)
+            )
+            print(
+                f"   ℹ️  Injected missing target_carbs: {enriched['target_carbs']}",
+                file=sys.stderr,
+            )
+        if "target_fat" not in enriched:
+            enriched["target_fat"] = float(
+                daily_target.get("macros", {}).get("fat_g", 0)
+            )
+            print(
+                f"   ℹ️  Injected missing target_fat: {enriched['target_fat']}",
+                file=sys.stderr,
+            )
+
+        return enriched
+
+    def _extract_model_with_enrichment(
+        self,
+        crew_output: CrewOutput,
+        model_type: Type[BaseModel],
+        enrichment_data: Optional[Dict[str, Any]] = None,
+    ) -> Optional[BaseModel]:
+        """Extract model from output, optionally enriching MealPlanTemplate with targets.
+
+        Args:
+            crew_output: The CrewAI output to parse
+            model_type: The Pydantic model type to validate against
+            enrichment_data: If provided and model_type is MealPlanTemplate,
+                            inject missing target_* fields from this data
+        """
+        validation_errors = []
+        for idx, candidate in enumerate(self._collect_payload_candidates(crew_output)):
+            try:
+                # Apply enrichment for MealPlanTemplate if data provided
+                if enrichment_data is not None and model_type.__name__ == "MealPlanTemplate":
+                    candidate = self._enrich_meal_template_with_targets(
+                        candidate, enrichment_data
+                    )
+                return model_type.model_validate(candidate)
+            except ValidationError as e:
+                error_summary = {
+                    "candidate_index": idx,
+                    "error_count": len(e.errors()),
+                    "errors": [
+                        {
+                            "field": ".".join(str(loc) for loc in err["loc"]),
+                            "type": err["type"],
+                            "message": err["msg"],
+                        }
+                        for err in e.errors()[:5]
+                    ],
+                }
+                validation_errors.append(error_summary)
+                continue
+
+        if validation_errors:
+            print(
+                f"\n❌ DEBUG: All validation attempts failed:\n{json.dumps(validation_errors, indent=2)}\n",
+                file=sys.stderr,
+            )
+
+        return None
+
     def _generate_daily_meal_plans(
         self,
         nutrition_plan: Dict[str, Any],
         max_days: Optional[int] = None,
         validation_feedback: Optional[Dict[str, Any]] = None,
     ) -> Optional[List[Dict[str, Any]]]:
-        """Generate daily meal plans sequentially to keep tasks focused."""
+        """Generate daily meal plans using Supervisor/Executor/Reviewer pattern.
+
+        The 3-agent pattern separates:
+        1. SUPERVISOR: Pure reasoning - designs meals creatively (thinking models OK)
+        2. EXECUTOR: Tool execution - validates ingredients via Passio API (no thinking models)
+        3. REVIEWER: Pure reasoning - calculates macros and finalizes (thinking models OK)
+
+        This prevents thinking models from hallucinating tool calls.
+        """
         daily_targets = nutrition_plan.get("daily_targets", [])
 
         if not daily_targets:
@@ -502,7 +752,7 @@ class MealPlanningCrew:
             day_name = target.get("day_name", "Unknown day")
             day_date = target.get("date", "?")
             print(
-                f"\n📆 Generating meals for {day_name} ({day_date})...\n",
+                f"\n📆 Generating meals for {day_name} ({day_date}) using Supervisor/Executor/Reviewer pattern...\n",
                 file=sys.stderr,
             )
 
@@ -515,35 +765,187 @@ class MealPlanningCrew:
                     file=sys.stderr,
                 )
 
-                meal_task = create_meal_generation_task(
-                    self.meal_generation_agent,
+                # =================================================================
+                # STEP 1: SUPERVISOR - Design meals (pure reasoning, no tools)
+                # =================================================================
+                print(f"   👨‍🍳 Step 1: Supervisor designing meal plan...", file=sys.stderr)
+
+                # Extract meal_targets from the enriched daily target
+                meal_targets = target.get("meal_targets", [])
+                if not meal_targets:
+                    raise ValueError(
+                        f"Missing meal_targets for {target.get('date')}. "
+                        "Hexis data is required for meal planning."
+                    )
+
+                supervisor_task = create_meal_planning_supervisor_task(
+                    self.meal_planning_supervisor_agent,
                     daily_target=target,
                     weekly_context=nutrition_plan,
                     previous_days=generated_daily_plans,
                     validation_feedback=validation_feedback,
+                    meal_targets=meal_targets,
                 )
-                meal_crew = Crew(
-                    agents=[self.meal_generation_agent],
-                    tasks=[meal_task],
+                supervisor_crew = Crew(
+                    agents=[self.meal_planning_supervisor_agent],
+                    tasks=[supervisor_task],
                     process=Process.sequential,
                     verbose=True,
-                    max_iter=30,  # Increase max iterations to prevent false loop detection
-                    memory=False,  # Disable cache to prevent "reusing same input" errors
+                    max_iter=10,
+                    memory=False,
                 )
 
-                meal_result = meal_crew.kickoff()
-                meal_model = self._extract_model_from_output(meal_result, DailyMealPlan)
+                supervisor_result = supervisor_crew.kickoff()
+                # Use enrichment to inject target_* fields if LLM omits them
+                meal_template_model = self._extract_model_with_enrichment(
+                    supervisor_result, MealPlanTemplate, enrichment_data=target
+                )
+
+                if meal_template_model is None:
+                    print(
+                        f"\n   ⚠️  Supervisor failed to produce valid MealPlanTemplate, retrying...\n",
+                        file=sys.stderr,
+                    )
+                    continue
+
+                meal_template = meal_template_model.model_dump()
+                print(
+                    f"   ✅ Supervisor created template with {len(meal_template.get('meals', []))} meals\n",
+                    file=sys.stderr,
+                )
+
+                # =================================================================
+                # STEP 2: EXECUTOR - Validate ingredients (tool calls only)
+                # =================================================================
+                print(f"   🔍 Step 2: Executor validating ingredients...", file=sys.stderr)
+
+                executor_task = create_ingredient_validation_executor_task(
+                    self.ingredient_validation_executor_agent,
+                    meal_plan_template=meal_template,
+                )
+                executor_crew = Crew(
+                    agents=[self.ingredient_validation_executor_agent],
+                    tasks=[executor_task],
+                    process=Process.sequential,
+                    verbose=True,
+                    max_iter=20,  # Allow multiple tool calls
+                    memory=False,
+                )
+
+                executor_result = executor_crew.kickoff()
+                validated_ingredients_model = self._extract_model_from_output(
+                    executor_result, ValidatedIngredientsList
+                )
+
+                if validated_ingredients_model is None:
+                    print(
+                        f"\n   ⚠️  Executor failed to validate ingredients, using empty validation...\n",
+                        file=sys.stderr,
+                    )
+                    # Create empty validation to allow Reviewer to proceed
+                    validated_ingredients = {
+                        "day_name": meal_template.get("day_name", day_name),
+                        "date": meal_template.get("date", day_date),
+                        "validated_meals": [],
+                        "total_validations": 0,
+                        "successful_validations": 0,
+                        "substitutions_made": 0,
+                    }
+                else:
+                    validated_ingredients = validated_ingredients_model.model_dump()
+                    print(
+                        f"   ✅ Executor validated {validated_ingredients.get('successful_validations', 0)}/{validated_ingredients.get('total_validations', 0)} ingredients\n",
+                        file=sys.stderr,
+                    )
+
+                # =================================================================
+                # STEP 3: REVIEWER - Calculate macros and finalize (pure reasoning)
+                # =================================================================
+                print(f"   📊 Step 3: Reviewer finalizing meal plan...", file=sys.stderr)
+
+                reviewer_task = create_meal_recipe_reviewer_task(
+                    self.meal_recipe_reviewer_agent,
+                    meal_plan_template=meal_template,
+                    validated_ingredients=validated_ingredients,
+                    daily_target=target,
+                )
+                reviewer_crew = Crew(
+                    agents=[self.meal_recipe_reviewer_agent],
+                    tasks=[reviewer_task],
+                    process=Process.sequential,
+                    verbose=True,
+                    max_iter=10,
+                    memory=False,
+                )
+
+                reviewer_result = reviewer_crew.kickoff()
+                meal_model = self._extract_model_from_output(reviewer_result, DailyMealPlan)
 
                 if meal_model is None:
                     print(
-                        f"\n⚠️  {day_name} - Attempt {attempt}: Invalid JSON, retrying\n",
+                        f"\n   ⚠️  Reviewer failed to produce valid DailyMealPlan, retrying...\n",
                         file=sys.stderr,
                     )
                     continue
 
                 daily_plan = meal_model.model_dump()
                 print(
-                    f"\n✅ {day_name} - Attempt {attempt}: Generated {len(daily_plan.get('meals', []))} meals\n",
+                    f"\n✅ {day_name} - Attempt {attempt}: Generated {len(daily_plan.get('meals', []))} meals via Supervisor/Executor/Reviewer\n",
+                    file=sys.stderr,
+                )
+
+                # =================================================================
+                # STEP 4a: Python quantity adjustment (if needed)
+                # =================================================================
+                daily_plan, was_adjusted = self._adjust_ingredient_quantities(daily_plan, target)
+                if was_adjusted:
+                    print(
+                        f"   ✅ Python fine-tuned ingredient quantities",
+                        file=sys.stderr,
+                    )
+
+                # =================================================================
+                # STEP 4b: Per-day macro validation
+                # =================================================================
+                macro_validation = self._validate_daily_macros(daily_plan, target, meal_targets)
+                if not macro_validation["passed"]:
+                    print(
+                        f"\n   ⚠️  Macro validation failed: {macro_validation['reason']}\n",
+                        file=sys.stderr,
+                    )
+                    for issue in macro_validation["issues"][:3]:
+                        print(f"      - {issue}", file=sys.stderr)
+
+                    if attempt < max_attempts:
+                        # Build feedback for next Supervisor attempt
+                        validation_feedback = validation_feedback or {}
+                        python_note = (
+                            "Python already attempted quantity adjustment but macros are still off. "
+                            "The Supervisor MUST design meals with significantly different ingredient choices or portions."
+                        ) if was_adjusted else ""
+
+                        validation_feedback = {
+                            **validation_feedback,
+                            "previous_attempt": attempt,
+                            "macro_issues": macro_validation["issues"],
+                            "adjustments_needed": macro_validation["adjustments"],
+                            "missing_meals": macro_validation["missing_meals"],
+                            "python_adjustment_attempted": was_adjusted,
+                            "critical_instruction": python_note or "Adjust portions as indicated to meet macro targets.",
+                        }
+                        print(
+                            f"\n   🔄 Retrying with macro feedback (Python adjusted: {was_adjusted})...\n",
+                            file=sys.stderr,
+                        )
+                        continue
+                    else:
+                        print(
+                            f"\n   ⚠️  Max attempts reached, accepting plan with issues\n",
+                            file=sys.stderr,
+                        )
+
+                print(
+                    f"\n   ✅ Macro validation passed for {day_name}\n",
                     file=sys.stderr,
                 )
                 break
@@ -562,6 +964,346 @@ class MealPlanningCrew:
             file=sys.stderr,
         )
         return generated_daily_plans
+
+    def _adjust_ingredient_quantities(
+        self,
+        daily_plan: Dict[str, Any],
+        target: Dict[str, Any],
+    ) -> Tuple[Dict[str, Any], bool]:
+        """Post-process meal plan to fine-tune ingredient quantities for macro targets.
+
+        This function adjusts ingredient quantities when the LLM-generated plan
+        exceeds the 10% tolerance threshold. It uses Passio nutritional data
+        (protein_per_100g, carbs_per_100g, fat_per_100g, calories_per_100g)
+        directly from each ingredient's validated data.
+
+        Args:
+            daily_plan: The generated daily meal plan with meals and daily_totals
+            target: The nutritional target for the day with calories and macros
+
+        Returns:
+            Tuple of (adjusted_plan, was_adjusted)
+            - adjusted_plan: Copy of daily_plan with adjusted quantities
+            - was_adjusted: True if any adjustments were made
+        """
+        import copy
+
+        # 1. Extract current and target values
+        daily_totals = daily_plan.get("daily_totals", {})
+        if not daily_totals:
+            return daily_plan, False
+
+        current_protein = daily_totals.get("protein_g", 0)
+        current_carbs = daily_totals.get("carbs_g", 0)
+        current_fat = daily_totals.get("fat_g", 0)
+        current_calories = daily_totals.get("calories", 0)
+
+        target_macros = target.get("macros", {})
+        target_protein = target_macros.get("protein_g", 0)
+        target_carbs = target_macros.get("carbs_g", 0)
+        target_fat = target_macros.get("fat_g", 0)
+        target_calories = target.get("calories", 0)
+
+        # 2. Calculate deltas
+        protein_delta = current_protein - target_protein
+        carbs_delta = current_carbs - target_carbs
+        fat_delta = current_fat - target_fat
+
+        # 3. Check if within 10% tolerance (souple threshold)
+        TOLERANCE = 0.10  # 10% threshold
+        protein_pct = abs(protein_delta) / target_protein if target_protein > 0 else 0
+        carbs_pct = abs(carbs_delta) / target_carbs if target_carbs > 0 else 0
+        fat_pct = abs(fat_delta) / target_fat if target_fat > 0 else 0
+
+        if protein_pct <= TOLERANCE and carbs_pct <= TOLERANCE and fat_pct <= TOLERANCE:
+            return daily_plan, False
+
+        # 4. Create a deep copy and adjust ingredients
+        adjusted_plan = copy.deepcopy(daily_plan)
+        was_adjusted = False
+        adjustment_log = []
+
+        # Find which macro needs the most adjustment
+        max_issue = max(
+            [("protein", protein_delta, protein_pct),
+             ("carbs", carbs_delta, carbs_pct),
+             ("fat", fat_delta, fat_pct)],
+            key=lambda x: x[2]
+        )
+        priority_macro = max_issue[0]
+
+        for meal in adjusted_plan.get("meals", []):
+            if was_adjusted:
+                break  # Only adjust one ingredient per validation cycle
+
+            for ing in meal.get("validated_ingredients", []):
+                if was_adjusted:
+                    break
+
+                ing_name = ing.get("name", "")
+                quantity = ing.get("quantity_g")
+
+                if quantity is None or quantity < 20:  # Skip very small quantities
+                    continue
+
+                # Read Passio macros directly from ingredient schema
+                protein_per_100g = ing.get("protein_per_100g")
+                carbs_per_100g = ing.get("carbs_per_100g")
+                fat_per_100g = ing.get("fat_per_100g")
+                calories_per_100g = ing.get("calories_per_100g")
+
+                # Skip ingredients without Passio nutritional data
+                if protein_per_100g is None and carbs_per_100g is None and fat_per_100g is None:
+                    continue
+
+                # Default to 0 if any macro is missing
+                protein_per_100g = protein_per_100g or 0
+                carbs_per_100g = carbs_per_100g or 0
+                fat_per_100g = fat_per_100g or 0
+                calories_per_100g = calories_per_100g or 0
+
+                # Adjust based on priority macro using Passio data
+                if priority_macro == "protein" and protein_pct > TOLERANCE:
+                    if protein_per_100g >= 10:  # Protein-rich food (>=10g per 100g)
+                        # Calculate how much to adjust
+                        protein_per_g = protein_per_100g / 100
+                        adjustment_g = protein_delta / protein_per_g
+
+                        # Apply adjustment (scale factor)
+                        new_qty = max(20, quantity - adjustment_g)  # Min 20g
+                        if abs(new_qty - quantity) >= 10:  # Only if significant change
+                            ing["adjusted_quantity_g"] = round(new_qty)
+                            was_adjusted = True
+                            direction = "reduced" if protein_delta > 0 else "increased"
+                            adjustment_log.append(
+                                f"{ing_name}: {quantity:.0f}g → {new_qty:.0f}g ({direction} for protein)"
+                            )
+
+                elif priority_macro == "carbs" and carbs_pct > TOLERANCE:
+                    if carbs_per_100g >= 15:  # Carb-rich food (>=15g per 100g)
+                        carbs_per_g = carbs_per_100g / 100
+                        adjustment_g = carbs_delta / carbs_per_g
+                        new_qty = max(20, quantity - adjustment_g)
+                        if abs(new_qty - quantity) >= 10:
+                            ing["adjusted_quantity_g"] = round(new_qty)
+                            was_adjusted = True
+                            direction = "reduced" if carbs_delta > 0 else "increased"
+                            adjustment_log.append(
+                                f"{ing_name}: {quantity:.0f}g → {new_qty:.0f}g ({direction} for carbs)"
+                            )
+
+                elif priority_macro == "fat" and fat_pct > TOLERANCE:
+                    if fat_per_100g >= 10:  # Fat-rich food (>=10g per 100g)
+                        fat_per_g = fat_per_100g / 100
+                        adjustment_g = fat_delta / fat_per_g
+                        new_qty = max(5, quantity - adjustment_g)  # Fats can be smaller
+                        if abs(new_qty - quantity) >= 3:  # Smaller threshold for fats
+                            ing["adjusted_quantity_g"] = round(new_qty)
+                            was_adjusted = True
+                            direction = "reduced" if fat_delta > 0 else "increased"
+                            adjustment_log.append(
+                                f"{ing_name}: {quantity:.0f}g → {new_qty:.0f}g ({direction} for fat)"
+                            )
+
+        # 5. Recalculate totals if adjusted using Passio macros
+        if was_adjusted:
+            new_protein = 0
+            new_carbs = 0
+            new_fat = 0
+            new_calories = 0
+
+            for meal in adjusted_plan.get("meals", []):
+                meal_protein = 0
+                meal_carbs = 0
+                meal_fat = 0
+                meal_calories = 0
+
+                for ing in meal.get("validated_ingredients", []):
+                    # Use adjusted quantity if available, otherwise original
+                    qty = ing.get("adjusted_quantity_g") or ing.get("quantity_g") or 0
+
+                    # Read Passio macros directly from ingredient schema
+                    protein_per_100g = ing.get("protein_per_100g") or 0
+                    carbs_per_100g = ing.get("carbs_per_100g") or 0
+                    fat_per_100g = ing.get("fat_per_100g") or 0
+                    calories_per_100g = ing.get("calories_per_100g") or 0
+
+                    # Calculate macros for this ingredient
+                    scale = qty / 100
+                    meal_protein += protein_per_100g * scale
+                    meal_carbs += carbs_per_100g * scale
+                    meal_fat += fat_per_100g * scale
+                    meal_calories += calories_per_100g * scale
+
+                # Update meal macros
+                meal["protein_g"] = round(meal_protein, 1)
+                meal["carbs_g"] = round(meal_carbs, 1)
+                meal["fat_g"] = round(meal_fat, 1)
+                meal["calories"] = round(meal_calories)
+
+                new_protein += meal_protein
+                new_carbs += meal_carbs
+                new_fat += meal_fat
+                new_calories += meal_calories
+
+            # Update daily totals
+            adjusted_plan["daily_totals"] = {
+                "protein_g": round(new_protein, 1),
+                "carbs_g": round(new_carbs, 1),
+                "fat_g": round(new_fat, 1),
+                "calories": round(new_calories),
+            }
+
+            # Add note about Python adjustment
+            existing_notes = adjusted_plan.get("notes", "") or ""
+            adjustment_note = f" [Python adjusted: {'; '.join(adjustment_log)}]"
+            adjusted_plan["notes"] = existing_notes + adjustment_note
+
+            print(
+                f"   🔧 Python quantity adjustment: {'; '.join(adjustment_log)}",
+                file=sys.stderr,
+            )
+
+        return adjusted_plan, was_adjusted
+
+    def _validate_daily_macros(
+        self,
+        daily_plan: Dict[str, Any],
+        target: Dict[str, Any],
+        meal_targets: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """Validate daily totals against targets with ±10% calorie and ±15% macro tolerance.
+
+        Args:
+            daily_plan: The generated daily meal plan with daily_totals
+            target: The nutritional target for the day
+            meal_targets: Per-meal targets from Hexis
+
+        Returns:
+            Dict with: passed (bool), reason (str), issues (list), adjustments (list), missing_meals (list)
+        """
+        issues: List[str] = []
+        adjustments: List[str] = []
+        missing_meals: List[str] = []
+
+        # Extract daily totals from plan
+        daily_totals = daily_plan.get("daily_totals", {})
+        if not daily_totals:
+            return {
+                "passed": False,
+                "reason": "No daily_totals in meal plan",
+                "issues": ["Missing daily_totals in plan output"],
+                "adjustments": ["Ensure Reviewer includes daily_totals"],
+                "missing_meals": [],
+            }
+
+        # Get actual values
+        actual_calories = daily_totals.get("calories", 0)
+        actual_protein = daily_totals.get("protein_g", 0)
+        actual_carbs = daily_totals.get("carbs_g", 0)
+        actual_fat = daily_totals.get("fat_g", 0)
+
+        # Get target values
+        target_calories = target.get("calories", 0)
+        target_macros = target.get("macros", {})
+        target_protein = target_macros.get("protein_g", 0)
+        target_carbs = target_macros.get("carbs_g", 0)
+        target_fat = target_macros.get("fat_g", 0)
+
+        # Tolerances: ±10% calories, ±15% macros (or absolute minimums)
+        cal_tolerance = 0.10
+        macro_tolerance = 0.15
+        min_protein_diff = 10  # Allow ±10g regardless of %
+        min_carbs_diff = 20  # Allow ±20g regardless of %
+        min_fat_diff = 8  # Allow ±8g regardless of %
+
+        # Check calories (±10%)
+        if target_calories > 0:
+            cal_diff = actual_calories - target_calories
+            cal_pct = abs(cal_diff) / target_calories
+            if cal_pct > cal_tolerance:
+                direction = "above" if cal_diff > 0 else "below"
+                issues.append(
+                    f"Calories {actual_calories} kcal is {abs(cal_diff):.0f} kcal ({cal_pct*100:.1f}%) {direction} target {target_calories} kcal"
+                )
+                if cal_diff < 0:
+                    # Need more calories
+                    needed = abs(cal_diff)
+                    adjustments.append(
+                        f"Add ~{needed:.0f} kcal: increase pasta/rice by {needed/3.5:.0f}g or add {needed/9:.0f}g olive oil"
+                    )
+                else:
+                    # Need fewer calories
+                    adjustments.append(
+                        f"Remove ~{cal_diff:.0f} kcal: reduce portions or fats"
+                    )
+
+        # Check protein (±15% or ±10g)
+        if target_protein > 0:
+            prot_diff = actual_protein - target_protein
+            prot_pct = abs(prot_diff) / target_protein
+            if prot_pct > macro_tolerance and abs(prot_diff) > min_protein_diff:
+                direction = "above" if prot_diff > 0 else "below"
+                issues.append(
+                    f"Protein {actual_protein:.0f}g is {abs(prot_diff):.0f}g ({prot_pct*100:.1f}%) {direction} target {target_protein:.0f}g"
+                )
+                if prot_diff < 0:
+                    adjustments.append(
+                        f"Add {abs(prot_diff):.0f}g protein: add {abs(prot_diff)/0.31:.0f}g chicken breast"
+                    )
+
+        # Check carbs (±15% or ±20g)
+        if target_carbs > 0:
+            carb_diff = actual_carbs - target_carbs
+            carb_pct = abs(carb_diff) / target_carbs
+            if carb_pct > macro_tolerance and abs(carb_diff) > min_carbs_diff:
+                direction = "above" if carb_diff > 0 else "below"
+                issues.append(
+                    f"Carbs {actual_carbs:.0f}g is {abs(carb_diff):.0f}g ({carb_pct*100:.1f}%) {direction} target {target_carbs:.0f}g"
+                )
+                if carb_diff < 0:
+                    adjustments.append(
+                        f"Add {abs(carb_diff):.0f}g carbs: add {abs(carb_diff)/0.75:.0f}g dry pasta or {abs(carb_diff)/0.78:.0f}g dry rice"
+                    )
+
+        # Check fat (±15% or ±8g)
+        if target_fat > 0:
+            fat_diff = actual_fat - target_fat
+            fat_pct = abs(fat_diff) / target_fat
+            if fat_pct > macro_tolerance and abs(fat_diff) > min_fat_diff:
+                direction = "above" if fat_diff > 0 else "below"
+                issues.append(
+                    f"Fat {actual_fat:.0f}g is {abs(fat_diff):.0f}g ({fat_pct*100:.1f}%) {direction} target {target_fat:.0f}g"
+                )
+                if fat_diff < 0:
+                    adjustments.append(
+                        f"Add {abs(fat_diff):.0f}g fat: add {abs(fat_diff)/1.0:.0f}g olive oil"
+                    )
+                else:
+                    adjustments.append(
+                        f"Remove {fat_diff:.0f}g fat: reduce oil/butter portions"
+                    )
+
+        # Check meal types coverage
+        expected_meal_types = {mt.get("meal_type") for mt in meal_targets}
+        generated_meals = daily_plan.get("meals", [])
+        generated_meal_types = {m.get("meal_type") for m in generated_meals}
+        missing = expected_meal_types - generated_meal_types
+        if missing:
+            missing_meals = list(missing)
+            issues.append(f"Missing meal types: {', '.join(missing_meals)}")
+            adjustments.append(f"Add meals for: {', '.join(missing_meals)}")
+
+        passed = len(issues) == 0
+        reason = "All macros within tolerance" if passed else "; ".join(issues[:3])
+
+        return {
+            "passed": passed,
+            "reason": reason,
+            "issues": issues,
+            "adjustments": adjustments,
+            "missing_meals": missing_meals,
+        }
 
     def _compile_weekly_plan(
         self,
@@ -1302,11 +2044,11 @@ class MealPlanningCrew:
         if sync_tool:
             try:
                 print("   Calling hexis_trigger_integration_sync...\n", file=sys.stderr)
-                sync_result = sync_tool.invoke({
-                    "modules": ["PLANNED_WORKOUTS", "COMPLETED_WORKOUTS", "WELLNESS"],
-                    "from_date": from_date,
-                    "to_date": to_date
-                })
+                sync_result = sync_tool._run(
+                    modules=["PLANNED_WORKOUTS", "COMPLETED_WORKOUTS", "WELLNESS"],
+                    from_date=from_date,
+                    to_date=to_date
+                )
                 print(f"   ✅ Integration sync complete: {sync_result}\n", file=sys.stderr)
             except Exception as e:
                 print(f"   ⚠️  Integration sync failed: {e}\n", file=sys.stderr)
@@ -1318,48 +2060,130 @@ class MealPlanningCrew:
 
         # ===================================================================
         # STEP 1: Hexis Analysis - Analyze training data to determine needs
+        # Using Supervisor/Executor/Reviewer pattern for reliable data retrieval
         # ===================================================================
-        print("\n📊 Step 1: Analyzing Hexis training data...\n", file=sys.stderr)
+        print("\n📊 Step 1: Analyzing Hexis training data (Supervisor/Executor/Reviewer pattern)...\n", file=sys.stderr)
 
-        # DIRECT FALLBACK: Use simplified task without tools to avoid infinite loops
-        print(f"\n🔄 Using direct fallback task without tool calls to avoid loops...\n", file=sys.stderr)
-        hexis_task = create_hexis_analysis_task(
-            self.hexis_analysis_agent, week_start_date
+        # ---------------------------------------------------------------
+        # STEP 1a: SUPERVISOR - Plan the data retrieval strategy
+        # ---------------------------------------------------------------
+        print("\n   📋 Step 1a: SUPERVISOR planning data retrieval...\n", file=sys.stderr)
+
+        supervisor_task = create_hexis_data_supervisor_task(
+            self.hexis_data_supervisor_agent, week_start_date
         )
-        hexis_crew = Crew(
-            agents=[self.hexis_analysis_agent],
-            tasks=[hexis_task],
+        supervisor_crew = Crew(
+            agents=[self.hexis_data_supervisor_agent],
+            tasks=[supervisor_task],
             process=Process.sequential,
             verbose=True,
-            max_iter=30,  # Increase max iterations to prevent false loop detection
-            memory=False,  # Disable cache to prevent "reusing same input" errors
+            max_iter=10,
+            memory=False,
         )
 
-        hexis_result = hexis_crew.kickoff()
+        supervisor_result = supervisor_crew.kickoff()
+
+        # Extract the retrieval plan
+        retrieval_plan = self._extract_model_from_output(supervisor_result, HexisDataRetrievalPlan)
+        if retrieval_plan is None:
+            # Fallback: Create a minimal plan if supervisor fails
+            print("\n   ⚠️  Supervisor failed to create plan, using default...\n", file=sys.stderr)
+            end_dt = datetime.fromisoformat(week_start_date) + timedelta(days=6)
+            retrieval_plan = HexisDataRetrievalPlan(
+                week_start_date=week_start_date,
+                week_end_date=end_dt.strftime("%Y-%m-%d"),
+                tool_calls=[{
+                    "tool_name": "hexis_get_weekly_plan",
+                    "parameters": {
+                        "start_date": week_start_date,
+                        "end_date": end_dt.strftime("%Y-%m-%d")
+                    },
+                    "purpose": "Retrieve weekly training and nutrition data",
+                    "priority": 1
+                }],
+                analysis_focus=["training_load", "daily_energy_needs", "macro_targets"],
+                special_considerations="Focus on accurate macro extraction"
+            )
+
+        retrieval_plan_dict = retrieval_plan.model_dump() if hasattr(retrieval_plan, 'model_dump') else retrieval_plan
+        print(f"\n   ✅ Retrieval plan created:\n{json.dumps(retrieval_plan_dict, indent=2)[:1000]}...\n", file=sys.stderr)
+
+        # ---------------------------------------------------------------
+        # STEP 1b: EXECUTOR - Execute the planned tool calls
+        # ---------------------------------------------------------------
+        print("\n   🔧 Step 1b: EXECUTOR retrieving Hexis data...\n", file=sys.stderr)
+
+        executor_task = create_hexis_data_executor_task(
+            self.hexis_data_executor_agent, week_start_date, retrieval_plan_dict
+        )
+        executor_crew = Crew(
+            agents=[self.hexis_data_executor_agent],
+            tasks=[executor_task],
+            process=Process.sequential,
+            verbose=True,
+            max_iter=15,  # Allow multiple tool calls
+            memory=False,
+        )
+
+        executor_result = executor_crew.kickoff()
+
+        # Extract raw data
+        raw_hexis_data = self._extract_model_from_output(executor_result, RawHexisData)
+        if raw_hexis_data is None:
+            # Try to extract raw dict if model extraction fails
+            print("\n   ⚠️  Executor model extraction failed, trying raw dict...\n", file=sys.stderr)
+            candidates = self._collect_payload_candidates(executor_result)
+            if candidates:
+                raw_hexis_data = candidates[0]
+            else:
+                error_msg = "Executor failed to retrieve Hexis data"
+                print(f"\n❌ {error_msg}\n", file=sys.stderr)
+                raise ValueError(f"CRITICAL: {error_msg}. Cannot proceed without valid Hexis data.")
+
+        raw_data_dict = raw_hexis_data.model_dump() if hasattr(raw_hexis_data, 'model_dump') else raw_hexis_data
+        print(f"\n   ✅ Raw data retrieved (keys: {list(raw_data_dict.keys())})\n", file=sys.stderr)
+
+        # ---------------------------------------------------------------
+        # STEP 1c: REVIEWER - Analyze raw data and create final analysis
+        # ---------------------------------------------------------------
+        print("\n   📊 Step 1c: REVIEWER analyzing data...\n", file=sys.stderr)
+
+        reviewer_task = create_hexis_analysis_reviewer_task(
+            self.hexis_analysis_reviewer_agent, week_start_date, raw_data_dict
+        )
+        reviewer_crew = Crew(
+            agents=[self.hexis_analysis_reviewer_agent],
+            tasks=[reviewer_task],
+            process=Process.sequential,
+            verbose=True,
+            max_iter=15,
+            memory=False,
+        )
+
+        reviewer_result = reviewer_crew.kickoff()
 
         # DEBUG: Show raw output length
-        raw_output = hexis_result.raw if hasattr(hexis_result, 'raw') else ""
+        raw_output = reviewer_result.raw if hasattr(reviewer_result, 'raw') else ""
         print(f"\n🔍 DEBUG: Raw output length = {len(raw_output)} chars\n", file=sys.stderr)
         if raw_output:
             print(f"🔍 DEBUG: First 500 chars:\n{raw_output[:500]}\n", file=sys.stderr)
             print(f"🔍 DEBUG: Last 500 chars:\n{raw_output[-500:]}\n", file=sys.stderr)
 
-        hexis_model = self._extract_model_from_output(hexis_result, HexisWeeklyAnalysis)
+        hexis_model = self._extract_model_from_output(reviewer_result, HexisWeeklyAnalysis)
 
         if hexis_model is None:
-            error_msg = "Hexis analysis failed to return valid JSON"
+            error_msg = "Hexis analysis reviewer failed to return valid JSON"
             print(f"\n❌ {error_msg}\n", file=sys.stderr)
-            candidates = self._collect_payload_candidates(hexis_result)
+            candidates = self._collect_payload_candidates(reviewer_result)
             print(f"❌ DEBUG: Parsing failed. Candidates found: {len(candidates)}\n", file=sys.stderr)
 
             # Show candidate structure (truncated)
             if candidates:
                 candidate_json = json.dumps(candidates[0], indent=2)[:2000]
                 print(f"❌ DEBUG: First candidate structure:\n{candidate_json}...\n", file=sys.stderr)
-            
+
             # CRITICAL: Crash if Hexis analysis fails - no fallback allowed
             raise ValueError(f"CRITICAL: {error_msg}. Cannot proceed without valid Hexis data.")
-
 
         hexis_analysis = hexis_model.model_dump()
         print(
@@ -1436,6 +2260,38 @@ class MealPlanningCrew:
 
         print(
             f"\n✅ Nutrition plan created:\n{json.dumps(nutrition_plan, indent=2)}\n",
+            file=sys.stderr,
+        )
+
+        # ===================================================================
+        # STEP 2b: Extract and validate per-meal targets from Hexis
+        # ===================================================================
+        daily_meal_targets = hexis_analysis.get("daily_meal_targets", {})
+        if not daily_meal_targets:
+            error_msg = "Hexis data incomplete: daily_meal_targets missing from Hexis analysis"
+            print(f"\n❌ {error_msg}\n", file=sys.stderr)
+            raise ValueError(error_msg)
+
+        # Enrich each daily_target with meal_targets from Hexis
+        for daily_target in nutrition_plan.get("daily_targets", []):
+            day_date = daily_target.get("date", "")
+            day_meal_data = daily_meal_targets.get(day_date, {})
+            meals = day_meal_data.get("meals", [])
+
+            if not meals:
+                error_msg = f"Hexis data incomplete: no meal targets for {day_date}"
+                print(f"\n❌ {error_msg}\n", file=sys.stderr)
+                raise ValueError(error_msg)
+
+            # Add meal_targets to the daily target
+            daily_target["meal_targets"] = meals
+            print(
+                f"   ✅ Added {len(meals)} meal targets for {day_date}",
+                file=sys.stderr,
+            )
+
+        print(
+            f"\n✅ Per-meal targets from Hexis added to nutrition plan\n",
             file=sys.stderr,
         )
 

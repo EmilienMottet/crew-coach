@@ -7,8 +7,12 @@ import sys
 import random
 import threading
 import time
+import tempfile
+import shutil
 from dataclasses import dataclass
-from typing import Any, Dict, List, Sequence
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Sequence
 
 from crewai import LLM
 from crewai.agent.core import Agent
@@ -17,9 +21,357 @@ from crewai.task import Task
 from crewai.tools.base_tool import BaseTool
 from crewai.utilities.types import LLMMessage
 from pydantic import BaseModel
+import json
 
 
 RATE_LIMIT_KEYWORDS = ("rate limit", "quota", "429", "token_expired", "no quota", "unknown provider", "404", "not found", "model not available", "auth_unavailable", "no auth available", "authorized for use with claude code")
+
+# Persistent blacklist configuration
+DEFAULT_BLACKLIST_FILE = ".disabled_providers.json"
+DEFAULT_BASE_TTL_SECONDS = 3600  # 1 hour (strike #1)
+DEFAULT_MAX_TTL_SECONDS = 259200  # 72 hours (3 days) - cap for repeated failures
+BLACKLIST_FILE_VERSION = 1
+
+
+class PersistentProviderBlacklist:
+    """Persistent storage for disabled providers with strike-based TTL.
+
+    Stores disabled providers in a JSON file with exponential backoff TTL:
+    - Strike 1: 1 hour
+    - Strike 2: 6 hours
+    - Strike 3: 24 hours
+    - Strike 4+: 72 hours (cap)
+
+    Thread-safe and handles concurrent access via file locking.
+    """
+
+    _instance: Optional["PersistentProviderBlacklist"] = None
+    _instance_lock = threading.Lock()
+
+    @classmethod
+    def get_instance(cls) -> "PersistentProviderBlacklist":
+        """Get or create singleton instance."""
+        with cls._instance_lock:
+            if cls._instance is None:
+                file_path = os.getenv("DISABLED_PROVIDERS_FILE", DEFAULT_BLACKLIST_FILE)
+                cls._instance = cls(file_path)
+            return cls._instance
+
+    def __init__(self, file_path: str):
+        """Initialize blacklist with given file path.
+
+        Args:
+            file_path: Path to JSON file for persistence
+        """
+        self._file_path = Path(file_path)
+        self._lock = threading.Lock()
+        self._base_ttl = int(os.getenv("PROVIDER_BASE_TTL_SECONDS", str(DEFAULT_BASE_TTL_SECONDS)))
+        self._max_ttl = int(os.getenv("PROVIDER_MAX_TTL_SECONDS", str(DEFAULT_MAX_TTL_SECONDS)))
+
+        # In-memory cache (synced with file)
+        self._providers: Dict[str, Dict[str, Any]] = {}
+
+        # Load existing state
+        self._load()
+
+    def _load(self) -> None:
+        """Load state from JSON file."""
+        if not self._file_path.exists():
+            self._providers = {}
+            return
+
+        try:
+            with open(self._file_path, "r") as f:
+                data = json.load(f)
+
+            # Validate version
+            if data.get("version") != BLACKLIST_FILE_VERSION:
+                print(f"⚠️  Blacklist file version mismatch, resetting", file=sys.stderr)
+                self._providers = {}
+                return
+
+            self._providers = data.get("providers", {})
+
+            # Cleanup expired entries on load
+            self._cleanup_expired()
+
+        except (json.JSONDecodeError, IOError) as e:
+            print(f"⚠️  Failed to load blacklist file: {e}, resetting", file=sys.stderr)
+            self._providers = {}
+
+    def _save(self) -> None:
+        """Save state to JSON file atomically."""
+        data = {
+            "version": BLACKLIST_FILE_VERSION,
+            "providers": self._providers,
+        }
+
+        # Atomic write: write to temp file then rename
+        try:
+            # Create temp file in same directory for atomic rename
+            fd, temp_path = tempfile.mkstemp(
+                dir=self._file_path.parent if self._file_path.parent.exists() else None,
+                suffix=".tmp"
+            )
+            try:
+                with os.fdopen(fd, "w") as f:
+                    json.dump(data, f, indent=2)
+                # Atomic rename
+                shutil.move(temp_path, self._file_path)
+            except Exception:
+                # Clean up temp file on error
+                if os.path.exists(temp_path):
+                    os.unlink(temp_path)
+                raise
+        except IOError as e:
+            print(f"⚠️  Failed to save blacklist file: {e}", file=sys.stderr)
+
+    def _cleanup_expired(self) -> None:
+        """Mark expired entries as re-enabled but keep strike count for future failures.
+
+        Note: We don't delete expired entries - we mark them as "re-enabled" by setting
+        disabled_at to 0. This preserves the strike count so that if the provider fails
+        again, we can increment the strike and apply a longer TTL.
+        """
+        now = time.time()
+        reenabled_keys = []
+
+        for key, entry in self._providers.items():
+            disabled_at = entry.get("disabled_at", 0)
+            if disabled_at == 0:
+                # Already re-enabled, skip
+                continue
+
+            ttl_seconds = entry.get("ttl_seconds", self._base_ttl)
+
+            if now - disabled_at >= ttl_seconds:
+                # Mark as re-enabled but keep strike count
+                entry["disabled_at"] = 0
+                reenabled_keys.append(key)
+
+        if reenabled_keys:
+            self._save()
+            print(f"✅ Blacklist: {len(reenabled_keys)} expired provider(s) now available", file=sys.stderr)
+
+    def _calculate_ttl(self, strike_count: int) -> int:
+        """Calculate TTL based on strike count with exponential backoff.
+
+        Uses multipliers based on _base_ttl (default 1h = 3600s):
+        - Strike 1: 1x base = 1h
+        - Strike 2: 6x base = 6h
+        - Strike 3: 24x base = 24h
+        - Strike 4+: capped at _max_ttl (default 72h)
+
+        The multipliers ensure consistent ratios even if base TTL is changed
+        (e.g., for testing with shorter TTLs).
+        """
+        # Multipliers relative to base TTL: 1x, 6x, 24x
+        multipliers = {
+            1: 1,    # 1h if base=3600s
+            2: 6,    # 6h if base=3600s
+            3: 24,   # 24h if base=3600s
+        }
+
+        if strike_count in multipliers:
+            ttl = self._base_ttl * multipliers[strike_count]
+            return min(ttl, self._max_ttl)
+
+        # Strike 4+: cap at max TTL
+        return self._max_ttl
+
+    def is_disabled(self, provider_key: str) -> bool:
+        """Check if a provider is currently disabled.
+
+        Args:
+            provider_key: Unique provider identifier (model@endpoint)
+
+        Returns:
+            True if provider is disabled and TTL hasn't expired
+        """
+        # Check env var to disable persistence
+        if os.getenv("DISABLE_PERSISTENT_BLACKLIST", "").lower() in ("true", "1", "yes"):
+            return False
+
+        with self._lock:
+            # Reload from file to get latest state
+            self._load()
+
+            if provider_key not in self._providers:
+                return False
+
+            entry = self._providers[provider_key]
+            disabled_at = entry.get("disabled_at", 0)
+
+            # disabled_at == 0 means provider was re-enabled (TTL expired earlier)
+            # Strike count is preserved for future failures
+            if disabled_at == 0:
+                return False
+
+            ttl_seconds = entry.get("ttl_seconds", self._base_ttl)
+            now = time.time()
+
+            # Check if TTL has expired
+            if now - disabled_at >= ttl_seconds:
+                # Mark as re-enabled but preserve strike count
+                strike_count = entry.get("strike_count", 1)
+                entry["disabled_at"] = 0
+                self._save()
+
+                print(
+                    f"✅ Blacklist: provider {provider_key} re-enabled after TTL expiry\n"
+                    f"   Previous strikes: {strike_count}\n",
+                    file=sys.stderr,
+                )
+                return False
+
+            return True
+
+    def get_remaining_ttl(self, provider_key: str) -> int:
+        """Get remaining time before provider is re-enabled.
+
+        Args:
+            provider_key: Unique provider identifier
+
+        Returns:
+            Remaining seconds, or 0 if not disabled
+        """
+        with self._lock:
+            if provider_key not in self._providers:
+                return 0
+
+            entry = self._providers[provider_key]
+            disabled_at = entry.get("disabled_at", 0)
+
+            # disabled_at == 0 means already re-enabled
+            if disabled_at == 0:
+                return 0
+
+            ttl_seconds = entry.get("ttl_seconds", self._base_ttl)
+
+            remaining = ttl_seconds - (time.time() - disabled_at)
+            return max(0, int(remaining))
+
+    def get_strike_count(self, provider_key: str) -> int:
+        """Get current strike count for a provider.
+
+        Args:
+            provider_key: Unique provider identifier
+
+        Returns:
+            Current strike count, or 0 if not in blacklist
+        """
+        with self._lock:
+            if provider_key not in self._providers:
+                return 0
+            return self._providers[provider_key].get("strike_count", 0)
+
+    def disable(self, provider_key: str, error_msg: str = "") -> int:
+        """Disable a provider and increment strike count.
+
+        Args:
+            provider_key: Unique provider identifier
+            error_msg: Error message that triggered the disable
+
+        Returns:
+            New strike count
+        """
+        # Check env var to disable persistence
+        if os.getenv("DISABLE_PERSISTENT_BLACKLIST", "").lower() in ("true", "1", "yes"):
+            return 0
+
+        with self._lock:
+            # Reload to get latest state
+            self._load()
+
+            now = time.time()
+
+            # Get existing entry or create new one
+            if provider_key in self._providers:
+                entry = self._providers[provider_key]
+                strike_count = entry.get("strike_count", 0) + 1
+            else:
+                strike_count = 1
+
+            # Calculate TTL based on strikes
+            ttl_seconds = self._calculate_ttl(strike_count)
+
+            # Update entry
+            self._providers[provider_key] = {
+                "disabled_at": now,
+                "strike_count": strike_count,
+                "last_error": error_msg[:500] if error_msg else "",
+                "ttl_seconds": ttl_seconds,
+            }
+
+            # Save to file
+            self._save()
+
+            # Calculate re-enable time
+            reenable_at = datetime.fromtimestamp(now + ttl_seconds)
+            ttl_human = self._format_duration(ttl_seconds)
+            next_ttl = self._calculate_ttl(strike_count + 1)
+            next_ttl_human = self._format_duration(next_ttl)
+
+            print(
+                f"\n🚫 Blacklist: provider DISABLED (strike #{strike_count})\n"
+                f"   Provider: {provider_key}\n"
+                f"   Error: {error_msg[:100]}{'...' if len(error_msg) > 100 else ''}\n"
+                f"   TTL: {ttl_human} (until {reenable_at.strftime('%Y-%m-%d %H:%M:%S')})\n"
+                f"   Next TTL will be: {next_ttl_human}\n",
+                file=sys.stderr,
+            )
+
+            return strike_count
+
+    def reset_strikes(self, provider_key: str) -> int:
+        """Reset strike count after successful call.
+
+        Args:
+            provider_key: Unique provider identifier
+
+        Returns:
+            Previous strike count (0 if wasn't in blacklist)
+        """
+        # Check env var to disable persistence
+        if os.getenv("DISABLE_PERSISTENT_BLACKLIST", "").lower() in ("true", "1", "yes"):
+            return 0
+
+        with self._lock:
+            # Reload to get latest state
+            self._load()
+
+            if provider_key not in self._providers:
+                return 0
+
+            previous_strikes = self._providers[provider_key].get("strike_count", 0)
+
+            # Remove from blacklist entirely on success
+            del self._providers[provider_key]
+            self._save()
+
+            if previous_strikes > 0:
+                print(
+                    f"✅ Blacklist: provider {provider_key} SUCCESS, resetting {previous_strikes} strike(s)\n",
+                    file=sys.stderr,
+                )
+
+            return previous_strikes
+
+    @staticmethod
+    def _format_duration(seconds: int) -> str:
+        """Format duration in human-readable form."""
+        if seconds < 3600:
+            return f"{seconds // 60} minutes"
+        elif seconds < 86400:
+            hours = seconds // 3600
+            return f"{hours} hour{'s' if hours > 1 else ''}"
+        else:
+            days = seconds // 86400
+            return f"{days} day{'s' if days > 1 else ''}"
+
+# Minimum expected response length for structured JSON outputs (e.g., meal plans)
+# Responses shorter than this are likely truncated by the provider
+MIN_EXPECTED_RESPONSE_LENGTH = 500
 
 # Codex endpoint requires system prompts to be stripped and merged into user message
 # This is specific to the /codex/v1 endpoint optimization for code generation
@@ -45,6 +397,7 @@ COMPLEX_MODELS = (
     "claude-opus-4-5-thinking",
     "claude-sonnet-4-5-thinking",
     "gemini-claude-sonnet-4-5-thinking",
+    "gemini-claude-opus-4-5-thinking",
     "deepseek-r1",
     "kimi-k2-thinking",
     "qwen3-235b-a22b-thinking-2507",
@@ -59,22 +412,29 @@ COMPLEX_MODELS = (
 )
 
 INTERMEDIATE_MODELS = (
-    # Latest Claude models
+    # Latest Claude models (most reliable)
     "claude-sonnet-4-5-20250929",
+    "claude-sonnet-4.5-copilot",
     # GPT models (standard)
     "gpt-5.1",
     "gpt-5.1-codex-max",
     "gpt-5.1-codex",
+    "gpt-5.1-codex-high",
     "gpt-5.1-medium",
     "gpt-5.1-codex-medium",
     # Gemini models
     "gemini-2.5-pro",
+    "gemini-claude-sonnet-4-5",
     # Chinese models (high-performance)
+    "glm-4.6",
     "deepseek-v3.2",
     "kimi-k2",
     "minimax-m2",
-    "qwen3-235b",
     "qwen3-max",
+    # Open-source models
+    "gpt-oss-120b-medium",
+    # qwen3-235b last - known to return truncated responses via ccproxy
+    "qwen3-235b",
 )
 
 SIMPLE_MODELS = (
@@ -90,16 +450,17 @@ SIMPLE_MODELS = (
     "gpt-5.1-codex-low",
     "gpt-5.1-codex-max-low",
     "gpt-5.1-codex-max-medium",
+    "gpt-5.1-codex-mini",
     "gpt-5.1-codex-mini-high",
     "gpt-5.1-codex-mini-medium",
     "gpt-5.1-none",
     # Qwen models
-    "qwen3-32b",
-    "qwen3-coder",
-    "qwen3-coder-flash",
-    "qwen3-coder-plus",
-    "qwen3-max-preview",
-    "qwen3-vl-plus",
+    # "qwen3-32b" removed - hallucinates tool results instead of calling tools (returns tool_calls=None with fake data)
+    # "qwen3-coder" removed - ccproxy returns HTTP 435 "Model not support"
+    # "qwen3-coder-flash",
+    # "qwen3-coder-plus",
+    # "qwen3-max-preview",
+    # Note: qwen3-vl-plus removed - simulates ReAct text format instead of using tool_calls
     # Thinking models (low tier)
     "claude-opus-4-5-thinking-medium",
     "claude-opus-4-5-thinking-low",
@@ -113,8 +474,95 @@ FALLBACK_MODELS = (
 # Category cascade order (from highest to lowest tier)
 CATEGORY_CASCADE = ["complex", "intermediate", "simple", "fallback"]
 
+# Default blacklists per agent - centralized to avoid duplication across crews
+# These are applied automatically when build_category_cascade() is called
+# Note: Can be overridden via {AGENT_NAME}_BLACKLISTED_MODELS env var
+DEFAULT_AGENT_BLACKLISTS: Dict[str, List[str]] = {
+    # These models don't handle complex Hexis tool calls well
+    # gemini-claude-sonnet-4-5-thinking uses ReAct text format instead of native tool_calls
+    "HEXIS_ANALYSIS": ["gpt-5", "gpt-5-codex", "gemini-claude-sonnet-4-5-thinking"],
+    # gemini-3-pro-preview has meal logging issues
+    # gemini-claude-sonnet-4-5-thinking has tool schema format incompatibility
+    "MEALY_INTEGRATION": ["gemini-3-pro-preview", "gemini-claude-sonnet-4-5-thinking"],
+}
+
 TOOL_FREE_ENDPOINT_HINTS: tuple = ()  # No endpoint blocks tools
-TOOL_FREE_MODEL_HINTS: tuple = ()     # No model blocks tools
+TOOL_FREE_MODEL_HINTS: tuple = (
+    "deepseek-r1",   # DeepSeek-R1 returns 514/516 errors with tool calls
+    "kimi-k2-thinking",  # Reasoning models typically don't support tools
+)     # Models that cannot execute tool/function calls
+
+# Models with extended thinking that hallucinate tool calls instead of using tool_calls
+# These models MUST NOT be used for agents with tools - they simulate ReAct in content
+# instead of producing proper tool_calls, causing CrewAI to treat their response as
+# a "Final Answer" without executing any tools
+THINKING_MODELS = (
+    "claude-opus-4-5-thinking-high",
+    "claude-opus-4-5-thinking",
+    "claude-opus-4-5-thinking-medium",
+    "claude-opus-4-5-thinking-low",
+    "claude-sonnet-4-5-thinking",
+    "gemini-claude-sonnet-4-5-thinking",
+    "gemini-claude-opus-4-5-thinking",
+    "deepseek-r1",
+    "kimi-k2-thinking",
+    "qwen3-235b-a22b-thinking-2507",
+    "qwen3-vl-plus",  # Simulates ReAct text format instead of using tool_calls
+    "tstars2.0",  # Also uses extended reasoning
+    "gemini-2.5-computer-use-preview-10-2025",  # Hallucinates Observation: in responses
+)
+
+
+def _is_thinking_model_name(model: str) -> bool:
+    """Check if a model name is a thinking/reasoning model that hallucinates tool calls.
+
+    Thinking models simulate the entire ReAct workflow (Action/Observation) in their
+    content instead of producing proper tool_calls. This causes CrewAI to treat the
+    response as complete without executing any tools.
+    """
+    model_lower = model.lower()
+
+    # Explicit list check
+    if model in THINKING_MODELS:
+        return True
+
+    # Pattern-based check for any model with "thinking" in the name
+    if "thinking" in model_lower:
+        return True
+
+    # DeepSeek R1 variants
+    if "deepseek" in model_lower and "r1" in model_lower:
+        return True
+
+    return False
+
+
+def _validate_llm_response(response: Any, context: str = "LLM call") -> Any:
+    """Validate that an LLM response has valid choices.
+
+    Args:
+        response: The response from litellm.completion()
+        context: Description of where this validation is happening
+
+    Returns:
+        The validated response
+
+    Raises:
+        ValueError: If response is malformed (no choices)
+    """
+    if response is None:
+        raise ValueError(f"{context}: Response is None")
+
+    if not hasattr(response, 'choices'):
+        raise ValueError(f"{context}: Response has no 'choices' attribute. Response type: {type(response)}")
+
+    if response.choices is None:
+        raise ValueError(f"{context}: response.choices is None")
+
+    if len(response.choices) == 0:
+        raise ValueError(f"{context}: response.choices is empty")
+
+    return response
 
 
 def get_models_for_category(category: str) -> tuple[str, ...]:
@@ -137,20 +585,22 @@ def get_model_for_category(category: str) -> str:
     return random.choice(models)
 
 
-def build_category_cascade(starting_category: str, endpoint_url: str, api_key: str, agent_name: str = "") -> List[ProviderCandidate]:
+def build_category_cascade(starting_category: str, endpoint_url: str, api_key: str, agent_name: str = "", has_tools: bool = False) -> List[ProviderCandidate]:
     """Build a provider chain with category cascade (random selection + fallback to lower tiers).
 
     Logic:
     1. Start with requested category (e.g., "complex")
     2. Add ALL models from that category in random order (excluding blacklisted models)
-    3. Cascade to next lower tier (complex → intermediate → simple → fallback)
-    4. If fallback fails → crash (no recovery)
+    3. If has_tools=True, also exclude thinking models (they hallucinate tool calls)
+    4. Cascade to next lower tier (complex → intermediate → simple → fallback)
+    5. If fallback fails → crash (no recovery)
 
     Args:
         starting_category: One of "complex", "intermediate", "simple", "fallback"
         endpoint_url: API endpoint URL (typically https://ccproxy.emottet.com/v1)
         api_key: API key for authentication
         agent_name: Name of the agent (for agent-specific blacklists)
+        has_tools: If True, exclude thinking models that hallucinate tool calls
 
     Returns:
         List of ProviderCandidate in cascade order
@@ -172,13 +622,12 @@ def build_category_cascade(starting_category: str, endpoint_url: str, api_key: s
     # Combine and clean blacklists
     all_blacklisted = [m.strip() for m in global_blacklist + agent_blacklist if m.strip()]
 
-    # Apply default blacklist for specific agents
-    if agent_name == "HEXIS_ANALYSIS" and not agent_blacklist:
-        default_blacklist = ["gpt-5", "gpt-5-codex"]
-        all_blacklisted.extend(default_blacklist)
+    # Apply default blacklist from centralized constant (only if no env-specific blacklist)
+    if agent_name and not agent_blacklist and agent_name in DEFAULT_AGENT_BLACKLISTS:
+        all_blacklisted.extend(DEFAULT_AGENT_BLACKLISTS[agent_name])
 
     if all_blacklisted:
-        print(f"   🚫 Filtering blacklisted models: {', '.join(all_blacklisted[:3])}{'...' if len(all_blacklisted) > 3 else ''}", file=sys.stderr)
+        print(f"   🚫 Blacklist active: {', '.join(all_blacklisted[:5])}{'...' if len(all_blacklisted) > 5 else ''}", file=sys.stderr)
 
     providers = []
 
@@ -189,8 +638,18 @@ def build_category_cascade(starting_category: str, endpoint_url: str, api_key: s
         # Filter out blacklisted models
         models = [m for m in models if m not in all_blacklisted]
 
+        # CRITICAL: Exclude thinking models for agents with tools
+        # Thinking models hallucinate tool calls (ReAct in content) instead of using tool_calls
+        # This causes CrewAI to treat the response as "Final Answer" without executing tools
+        if has_tools:
+            before_count = len(models)
+            models = [m for m in models if not _is_thinking_model_name(m)]
+            excluded = before_count - len(models)
+            if excluded > 0:
+                print(f"   🧠 Excluded {excluded} thinking model(s) from '{category}' (agent has tools)", file=sys.stderr)
+
         if not models:
-            print(f"   ⚠️  All models in category '{category}' are blacklisted, skipping category", file=sys.stderr)
+            print(f"   ⚠️  All models in category '{category}' are blacklisted/excluded, skipping category", file=sys.stderr)
             continue
 
         # Randomize order within category for load balancing
@@ -244,9 +703,11 @@ def _requires_tool_free_context(api_base: str, model_name: str) -> bool:
     base = (api_base or "").lower()
     model = (model_name or "").lower()
 
-    if not any(keyword in base for keyword in TOOL_FREE_ENDPOINT_HINTS):
-        return False
+    # Return True if endpoint doesn't support tools
+    if any(keyword in base for keyword in TOOL_FREE_ENDPOINT_HINTS):
+        return True
 
+    # Return True if model doesn't support tools
     return any(keyword in model for keyword in TOOL_FREE_MODEL_HINTS)
 
 
@@ -271,14 +732,13 @@ def _apply_blacklist_if_needed(agent_name: str, model_name: str, api_base: str) 
     # Combine and clean blacklists (agent-specific takes precedence)
     all_blacklisted = [m.strip() for m in global_blacklist + agent_blacklist if m.strip()]
 
-    # Apply default blacklist for specific agents
-    if agent_name == "HEXIS_ANALYSIS" and not agent_blacklist:
-        default_blacklist = ["gpt-5", "gpt-5-codex"]
-        all_blacklisted.extend(default_blacklist)
+    # Apply default blacklist from centralized constant (only if no env-specific blacklist)
+    if agent_name and not agent_blacklist and agent_name in DEFAULT_AGENT_BLACKLISTS:
+        all_blacklisted.extend(DEFAULT_AGENT_BLACKLISTS[agent_name])
 
     # Check if model is blacklisted
     if model_name in all_blacklisted:
-        source = "global" if model_name in global_blacklist else ("default" if agent_name == "HEXIS_ANALYSIS" and not agent_blacklist else "agent-specific")
+        source = "global" if model_name in global_blacklist else ("default" if agent_name in DEFAULT_AGENT_BLACKLISTS else "agent-specific")
         print(f"⚠️  {agent_name}: Model '{model_name}' is blacklisted ({source}) after normalization, using fallback", file=sys.stderr)
 
         # Use safer fallback models
@@ -291,11 +751,18 @@ def _apply_blacklist_if_needed(agent_name: str, model_name: str, api_base: str) 
 
 
 def create_llm_with_rotation(
-    *, agent_name: str, model_name: str, api_base: str, api_key: str
+    *, agent_name: str, model_name: str, api_base: str, api_key: str, has_tools: bool = False
 ) -> BaseLLM:
     """Create an LLM wrapped with provider rotation logic when enabled.
 
     Auto-detects if model_name is a category and uses category cascade if so.
+
+    Args:
+        agent_name: Name of the agent (for logging)
+        model_name: Model name or category ("complex", "intermediate", "simple", "fallback")
+        api_base: API endpoint URL
+        api_key: API key for authentication
+        has_tools: If True, exclude thinking models that hallucinate tool calls
     """
 
     # Check if model_name is actually a category
@@ -307,6 +774,7 @@ def create_llm_with_rotation(
             category=model_name,
             api_base=api_base,
             api_key=api_key,
+            has_tools=has_tools,
         )
 
     # Normal model-based rotation
@@ -333,13 +801,14 @@ def create_llm_with_rotation(
 
 
 def create_llm_with_category(
-    *, agent_name: str, category: str, api_base: str, api_key: str
+    *, agent_name: str, category: str, api_base: str, api_key: str, has_tools: bool = False
 ) -> BaseLLM:
     """Create an LLM with category-based cascade (random selection + auto-fallback).
 
     New unified approach:
     - All models use the same endpoint (https://ccproxy.emottet.com/v1)
     - Random selection within category for load balancing
+    - If has_tools=True, exclude thinking models (they hallucinate tool calls)
     - Automatic cascade to lower tiers on quota/404 errors
     - Crash if fallback category fails (no silent failures)
 
@@ -348,6 +817,7 @@ def create_llm_with_category(
         category: Starting category ("complex", "intermediate", "simple", "fallback")
         api_base: API endpoint URL (typically https://ccproxy.emottet.com/v1)
         api_key: API key for authentication
+        has_tools: If True, exclude thinking models that hallucinate tool calls
 
     Returns:
         RotatingLLM instance with category cascade chain
@@ -357,7 +827,8 @@ def create_llm_with_category(
             agent_name="HEXIS_ANALYSIS",
             category="complex",
             api_base="https://ccproxy.emottet.com/v1",
-            api_key=api_key
+            api_key=api_key,
+            has_tools=True
         )
     """
     # Build cascade chain from category
@@ -366,6 +837,7 @@ def create_llm_with_category(
         endpoint_url=api_base,
         api_key=api_key,
         agent_name=agent_name,
+        has_tools=has_tools,
     )
 
     # Log cascade for transparency
@@ -656,8 +1128,23 @@ def _clean_json_schema(schema: Any) -> Any:
         return schema
 
     cleaned = {}
+    
+    # Handle optional fields (anyOf/oneOf with null) - common in Pydantic v2
+    # We pick the first non-null option to ensure the field has a type
+    if 'anyOf' in schema and isinstance(schema['anyOf'], list):
+        for option in schema['anyOf']:
+            if isinstance(option, dict) and option.get('type') != 'null':
+                # Found a non-null option, use it as the base
+                cleaned.update(_clean_json_schema(option))
+                break
+    elif 'oneOf' in schema and isinstance(schema['oneOf'], list):
+        for option in schema['oneOf']:
+            if isinstance(option, dict) and option.get('type') != 'null':
+                cleaned.update(_clean_json_schema(option))
+                break
+
     for key, value in schema.items():
-        # Skip unsupported fields
+        # Skip unsupported fields (we handled anyOf/oneOf above)
         if key in ['title', 'definitions', '$defs', 'allOf', 'anyOf', 'oneOf']:
             continue
 
@@ -689,19 +1176,35 @@ def _clean_json_schema(schema: Any) -> Any:
 def _requires_anthropic_format(model_name: str) -> bool:
     """Check if model requires Anthropic-style tool format instead of OpenAI format.
 
-    NOTE: For ccproxy endpoints (OpenAI-compatible), we should NEVER use Anthropic format.
-    This function now always returns False since all our endpoints use OpenAI format.
-
-    The original logic was incorrect - ccproxy handles format conversion internally.
+    Only Claude thinking models routed through ccproxy to Anthropic API need Anthropic format.
+    Other models (kimi, deepseek, etc.) use OpenAI-compatible format even if they have "thinking".
     """
-    # DISABLED: ccproxy endpoints are OpenAI-compatible, never need Anthropic format
-    # The proxy handles any necessary format conversion internally
-    return False
+    model_lower = model_name.lower()
 
-    # Old logic (kept for reference):
-    # model_lower = model_name.lower()
-    # anthropic_format_models = ["gemini-claude", "claude-sonnet-4-5-thinking"]
-    # return any(hint in model_lower for hint in anthropic_format_models)
+    # Only Claude/Anthropic thinking models need Anthropic tool format
+    # These are routed by ccproxy directly to the native Anthropic API
+    anthropic_thinking_patterns = [
+        "claude-sonnet-4-5-thinking",     # Claude Sonnet 4.5 thinking
+        "claude-opus-4-5-thinking",       # Claude Opus 4.5 thinking variants
+        "gemini-claude-sonnet-4-5-thinking",  # Gemini-proxied Claude thinking
+    ]
+
+    return any(pattern in model_lower for pattern in anthropic_thinking_patterns)
+
+
+def _is_thinking_model(model: str) -> bool:
+    """Check if model has extended thinking enabled.
+
+    These models require thinking blocks to be preserved in multi-turn conversations.
+    When thinking is enabled, assistant messages must start with a thinking block,
+    and previous thinking blocks must be passed back in subsequent turns.
+    """
+    model_lower = model.lower()
+    thinking_patterns = [
+        "thinking",      # All Claude thinking variants
+        "-r1",           # deepseek-r1
+    ]
+    return any(pattern in model_lower for pattern in thinking_patterns)
 
 
 def _convert_to_anthropic_format(openai_tools: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -754,9 +1257,16 @@ class RotatingLLM(BaseLLM):
 
     """BaseLLM wrapper that retries calls across multiple providers on 429 errors."""
 
-    # Class-level tracking of disabled providers (shared across all instances)
-    _disabled_providers: Dict[str, float] = {}  # key = provider_key, value = disabled_at timestamp
-    _provider_lock = threading.Lock()  # Thread-safe access to _disabled_providers
+    # Use persistent blacklist singleton (shared across all instances)
+    # This replaces the old in-memory _disabled_providers dict
+    _blacklist: Optional[PersistentProviderBlacklist] = None
+
+    @classmethod
+    def _get_blacklist(cls) -> PersistentProviderBlacklist:
+        """Get the persistent blacklist singleton."""
+        if cls._blacklist is None:
+            cls._blacklist = PersistentProviderBlacklist.get_instance()
+        return cls._blacklist
 
     def __init__(self, agent_name: str, providers: Sequence[ProviderCandidate]) -> None:
         if not providers:
@@ -766,6 +1276,10 @@ class RotatingLLM(BaseLLM):
         self._providers = list(providers)
         self._llms: List[LLM | None] = [None] * len(self._providers)
         self._last_success_index = 0
+        # Storage for thinking blocks across multi-turn conversations
+        # Needed because CrewAI doesn't preserve thinking blocks in messages
+        self._last_thinking_blocks: List[Dict[str, Any]] | None = None
+        self._last_reasoning_content: str | None = None
 
         primary_llm = self._instantiate_llm(self._providers[0])
         self._llms[0] = primary_llm
@@ -853,9 +1367,12 @@ class RotatingLLM(BaseLLM):
                         tool_def = None
                         
                         # PRIORITY 1: Use args_schema if available (most reliable)
-                        if hasattr(tool, 'args_schema') and tool.args_schema:
+                        # Check for _original_args_schema first (in case tool is wrapped)
+                        schema_to_use = getattr(tool, '_original_args_schema', None) or getattr(tool, 'args_schema', None)
+                        
+                        if schema_to_use:
                             try:
-                                schema = tool.args_schema
+                                schema = schema_to_use
                                 if hasattr(schema, 'model_json_schema'):
                                     json_schema = schema.model_json_schema()
                                     # Deep clean the schema
@@ -951,6 +1468,27 @@ class RotatingLLM(BaseLLM):
                 )
                 continue
 
+            # CRITICAL: Skip thinking models if messages have assistant without thinking blocks
+            # and we don't have stored blocks to inject. This prevents API errors.
+            if _is_thinking_model(provider.model):
+                # Check if base_messages contains assistant messages without thinking blocks
+                has_incompatible_assistant = False
+                for msg in base_messages:
+                    if isinstance(msg, dict) and msg.get("role") == "assistant":
+                        if not msg.get("thinking_blocks"):
+                            has_incompatible_assistant = True
+                            break
+
+                # If incompatible and we have no stored blocks, skip this provider
+                if has_incompatible_assistant and not self._last_thinking_blocks:
+                    print(
+                        f"\n⏭️  {self._agent_name}: SKIPPING thinking model {provider.label} ({provider.model})\n"
+                        f"   Reason: Messages contain assistant without thinking blocks\n"
+                        f"   Cannot use thinking models in multi-turn without preserved thinking blocks\n",
+                        file=sys.stderr,
+                    )
+                    continue
+
             attempted_provider = True
             llm = self._ensure_llm(index)
             try:
@@ -979,7 +1517,26 @@ class RotatingLLM(BaseLLM):
                     if isinstance(effective_messages, str):
                         formatted_messages = [{"role": "user", "content": effective_messages}]
                     else:
-                        formatted_messages = effective_messages
+                        formatted_messages = list(effective_messages)  # Make a copy to avoid mutation
+
+                    # CRITICAL: Inject stored thinking blocks for thinking models
+                    # CrewAI doesn't preserve thinking blocks in messages, so we need to
+                    # inject them back into the last assistant message
+                    if _is_thinking_model(provider.model) and self._last_thinking_blocks:
+                        # Find the last assistant message that needs thinking blocks
+                        for i in range(len(formatted_messages) - 1, -1, -1):
+                            msg = formatted_messages[i]
+                            if msg.get("role") == "assistant" and not msg.get("thinking_blocks"):
+                                # Inject thinking blocks into this message
+                                formatted_messages[i] = dict(msg)  # Make a copy
+                                formatted_messages[i]["thinking_blocks"] = self._last_thinking_blocks
+                                if self._last_reasoning_content:
+                                    formatted_messages[i]["reasoning_content"] = self._last_reasoning_content
+                                print(
+                                    f"   🧠 Injected {len(self._last_thinking_blocks)} thinking block(s) into assistant message\n",
+                                    file=sys.stderr
+                                )
+                                break
 
                     # Prepare API key - use Bearer token format (standard for OpenAI-compatible APIs)
                     api_key_str = str(provider.api_key) if provider.api_key else ""
@@ -990,10 +1547,14 @@ class RotatingLLM(BaseLLM):
 
                     # LiteLLM needs provider prefix for some models
                     model_for_litellm = provider.model
-                    if "claude" in provider.model.lower() and not provider.model.lower().startswith("openai/"):
-                        # Force openai/ prefix to ensure LiteLLM uses OpenAI format for tools
-                        # This prevents LiteLLM from trying to adapt tools for Anthropic API
-                        model_for_litellm = f"openai/{provider.model}"
+
+                    # Only add openai/ prefix for non-thinking Claude models
+                    # Thinking models need to go through native Anthropic path for tool format
+                    if not _requires_anthropic_format(provider.model):
+                        if "claude" in provider.model.lower() and not provider.model.lower().startswith("openai/"):
+                            # Force openai/ prefix to ensure LiteLLM uses OpenAI format for tools
+                            # This prevents LiteLLM from trying to adapt tools for Anthropic API
+                            model_for_litellm = f"openai/{provider.model}"
 
                     # Check if this model requires Anthropic tool format
                     tools_for_api = tools
@@ -1019,7 +1580,7 @@ class RotatingLLM(BaseLLM):
                             api_key=api_key_str,
                             custom_llm_provider=custom_provider,
                             drop_params=True,
-                            request_timeout=180,  # 180 seconds timeout (increased from 60)
+                            timeout=180,  # 180 seconds timeout for httpx/openai client
                             max_tokens=32000,  # Increased for weekly meal plans (7 days with full recipes)
                         )
                             
@@ -1029,6 +1590,12 @@ class RotatingLLM(BaseLLM):
                             f"      Falling back to CrewAI LLM.call()\n",
                             file=sys.stderr
                         )
+                        # Log detailed error info for debugging
+                        if hasattr(e, "response"):
+                            print(f"      Response content: {getattr(e, 'response', 'N/A')}", file=sys.stderr)
+                        import traceback
+                        traceback.print_exc()
+
                         # Fall back to CrewAI's normal flow (without tools)
                         response = llm.call(
                             messages=effective_messages,
@@ -1044,7 +1611,16 @@ class RotatingLLM(BaseLLM):
                             file=sys.stderr,
                         )
                         return response
-                    
+
+                    # Validate response before using
+                    try:
+                        _validate_llm_response(litellm_response, "Initial litellm.completion")
+                    except ValueError as e:
+                        # Invalid response (choices=None) - raise to try next provider
+                        # Don't fallback to CrewAI's llm.call() as it has the same bug
+                        print(f"   ❌ Invalid LLM response: {e}\n", file=sys.stderr)
+                        raise RuntimeError(f"Provider returned invalid response: {e}")
+
                     # Tool call loop - continue until LLM stops requesting tools
                     current_response = litellm_response
                     current_messages = formatted_messages
@@ -1056,6 +1632,26 @@ class RotatingLLM(BaseLLM):
 
                         # Check if LLM wants to call tools
                         print(f"   🔍 DEBUG: choice.message: {choice.message}", file=sys.stderr)
+
+                        # ALWAYS capture thinking blocks from response for thinking models
+                        # This is critical for multi-turn conversations where CrewAI
+                        # will parse ReAct actions and call us again without the thinking
+                        if _is_thinking_model(model_for_litellm):
+                            thinking_blocks = getattr(choice.message, 'thinking_blocks', None)
+                            reasoning_content = getattr(choice.message, 'reasoning_content', None)
+                            # Also check provider_specific_fields
+                            if not thinking_blocks:
+                                provider_fields = getattr(choice.message, 'provider_specific_fields', {}) or {}
+                                thinking_blocks = provider_fields.get('thinking_blocks')
+                            if not reasoning_content:
+                                reasoning_content = getattr(choice.message, 'reasoning', None)
+
+                            if thinking_blocks:
+                                self._last_thinking_blocks = thinking_blocks
+                                print(f"   🧠 Captured {len(thinking_blocks)} thinking block(s) for future turns", file=sys.stderr)
+                            if reasoning_content:
+                                self._last_reasoning_content = reasoning_content
+
                         if not (hasattr(choice.message, 'tool_calls') and choice.message.tool_calls):
                             # No more tool calls - we have the final response
                             response = choice.message.content or str(choice.message)
@@ -1139,47 +1735,37 @@ class RotatingLLM(BaseLLM):
                             file=sys.stderr
                         )
 
-                        current_messages = current_messages + [
-                            {
-                                "role": "assistant",
-                                "content": choice.message.content,
-                                "tool_calls": [
-                                    {
-                                        "id": tc.id,
-                                        "type": "function",
-                                        "function": {
-                                            "name": tc.function.name,
-                                            "arguments": tc.function.arguments
-                                        }
+                        # Build assistant message with thinking blocks preserved
+                        assistant_message = {
+                            "role": "assistant",
+                            "content": choice.message.content,
+                            "tool_calls": [
+                                {
+                                    "id": tc.id,
+                                    "type": "function",
+                                    "function": {
+                                        "name": tc.function.name,
+                                        "arguments": tc.function.arguments
                                     }
-                                    for tc in choice.message.tool_calls
-                                ]
-                            }
-                        ] + tool_results
+                                }
+                                for tc in choice.message.tool_calls
+                            ]
+                        }
 
-                        # Switch to non-thinking model for subsequent turns to avoid history validation issues
-                        # The "thinking" block requirement is only enforced when thinking is enabled.
-                        # By switching to the standard model for tool outputs, we bypass this requirement.
-                        if "thinking" in model_for_litellm:
-                            print(f"   🔄 Switching to non-thinking model for tool loop to avoid history validation error", file=sys.stderr)
-                            
-                            # Specific mappings for known thinking models to ensure we use a valid model ID
-                            if "claude-sonnet-4-5-thinking" in model_for_litellm:
-                                # Fallback to 3.5 Sonnet as 4.5 non-thinking might not be available on proxy
-                                # We MUST use a valid model ID that the proxy accepts.
-                                # 'claude-3.5-sonnet' is a standard ID that should work.
-                                model_for_litellm = model_for_litellm.replace("claude-sonnet-4-5-thinking", "claude-3.5-sonnet")
-                            elif "claude-opus-4-5-thinking" in model_for_litellm:
-                                # Fallback to 3 Opus
-                                model_for_litellm = model_for_litellm.replace("claude-opus-4-5-thinking", "claude-3-opus")
-                            else:
-                                # Generic fallback - remove thinking suffix
-                                model_for_litellm = model_for_litellm.replace("-thinking", "")
-                                # Ensure we don't have double dashes if any
-                                model_for_litellm = model_for_litellm.replace("--", "-")
-                                # If it ends with hyphen, remove it
-                                if model_for_litellm.endswith("-"):
-                                    model_for_litellm = model_for_litellm[:-1]
+                        # Preserve thinking blocks for thinking models (required by Anthropic API)
+                        # When thinking is enabled, assistant messages must include the original
+                        # thinking blocks with their cryptographic signatures for multi-turn
+                        if _is_thinking_model(model_for_litellm):
+                            thinking_blocks = getattr(choice.message, 'thinking_blocks', None)
+                            if thinking_blocks:
+                                assistant_message["thinking_blocks"] = thinking_blocks
+                                print(f"   🧠 Preserved {len(thinking_blocks)} thinking block(s) for multi-turn", file=sys.stderr)
+
+                            reasoning_content = getattr(choice.message, 'reasoning_content', None)
+                            if reasoning_content:
+                                assistant_message["reasoning_content"] = reasoning_content
+
+                        current_messages = current_messages + [assistant_message] + tool_results
 
                         # Call LLM again with tool results
                         current_response = litellm.completion(
@@ -1193,13 +1779,27 @@ class RotatingLLM(BaseLLM):
                             request_timeout=240,
                             max_tokens=32000,
                         )
+
+                        # Validate follow-up response
+                        try:
+                            _validate_llm_response(current_response, f"Tool loop iteration {iteration}")
+                        except ValueError as e:
+                            print(f"   ❌ Invalid LLM response in tool loop: {e}\n", file=sys.stderr)
+                            response = "Error: LLM returned invalid response after tool execution"
+                            break
                     else:
                         # Max iterations reached
                         print(
                             f"   ⚠️  Max tool iterations ({max_tool_iterations}) reached, using last response\n",
                             file=sys.stderr
                         )
-                        response = current_response.choices[0].message.content or str(current_response.choices[0].message)
+                        # Safely access response with validation
+                        try:
+                            _validate_llm_response(current_response, "Max iterations fallback")
+                            response = current_response.choices[0].message.content or str(current_response.choices[0].message)
+                        except ValueError as e:
+                            print(f"   ❌ Invalid response at max iterations: {e}\n", file=sys.stderr)
+                            response = "Error: LLM returned invalid response"
                 else:
                     # No tools, use normal CrewAI flow
                     response = llm.call(
@@ -1212,8 +1812,38 @@ class RotatingLLM(BaseLLM):
                         response_model=response_model,
                     )
 
+                # Log response length for debugging
+                response_str = str(response) if response else ""
+                response_len = len(response_str)
+                print(
+                    f"   🔍 Response length: {response_len} chars",
+                    file=sys.stderr,
+                )
+                if response_len < 1000:
+                    print(
+                        f"   ⚠️  WARNING: Suspiciously short response ({response_len} chars)",
+                        file=sys.stderr,
+                    )
+
+                # Check if response appears truncated
+                if _is_response_truncated(response_str):
+                    error_msg = f"Truncated response ({response_len} chars)"
+                    print(
+                        f"\n⚠️  {self._agent_name}: response TRUNCATED ({response_len} chars)\n"
+                        f"   Provider {provider.label} ({provider.model}) returned incomplete output\n"
+                        f"   Disabling provider and rotating to next...\n",
+                        file=sys.stderr,
+                    )
+                    # Disable provider and try next one
+                    self._disable_provider(provider, error_msg)
+                    last_error = RuntimeError(error_msg)
+                    continue
+
                 self._last_success_index = index
                 self._sync_metadata(llm)
+
+                # Reset strike count on successful call
+                self._reset_provider_strikes(provider)
 
                 # Log which provider was successfully used
                 print(
@@ -1224,20 +1854,41 @@ class RotatingLLM(BaseLLM):
                 return response
 
             except Exception as exc:  # noqa: BLE001
-                if not _is_rate_limit_error(exc):
+                is_rate_limit = _is_rate_limit_error(exc)
+                is_context_length = _is_context_length_error(exc)
+                is_invalid_response = _is_invalid_response_error(exc)
+
+                if not is_rate_limit and not is_context_length and not is_invalid_response:
                     raise
 
-                # Disable the provider to prevent future retry attempts
-                self._disable_provider(provider)
+                if is_rate_limit:
+                    # Disable the provider to prevent future retry attempts
+                    error_msg = str(exc)[:500]
+                    self._disable_provider(provider, error_msg)
+                    print(
+                        f"⚠️  {self._agent_name}: provider {provider.label} hit quota, rotating...",
+                        file=sys.stderr,
+                    )
+                elif is_context_length:
+                    # Don't disable - just skip to a model with larger context
+                    print(
+                        f"⚠️  {self._agent_name}: provider {provider.label} context too small for this request\n"
+                        f"   Rotating to next provider with larger context window...",
+                        file=sys.stderr,
+                    )
+                elif is_invalid_response:
+                    # Provider returned malformed response (choices=None, etc.)
+                    # Don't disable permanently - might be a transient issue
+                    print(
+                        f"⚠️  {self._agent_name}: provider {provider.label} returned invalid response\n"
+                        f"   Error: {str(exc)[:200]}\n"
+                        f"   Rotating to next provider...",
+                        file=sys.stderr,
+                    )
 
                 last_error = exc
                 if index == len(self._providers) - 1:
                     break
-
-                print(
-                    f"⚠️  {self._agent_name}: provider {provider.label} hit quota, rotating...",
-                    file=sys.stderr,
-                )
 
         if last_error:
             raise last_error
@@ -1281,57 +1932,46 @@ class RotatingLLM(BaseLLM):
         return f"{provider.model}@{provider.api_base}"
 
     def _is_provider_disabled(self, provider: ProviderCandidate) -> bool:
-        """Check if a provider is currently disabled due to quota/rate limit errors."""
-        ttl_seconds = int(os.getenv("PROVIDER_DISABLED_TTL_SECONDS", "0"))  # Default: 0 = disabled for entire execution
-        now = time.time()
+        """Check if a provider is currently disabled due to quota/rate limit errors.
 
-        with self._provider_lock:
-            key = self._provider_key(provider)
-            if key not in self._disabled_providers:
-                return False
+        Uses persistent blacklist with TTL-based expiry and strike counting.
+        """
+        key = self._provider_key(provider)
+        blacklist = self._get_blacklist()
 
-            # If TTL is 0, provider stays disabled for the entire execution
-            if ttl_seconds == 0:
-                return True
-
-            disabled_at = self._disabled_providers[key]
-
-            # Check if TTL has expired - if so, re-enable the provider
-            if now - disabled_at >= ttl_seconds:
-                del self._disabled_providers[key]
-                ttl_minutes = ttl_seconds // 60
-                print(
-                    f"✅ {self._agent_name}: provider {provider.label} re-enabled after {ttl_minutes}min TTL\n",
-                    file=sys.stderr,
-                )
-                return False
-
+        if blacklist.is_disabled(key):
+            # Get remaining TTL for logging
+            remaining = blacklist.get_remaining_ttl(key)
+            strike_count = blacklist.get_strike_count(key)
+            remaining_human = PersistentProviderBlacklist._format_duration(remaining)
+            print(
+                f"⏭️  {self._agent_name}: SKIPPING {provider.label} ({provider.model})\n"
+                f"   Reason: Disabled (strike #{strike_count}), {remaining_human} remaining\n",
+                file=sys.stderr,
+            )
             return True
 
-    def _disable_provider(self, provider: ProviderCandidate) -> None:
-        """Mark a provider as disabled due to quota/rate limit error."""
-        ttl_seconds = int(os.getenv("PROVIDER_DISABLED_TTL_SECONDS", "0"))
+        return False
 
-        with self._provider_lock:
-            key = self._provider_key(provider)
-            self._disabled_providers[key] = time.time()
+    def _disable_provider(self, provider: ProviderCandidate, error_msg: str = "") -> None:
+        """Mark a provider as disabled due to quota/rate limit error.
 
-        if ttl_seconds == 0:
-            print(
-                f"\n🚫 {self._agent_name}: provider {provider.label} DISABLED due to quota/rate limit\n"
-                f"   Disabled for the remainder of this execution\n"
-                f"   Will be available again on next execution (next process start)\n"
-                f"   (Configure TTL via PROVIDER_DISABLED_TTL_SECONDS env var, 0 = permanent)\n",
-                file=sys.stderr,
-            )
-        else:
-            ttl_minutes = ttl_seconds // 60
-            print(
-                f"\n🚫 {self._agent_name}: provider {provider.label} DISABLED due to quota/rate limit\n"
-                f"   Will be re-enabled after {ttl_minutes} minutes\n"
-                f"   (Configure via PROVIDER_DISABLED_TTL_SECONDS env var)\n",
-                file=sys.stderr,
-            )
+        Increments strike count and calculates TTL with exponential backoff.
+        State is persisted to JSON file for cross-process recovery.
+        """
+        key = self._provider_key(provider)
+        blacklist = self._get_blacklist()
+        blacklist.disable(key, error_msg)
+
+    def _reset_provider_strikes(self, provider: ProviderCandidate) -> None:
+        """Reset strike count after a successful call.
+
+        Called when a provider successfully handles a request to clear
+        any accumulated strikes from previous failures.
+        """
+        key = self._provider_key(provider)
+        blacklist = self._get_blacklist()
+        blacklist.reset_strikes(key)
 
     def __getattr__(self, item: str) -> Any:
         current = self._llms[self._last_success_index]
@@ -1377,6 +2017,94 @@ def _is_rate_limit_error(exc: Exception) -> bool:
         message = ""
 
     return any(keyword in message for keyword in RATE_LIMIT_KEYWORDS)
+
+
+def _is_response_truncated(
+    response: str,
+    min_length: int = MIN_EXPECTED_RESPONSE_LENGTH,
+) -> bool:
+    """Detect if a response appears to be truncated.
+
+    Returns True if:
+    - Response is shorter than min_length, OR
+    - Response contains JSON that fails to parse (incomplete JSON)
+
+    This helps detect when a provider silently truncates output
+    due to internal token limits or timeouts.
+    """
+    if not response:
+        return True
+
+    response_len = len(response)
+
+    # Check minimum length
+    if response_len < min_length:
+        return True
+
+    # If response looks like JSON, verify it's complete
+    stripped = response.strip()
+    if stripped.startswith("{") or stripped.startswith("["):
+        try:
+            json.loads(stripped)
+        except json.JSONDecodeError:
+            # JSON is incomplete/malformed - likely truncated
+            return True
+
+    return False
+
+
+# Keywords that indicate context length / token limit errors
+CONTEXT_LENGTH_KEYWORDS = (
+    "prompt is too long",
+    "context_length_exceeded",
+    "context length",
+    "maximum context",
+    "token limit",
+    "tokens > ",
+    "exceeds the maximum",
+    "too many tokens",
+    "input too long",
+    "max_tokens",
+)
+
+
+def _is_context_length_error(exc: Exception) -> bool:
+    """Check if an exception is due to context length / token limit exceeded.
+
+    These errors should trigger rotation to a model with a larger context window,
+    not be treated as fatal errors.
+    """
+    try:
+        message = str(exc).lower()
+    except Exception:  # pragma: no cover - defensive
+        message = ""
+
+    return any(keyword in message for keyword in CONTEXT_LENGTH_KEYWORDS)
+
+
+def _is_invalid_response_error(exc: Exception) -> bool:
+    """Check if an exception is due to an invalid/malformed LLM response.
+
+    These errors should trigger rotation to the next provider, not be treated
+    as fatal errors. Common cases:
+    - response.choices is None
+    - response.choices is empty
+    - Provider returned non-standard response format
+    """
+    try:
+        message = str(exc).lower()
+    except Exception:  # pragma: no cover - defensive
+        message = ""
+
+    invalid_response_keywords = (
+        "invalid response",
+        "choices is none",
+        "choices is empty",
+        "response is none",
+        "nonetype",
+        "no 'choices' attribute",
+    )
+    return any(keyword in message for keyword in invalid_response_keywords)
 
 
 def _prepare_messages_for_provider(

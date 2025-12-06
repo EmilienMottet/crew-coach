@@ -13,8 +13,9 @@ _run() method. To work around this, we create a custom BaseTool wrapper that:
 
 import asyncio
 import json
+import os
 import sys
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Union
 
 from crewai.tools import BaseTool
 from pydantic import BaseModel, ConfigDict, Field, create_model
@@ -77,28 +78,39 @@ def validate_tool_input(tool_input: Any) -> Dict[str, Any]:
             )
         return tool_input
 
-    # If it's a list, try to extract the first valid parameter dict
+    # If it's a list, extract all valid parameter dicts
     if isinstance(tool_input, list):
         print(
             f"⚠️  Warning: Tool received a list instead of dict. "
-            f"Attempting to extract parameters from first element...",
+            f"Extracting valid parameter dicts...",
             file=sys.stderr
         )
 
-        # Find the first dict that looks like parameters (not a response)
+        # Collect all dicts that look like parameters (not responses)
+        valid_items = []
         for item in tool_input:
             if isinstance(item, dict):
                 # Skip items that look like mocked responses
                 if "status" in item and "data" in item:
                     continue
-                # This looks like a parameter dict
-                print(f"✅ Extracted parameters: {item}", file=sys.stderr)
-                return item
+                # Skip items that look like Hexis results (hallucinated output)
+                if "days" in item and isinstance(item["days"], list):
+                    continue
+                valid_items.append(item)
 
-        raise ValueError(
-            f"Could not extract valid parameters from list: {tool_input}. "
-            f"Please pass a single dictionary with parameters only."
-        )
+        if len(valid_items) == 0:
+            raise ValueError(
+                f"Could not extract valid parameters from list: {tool_input}. "
+                f"Please pass a single dictionary with parameters only."
+            )
+        elif len(valid_items) == 1:
+            # Single item - return as dict
+            print(f"✅ Extracted single parameter dict: {valid_items[0]}", file=sys.stderr)
+            return valid_items[0]
+        else:
+            # Multiple items - return batch marker for sequential processing
+            print(f"✅ Extracted {len(valid_items)} parameter dicts for batch processing", file=sys.stderr)
+            return {"__batch_items__": valid_items}
 
     # If it's a string, try to parse as JSON
     if isinstance(tool_input, str):
@@ -165,6 +177,8 @@ class PermissiveToolWrapper(BaseTool):
         # Call the original tool with validated input
         original_run = getattr(self.original_tool, '_run', None) or getattr(self.original_tool, 'run', None)
         if original_run:
+            if isinstance(validated, dict):
+                return original_run(**validated)
             return original_run(validated)
         else:
             raise RuntimeError(f"Tool {tool_name} has no _run or run method")
@@ -181,10 +195,16 @@ class PermissiveToolWrapper(BaseTool):
 
 def wrap_mcp_tool(tool: Any) -> Any:
     """
-    Wrap an MCP tool to add input validation.
+    Wrap an MCP tool to add input validation and logging.
 
-    This wrapper intercepts the tool execution BEFORE CrewAI's validation
-    by replacing the args_schema with a permissive one that accepts any input.
+    This wrapper intercepts the tool execution and:
+    1. Logs tool calls for debugging
+    2. Handles list inputs that some LLMs incorrectly send
+    3. Validates inputs before passing to the original tool
+
+    Note: We NO LONGER replace the args_schema because that was causing
+    the tool arguments to be lost when Pydantic validated against the
+    permissive schema. The original tool's schema is preserved.
 
     Args:
         tool: MCP tool object with a `_run` or `run` method
@@ -199,21 +219,15 @@ def wrap_mcp_tool(tool: Any) -> Any:
         # Tool doesn't have a run method, return as-is
         return tool
 
-    # Replace the args_schema with a permissive model that accepts Any
-    # This bypasses CrewAI's strict validation before _run is called
     tool_name = getattr(tool, 'name', 'unknown')
 
-    # Create a permissive schema that accepts any input as 'tool_input'
-    PermissiveSchema = create_model(
-        f"{tool_name.replace('-', '_').replace('__', '_').title()}PermissiveInput",
-        tool_input=(Dict[str, Any], Field(default_factory=dict, description="Tool input (any format accepted)")),
-        __config__=ConfigDict(json_schema_extra={"type": "object"})
-    )
-
-    # Store original schema for reference
+    # Store original schema for reference (but do NOT replace it!)
     original_schema = getattr(tool, 'args_schema', None)
     tool._original_args_schema = original_schema
-    tool.args_schema = PermissiveSchema
+    # NOTE: We no longer set tool.args_schema = PermissiveSchema
+    # This was causing the actual arguments to be lost when CrewAI
+    # validated {"start_date": "...", "end_date": "..."} against a schema
+    # that expected {"tool_input": {...}}, resulting in tool_input={}
 
     def validated_run(*args, **kwargs) -> Any:
         """Run the tool with input validation."""
@@ -228,15 +242,58 @@ def wrap_mcp_tool(tool: Any) -> Any:
         print(f"   Args: {args[:1] if args else 'none'}", file=sys.stderr)
         print(f"   Kwargs keys: {list(kwargs.keys()) if kwargs else 'none'}", file=sys.stderr)
 
-        # Handle permissive schema input - the input comes in kwargs['tool_input']
-        if 'tool_input' in kwargs and kwargs['tool_input'] is not None:
+        # Remove security_context if present (CrewAI internal, not for the tool)
+        kwargs.pop('security_context', None)
+
+        # Determine the input to validate
+        raw_input = None
+
+        # Case 1: Legacy permissive schema input (tool_input key)
+        # This was from the old approach - kept for backwards compatibility
+        if 'tool_input' in kwargs and kwargs['tool_input']:
             raw_input = kwargs.pop('tool_input')
-            print(f"   Raw tool_input type: {type(raw_input).__name__}", file=sys.stderr)
+            print(f"   Legacy tool_input detected: {type(raw_input).__name__}", file=sys.stderr)
+        # Case 2: Direct kwargs (the normal case now that we preserve original schema)
+        elif kwargs:
+            raw_input = kwargs
+            kwargs = {}  # Clear so we don't double-pass
+            print(f"   Direct kwargs: {list(raw_input.keys())}", file=sys.stderr)
+        # Case 3: Positional args (fallback)
+        elif args:
+            raw_input = args[0]
+            args = args[1:]
+            print(f"   Positional arg: {type(raw_input).__name__}", file=sys.stderr)
+
+        if raw_input is not None:
             try:
                 validated_input = validate_tool_input(raw_input)
-                print(f"   ✅ Validated input: {list(validated_input.keys()) if isinstance(validated_input, dict) else validated_input}", file=sys.stderr)
-                # Call original method with validated input as kwargs
-                result = original_run(**validated_input)
+
+                # Inject default limit for Passio search tools to avoid context overflow
+                # The Passio API can return 100+ results (150K+ chars) without a limit
+                if "passio" in tool_name.lower() and "search" in tool_name.lower():
+                    if isinstance(validated_input, dict) and "limit" not in validated_input:
+                        default_limit = int(os.getenv("PASSIO_DEFAULT_LIMIT", "5"))
+                        validated_input["limit"] = default_limit
+                        print(f"   📉 Added default limit={default_limit} to Passio search", file=sys.stderr)
+
+                # Check for batch marker - process multiple items sequentially
+                if isinstance(validated_input, dict) and "__batch_items__" in validated_input:
+                    batch_items = validated_input["__batch_items__"]
+                    print(f"   🔄 Batch processing {len(batch_items)} items...", file=sys.stderr)
+                    results = []
+                    for i, item in enumerate(batch_items, 1):
+                        print(f"   📝 Processing item {i}/{len(batch_items)}: {list(item.keys())}", file=sys.stderr)
+                        item_result = original_run(**item)
+                        results.append(item_result)
+                    result = results
+                    print(f"   ✅ Batch complete: {len(results)} results", file=sys.stderr)
+                else:
+                    print(f"   ✅ Validated input: {list(validated_input.keys()) if isinstance(validated_input, dict) else validated_input}", file=sys.stderr)
+                    # Call original method with validated input as kwargs
+                    if isinstance(validated_input, dict):
+                        result = original_run(**validated_input)
+                    else:
+                        result = original_run(validated_input, *args, **kwargs)
             except Exception as e:
                 print(
                     f"❌ Tool input validation failed: {e}\n"
@@ -245,22 +302,9 @@ def wrap_mcp_tool(tool: Any) -> Any:
                     file=sys.stderr
                 )
                 raise
-        # If first arg looks like tool input, validate it
-        elif args and len(args) > 0:
-            try:
-                validated_input = validate_tool_input(args[0])
-                # Call original method with validated input
-                result = original_run(**validated_input) if isinstance(validated_input, dict) else original_run(validated_input, *args[1:], **kwargs)
-            except Exception as e:
-                print(
-                    f"❌ Tool input validation failed: {e}\n"
-                    f"   Tool: {tool_name}\n"
-                    f"   Raw input: {args[0]}",
-                    file=sys.stderr
-                )
-                raise
         else:
-            # No special input, call with original args/kwargs
+            # No input at all, call with original args/kwargs
+            print(f"   ⚠️ No input detected, calling with empty args", file=sys.stderr)
             result = original_run(*args, **kwargs)
 
         # Log the result summary
