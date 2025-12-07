@@ -4,6 +4,7 @@ from __future__ import annotations
 # CRITICAL: Initialize auth BEFORE importing CrewAI to ensure structured outputs work
 import llm_auth_init  # noqa: F401
 
+import concurrent.futures
 import copy
 import json
 import os
@@ -72,6 +73,7 @@ from mcp_auth_wrapper import MetaMCPAdapter
 from llm_provider_rotation import create_llm_with_rotation, get_model_for_category
 from mcp_tool_wrapper import wrap_mcp_tools, wrap_mcp_tool
 from tools.hexis_composite_tool import create_hexis_log_meal_tool
+from macro_calculator import enrich_validated_ingredients, format_pre_calculated_summary
 
 
 class MealPlanningCrew:
@@ -746,213 +748,112 @@ class MealPlanningCrew:
 
             daily_targets = daily_targets[:max_days]
 
+        # Check if parallel generation is enabled (default: True for 2+ days)
+        parallel_enabled = os.getenv("PARALLEL_DAY_GENERATION", "true").lower() == "true"
+        num_days = len(daily_targets)
+
+        if parallel_enabled and num_days >= 2:
+            print(
+                f"\n🚀 Parallel mode: Generating {num_days} days concurrently (max 2 workers)...\n",
+                file=sys.stderr,
+            )
+            return self._generate_days_parallel(
+                daily_targets, nutrition_plan, validation_feedback
+            )
+        else:
+            print(
+                f"\n📋 Sequential mode: Generating {num_days} day(s) one at a time...\n",
+                file=sys.stderr,
+            )
+            return self._generate_days_sequential(
+                daily_targets, nutrition_plan, validation_feedback
+            )
+
+    def _generate_days_parallel(
+        self,
+        daily_targets: List[Dict[str, Any]],
+        nutrition_plan: Dict[str, Any],
+        validation_feedback: Optional[Dict[str, Any]] = None,
+    ) -> Optional[List[Dict[str, Any]]]:
+        """Generate daily meal plans in parallel using ThreadPoolExecutor.
+
+        Each day is generated independently. Results are sorted by date.
+        """
+        max_workers = min(2, len(daily_targets))  # Limit to 2 concurrent days
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Submit all days for parallel processing
+            future_to_target = {
+                executor.submit(
+                    self._generate_single_day,
+                    target,
+                    nutrition_plan,
+                    [],  # No previous_days context in parallel mode
+                    validation_feedback,
+                ): target
+                for target in daily_targets
+            }
+
+            generated_daily_plans: List[Dict[str, Any]] = []
+            failed_days: List[str] = []
+
+            for future in concurrent.futures.as_completed(future_to_target):
+                target = future_to_target[future]
+                day_name = target.get("day_name", "Unknown")
+
+                try:
+                    daily_plan = future.result()
+                    if daily_plan:
+                        generated_daily_plans.append(daily_plan)
+                        print(f"\n✅ {day_name}: Completed successfully\n", file=sys.stderr)
+                    else:
+                        failed_days.append(day_name)
+                        print(f"\n❌ {day_name}: Failed to generate\n", file=sys.stderr)
+                except Exception as e:
+                    failed_days.append(day_name)
+                    print(f"\n❌ {day_name}: Error - {e}\n", file=sys.stderr)
+
+        if failed_days:
+            print(
+                f"\n⚠️  {len(failed_days)} day(s) failed: {', '.join(failed_days)}\n",
+                file=sys.stderr,
+            )
+            if len(generated_daily_plans) == 0:
+                return None
+
+        # Sort by date to maintain order
+        generated_daily_plans.sort(key=lambda x: x.get("date", ""))
+
+        print(
+            f"\n✅ Generated {len(generated_daily_plans)} daily plans in parallel\n",
+            file=sys.stderr,
+        )
+        return generated_daily_plans
+
+    def _generate_days_sequential(
+        self,
+        daily_targets: List[Dict[str, Any]],
+        nutrition_plan: Dict[str, Any],
+        validation_feedback: Optional[Dict[str, Any]] = None,
+    ) -> Optional[List[Dict[str, Any]]]:
+        """Generate daily meal plans sequentially (original behavior).
+
+        Each day can use context from previous days for variety.
+        """
         generated_daily_plans: List[Dict[str, Any]] = []
 
         for target in daily_targets:
-            day_name = target.get("day_name", "Unknown day")
-            day_date = target.get("date", "?")
-            print(
-                f"\n📆 Generating meals for {day_name} ({day_date}) using Supervisor/Executor/Reviewer pattern...\n",
-                file=sys.stderr,
+            daily_plan = self._generate_single_day(
+                target,
+                nutrition_plan,
+                generated_daily_plans,  # Pass previous days for context
+                validation_feedback,
             )
 
-            max_attempts = 3
-            daily_plan: Optional[Dict[str, Any]] = None
-
-            for attempt in range(1, max_attempts + 1):
-                print(
-                    f"\n🔄 {day_name} - Attempt {attempt}/{max_attempts}...\n",
-                    file=sys.stderr,
-                )
-
-                # =================================================================
-                # STEP 1: SUPERVISOR - Design meals (pure reasoning, no tools)
-                # =================================================================
-                print(f"   👨‍🍳 Step 1: Supervisor designing meal plan...", file=sys.stderr)
-
-                # Extract meal_targets from the enriched daily target
-                meal_targets = target.get("meal_targets", [])
-                if not meal_targets:
-                    raise ValueError(
-                        f"Missing meal_targets for {target.get('date')}. "
-                        "Hexis data is required for meal planning."
-                    )
-
-                supervisor_task = create_meal_planning_supervisor_task(
-                    self.meal_planning_supervisor_agent,
-                    daily_target=target,
-                    weekly_context=nutrition_plan,
-                    previous_days=generated_daily_plans,
-                    validation_feedback=validation_feedback,
-                    meal_targets=meal_targets,
-                )
-                supervisor_crew = Crew(
-                    agents=[self.meal_planning_supervisor_agent],
-                    tasks=[supervisor_task],
-                    process=Process.sequential,
-                    verbose=True,
-                    max_iter=10,
-                    memory=False,
-                )
-
-                supervisor_result = supervisor_crew.kickoff()
-                # Use enrichment to inject target_* fields if LLM omits them
-                meal_template_model = self._extract_model_with_enrichment(
-                    supervisor_result, MealPlanTemplate, enrichment_data=target
-                )
-
-                if meal_template_model is None:
-                    print(
-                        f"\n   ⚠️  Supervisor failed to produce valid MealPlanTemplate, retrying...\n",
-                        file=sys.stderr,
-                    )
-                    continue
-
-                meal_template = meal_template_model.model_dump()
-                print(
-                    f"   ✅ Supervisor created template with {len(meal_template.get('meals', []))} meals\n",
-                    file=sys.stderr,
-                )
-
-                # =================================================================
-                # STEP 2: EXECUTOR - Validate ingredients (tool calls only)
-                # =================================================================
-                print(f"   🔍 Step 2: Executor validating ingredients...", file=sys.stderr)
-
-                executor_task = create_ingredient_validation_executor_task(
-                    self.ingredient_validation_executor_agent,
-                    meal_plan_template=meal_template,
-                )
-                executor_crew = Crew(
-                    agents=[self.ingredient_validation_executor_agent],
-                    tasks=[executor_task],
-                    process=Process.sequential,
-                    verbose=True,
-                    max_iter=20,  # Allow multiple tool calls
-                    memory=False,
-                )
-
-                executor_result = executor_crew.kickoff()
-                validated_ingredients_model = self._extract_model_from_output(
-                    executor_result, ValidatedIngredientsList
-                )
-
-                if validated_ingredients_model is None:
-                    print(
-                        f"\n   ⚠️  Executor failed to validate ingredients, using empty validation...\n",
-                        file=sys.stderr,
-                    )
-                    # Create empty validation to allow Reviewer to proceed
-                    validated_ingredients = {
-                        "day_name": meal_template.get("day_name", day_name),
-                        "date": meal_template.get("date", day_date),
-                        "validated_meals": [],
-                        "total_validations": 0,
-                        "successful_validations": 0,
-                        "substitutions_made": 0,
-                    }
-                else:
-                    validated_ingredients = validated_ingredients_model.model_dump()
-                    print(
-                        f"   ✅ Executor validated {validated_ingredients.get('successful_validations', 0)}/{validated_ingredients.get('total_validations', 0)} ingredients\n",
-                        file=sys.stderr,
-                    )
-
-                # =================================================================
-                # STEP 3: REVIEWER - Calculate macros and finalize (pure reasoning)
-                # =================================================================
-                print(f"   📊 Step 3: Reviewer finalizing meal plan...", file=sys.stderr)
-
-                reviewer_task = create_meal_recipe_reviewer_task(
-                    self.meal_recipe_reviewer_agent,
-                    meal_plan_template=meal_template,
-                    validated_ingredients=validated_ingredients,
-                    daily_target=target,
-                )
-                reviewer_crew = Crew(
-                    agents=[self.meal_recipe_reviewer_agent],
-                    tasks=[reviewer_task],
-                    process=Process.sequential,
-                    verbose=True,
-                    max_iter=10,
-                    memory=False,
-                )
-
-                reviewer_result = reviewer_crew.kickoff()
-                meal_model = self._extract_model_from_output(reviewer_result, DailyMealPlan)
-
-                if meal_model is None:
-                    print(
-                        f"\n   ⚠️  Reviewer failed to produce valid DailyMealPlan, retrying...\n",
-                        file=sys.stderr,
-                    )
-                    continue
-
-                daily_plan = meal_model.model_dump()
-                print(
-                    f"\n✅ {day_name} - Attempt {attempt}: Generated {len(daily_plan.get('meals', []))} meals via Supervisor/Executor/Reviewer\n",
-                    file=sys.stderr,
-                )
-
-                # =================================================================
-                # STEP 4a: Python quantity adjustment (if needed)
-                # =================================================================
-                daily_plan, was_adjusted = self._adjust_ingredient_quantities(daily_plan, target)
-                if was_adjusted:
-                    print(
-                        f"   ✅ Python fine-tuned ingredient quantities",
-                        file=sys.stderr,
-                    )
-
-                # =================================================================
-                # STEP 4b: Per-day macro validation
-                # =================================================================
-                macro_validation = self._validate_daily_macros(daily_plan, target, meal_targets)
-                if not macro_validation["passed"]:
-                    print(
-                        f"\n   ⚠️  Macro validation failed: {macro_validation['reason']}\n",
-                        file=sys.stderr,
-                    )
-                    for issue in macro_validation["issues"][:3]:
-                        print(f"      - {issue}", file=sys.stderr)
-
-                    if attempt < max_attempts:
-                        # Build feedback for next Supervisor attempt
-                        validation_feedback = validation_feedback or {}
-                        python_note = (
-                            "Python already attempted quantity adjustment but macros are still off. "
-                            "The Supervisor MUST design meals with significantly different ingredient choices or portions."
-                        ) if was_adjusted else ""
-
-                        validation_feedback = {
-                            **validation_feedback,
-                            "previous_attempt": attempt,
-                            "macro_issues": macro_validation["issues"],
-                            "adjustments_needed": macro_validation["adjustments"],
-                            "missing_meals": macro_validation["missing_meals"],
-                            "python_adjustment_attempted": was_adjusted,
-                            "critical_instruction": python_note or "Adjust portions as indicated to meet macro targets.",
-                        }
-                        print(
-                            f"\n   🔄 Retrying with macro feedback (Python adjusted: {was_adjusted})...\n",
-                            file=sys.stderr,
-                        )
-                        continue
-                    else:
-                        print(
-                            f"\n   ⚠️  Max attempts reached, accepting plan with issues\n",
-                            file=sys.stderr,
-                        )
-
-                print(
-                    f"\n   ✅ Macro validation passed for {day_name}\n",
-                    file=sys.stderr,
-                )
-                break
-
             if daily_plan is None:
+                day_name = target.get("day_name", "Unknown")
                 print(
-                    f"\n❌ {day_name}: Failed to produce a valid daily plan after {max_attempts} attempts\n",
+                    f"\n❌ {day_name}: Failed to generate, aborting...\n",
                     file=sys.stderr,
                 )
                 return None
@@ -964,6 +865,250 @@ class MealPlanningCrew:
             file=sys.stderr,
         )
         return generated_daily_plans
+
+    def _generate_single_day(
+        self,
+        target: Dict[str, Any],
+        nutrition_plan: Dict[str, Any],
+        previous_days: List[Dict[str, Any]],
+        validation_feedback: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Generate a single day's meal plan using Supervisor/Executor/Reviewer pattern.
+
+        Args:
+            target: Daily nutritional targets with meal_targets
+            nutrition_plan: Weekly context
+            previous_days: Previously generated days (for variety, may be empty in parallel mode)
+            validation_feedback: Feedback from failed attempts
+
+        Returns:
+            DailyMealPlan dict or None if failed
+        """
+        day_name = target.get("day_name", "Unknown day")
+        day_date = target.get("date", "?")
+        print(
+            f"\n📆 Generating meals for {day_name} ({day_date}) using Supervisor/Executor/Reviewer pattern...\n",
+            file=sys.stderr,
+        )
+
+        max_attempts = 3
+        daily_plan: Optional[Dict[str, Any]] = None
+
+        for attempt in range(1, max_attempts + 1):
+            print(
+                f"\n🔄 {day_name} - Attempt {attempt}/{max_attempts}...\n",
+                file=sys.stderr,
+            )
+
+            # =================================================================
+            # STEP 1: SUPERVISOR - Design meals (pure reasoning, no tools)
+            # =================================================================
+            print(f"   👨‍🍳 Step 1: Supervisor designing meal plan...", file=sys.stderr)
+
+            # Extract meal_targets from the enriched daily target
+            meal_targets = target.get("meal_targets", [])
+            if not meal_targets:
+                raise ValueError(
+                    f"Missing meal_targets for {target.get('date')}. "
+                    "Hexis data is required for meal planning."
+                )
+
+            supervisor_task = create_meal_planning_supervisor_task(
+                self.meal_planning_supervisor_agent,
+                daily_target=target,
+                weekly_context=nutrition_plan,
+                previous_days=previous_days,
+                validation_feedback=validation_feedback,
+                meal_targets=meal_targets,
+            )
+            supervisor_crew = Crew(
+                agents=[self.meal_planning_supervisor_agent],
+                tasks=[supervisor_task],
+                process=Process.sequential,
+                verbose=True,
+                max_iter=10,
+                memory=False,
+            )
+
+            supervisor_result = supervisor_crew.kickoff()
+            # Use enrichment to inject target_* fields if LLM omits them
+            meal_template_model = self._extract_model_with_enrichment(
+                supervisor_result, MealPlanTemplate, enrichment_data=target
+            )
+
+            if meal_template_model is None:
+                print(
+                    f"\n   ⚠️  Supervisor failed to produce valid MealPlanTemplate, retrying...\n",
+                    file=sys.stderr,
+                )
+                continue
+
+            meal_template = meal_template_model.model_dump()
+            print(
+                f"   ✅ Supervisor created template with {len(meal_template.get('meals', []))} meals\n",
+                file=sys.stderr,
+            )
+
+            # =================================================================
+            # STEP 2: EXECUTOR - Validate ingredients (tool calls only)
+            # =================================================================
+            print(f"   🔍 Step 2: Executor validating ingredients...", file=sys.stderr)
+
+            executor_task = create_ingredient_validation_executor_task(
+                self.ingredient_validation_executor_agent,
+                meal_plan_template=meal_template,
+            )
+            executor_crew = Crew(
+                agents=[self.ingredient_validation_executor_agent],
+                tasks=[executor_task],
+                process=Process.sequential,
+                verbose=True,
+                max_iter=20,  # Allow multiple tool calls
+                memory=False,
+            )
+
+            executor_result = executor_crew.kickoff()
+            validated_ingredients_model = self._extract_model_from_output(
+                executor_result, ValidatedIngredientsList
+            )
+
+            if validated_ingredients_model is None:
+                print(
+                    f"\n   ⚠️  Executor failed to validate ingredients, using empty validation...\n",
+                    file=sys.stderr,
+                )
+                # Create empty validation to allow Reviewer to proceed
+                validated_ingredients = {
+                    "day_name": meal_template.get("day_name", day_name),
+                    "date": meal_template.get("date", day_date),
+                    "validated_meals": [],
+                    "total_validations": 0,
+                    "successful_validations": 0,
+                    "substitutions_made": 0,
+                }
+            else:
+                validated_ingredients = validated_ingredients_model.model_dump()
+                print(
+                    f"   ✅ Executor validated {validated_ingredients.get('successful_validations', 0)}/{validated_ingredients.get('total_validations', 0)} ingredients\n",
+                    file=sys.stderr,
+                )
+
+            # =================================================================
+            # STEP 2b: PRE-CALCULATE MACROS IN PYTHON (optimization)
+            # =================================================================
+            # This reduces the Reviewer's work by ~50% - no more LLM math
+            validated_ingredients = enrich_validated_ingredients(validated_ingredients)
+
+            # Extract target totals for summary
+            target_totals = {
+                "calories": target.get("calories", 0),
+                "protein_g": target.get("protein_g", 0),
+                "carbs_g": target.get("carbs_g", 0),
+                "fat_g": target.get("fat_g", 0),
+            }
+            pre_calc_summary = format_pre_calculated_summary(validated_ingredients, target_totals)
+            print(f"   📊 Pre-calculated macros:\n{pre_calc_summary}\n", file=sys.stderr)
+
+            # =================================================================
+            # STEP 3: REVIEWER - Calculate macros and finalize (pure reasoning)
+            # =================================================================
+            print(f"   📊 Step 3: Reviewer finalizing meal plan...", file=sys.stderr)
+
+            reviewer_task = create_meal_recipe_reviewer_task(
+                self.meal_recipe_reviewer_agent,
+                meal_plan_template=meal_template,
+                validated_ingredients=validated_ingredients,
+                daily_target=target,
+                pre_calc_summary=pre_calc_summary,  # Pass pre-calculated summary
+            )
+            reviewer_crew = Crew(
+                agents=[self.meal_recipe_reviewer_agent],
+                tasks=[reviewer_task],
+                process=Process.sequential,
+                verbose=True,
+                max_iter=10,
+                memory=False,
+            )
+
+            reviewer_result = reviewer_crew.kickoff()
+            meal_model = self._extract_model_from_output(reviewer_result, DailyMealPlan)
+
+            if meal_model is None:
+                print(
+                    f"\n   ⚠️  Reviewer failed to produce valid DailyMealPlan, retrying...\n",
+                    file=sys.stderr,
+                )
+                continue
+
+            daily_plan = meal_model.model_dump()
+            print(
+                f"\n✅ {day_name} - Attempt {attempt}: Generated {len(daily_plan.get('meals', []))} meals via Supervisor/Executor/Reviewer\n",
+                file=sys.stderr,
+            )
+
+            # =================================================================
+            # STEP 4a: Python quantity adjustment (if needed)
+            # =================================================================
+            daily_plan, was_adjusted = self._adjust_ingredient_quantities(daily_plan, target)
+            if was_adjusted:
+                print(
+                    f"   ✅ Python fine-tuned ingredient quantities",
+                    file=sys.stderr,
+                )
+
+            # =================================================================
+            # STEP 4b: Per-day macro validation
+            # =================================================================
+            macro_validation = self._validate_daily_macros(daily_plan, target, meal_targets)
+            if not macro_validation["passed"]:
+                print(
+                    f"\n   ⚠️  Macro validation failed: {macro_validation['reason']}\n",
+                    file=sys.stderr,
+                )
+                for issue in macro_validation["issues"][:3]:
+                    print(f"      - {issue}", file=sys.stderr)
+
+                if attempt < max_attempts:
+                    # Build feedback for next Supervisor attempt
+                    local_feedback = validation_feedback or {}
+                    python_note = (
+                        "Python already attempted quantity adjustment but macros are still off. "
+                        "The Supervisor MUST design meals with significantly different ingredient choices or portions."
+                    ) if was_adjusted else ""
+
+                    validation_feedback = {
+                        **local_feedback,
+                        "previous_attempt": attempt,
+                        "macro_issues": macro_validation["issues"],
+                        "adjustments_needed": macro_validation["adjustments"],
+                        "missing_meals": macro_validation["missing_meals"],
+                        "python_adjustment_attempted": was_adjusted,
+                        "critical_instruction": python_note or "Adjust portions as indicated to meet macro targets.",
+                    }
+                    print(
+                        f"\n   🔄 Retrying with macro feedback (Python adjusted: {was_adjusted})...\n",
+                        file=sys.stderr,
+                    )
+                    continue
+                else:
+                    print(
+                        f"\n   ⚠️  Max attempts reached, accepting plan with issues\n",
+                        file=sys.stderr,
+                    )
+
+            print(
+                f"\n   ✅ Macro validation passed for {day_name}\n",
+                file=sys.stderr,
+            )
+            break
+
+        if daily_plan is None:
+            print(
+                f"\n❌ {day_name}: Failed to produce a valid daily plan after {max_attempts} attempts\n",
+                file=sys.stderr,
+            )
+
+        return daily_plan
 
     def _adjust_ingredient_quantities(
         self,

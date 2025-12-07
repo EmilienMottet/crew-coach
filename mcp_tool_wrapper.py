@@ -9,6 +9,10 @@ _run() method. To work around this, we create a custom BaseTool wrapper that:
 1. Accepts any input type (bypasses CrewAI's schema validation)
 2. Validates and fixes the input manually in _run()
 3. Delegates to the original MCP tool
+
+Additional optimizations for Passio tools:
+- Caches search results to avoid redundant API calls
+- Filters response data to reduce token usage
 """
 
 import asyncio
@@ -19,6 +23,8 @@ from typing import Any, Callable, Dict, List, Optional, Union
 
 from crewai.tools import BaseTool
 from pydantic import BaseModel, ConfigDict, Field, create_model
+
+from passio_nutrition_cache import get_passio_search_cache
 
 # Global counter for tracking tool calls
 _tool_call_counter: Dict[str, int] = {}
@@ -193,6 +199,161 @@ class PermissiveToolWrapper(BaseTool):
         return await asyncio.to_thread(self._run, **kwargs)
 
 
+# =============================================================================
+# Passio Search Cache and Response Filtering
+# =============================================================================
+
+# Essential fields to keep from Passio search results
+PASSIO_ESSENTIAL_FIELDS = {
+    "id", "resultId", "refCode", "displayName", "shortName", "longName",
+    "type", "dataOrigin", "scoredName",
+    # Nutrition fields (from get_passio_food_details)
+    "protein_per_100g", "carbs_per_100g", "fat_per_100g", "calories_per_100g",
+    "protein", "carbs", "fat", "calories",
+    "nutrients",
+}
+
+
+def filter_passio_food(food: Dict[str, Any]) -> Dict[str, Any]:
+    """Filter a single Passio food item to keep only essential fields.
+
+    Reduces token usage by ~70% while preserving all necessary data for
+    ingredient validation and Hexis integration.
+    """
+    if not isinstance(food, dict):
+        return food
+
+    filtered = {}
+    for key in PASSIO_ESSENTIAL_FIELDS:
+        if key in food:
+            filtered[key] = food[key]
+
+    # Keep nested nutrients if present
+    if "nutrients" in food and isinstance(food["nutrients"], dict):
+        filtered["nutrients"] = food["nutrients"]
+
+    return filtered
+
+
+def filter_passio_response(result: Any) -> Any:
+    """Filter Passio API response to reduce token usage.
+
+    Handles both search results (list of foods) and detail results (single food).
+    """
+    if result is None:
+        return result
+
+    # Handle string results (already serialized JSON)
+    if isinstance(result, str):
+        try:
+            parsed = json.loads(result)
+            filtered = filter_passio_response(parsed)
+            return json.dumps(filtered)
+        except (json.JSONDecodeError, TypeError):
+            return result
+
+    # Handle dict with "foods" key (search result)
+    if isinstance(result, dict):
+        if "foods" in result and isinstance(result["foods"], list):
+            result["foods"] = [filter_passio_food(f) for f in result["foods"]]
+        else:
+            # Single food item
+            result = filter_passio_food(result)
+        return result
+
+    # Handle list of foods
+    if isinstance(result, list):
+        return [filter_passio_food(f) for f in result]
+
+    return result
+
+
+def extract_passio_data_for_cache(result: Any, query: str) -> Optional[Dict[str, Any]]:
+    """Extract data from Passio search result for caching.
+
+    Returns the first food item with essential fields for the search cache.
+    """
+    foods = None
+
+    # Parse string result
+    if isinstance(result, str):
+        try:
+            parsed = json.loads(result)
+            if isinstance(parsed, dict) and "foods" in parsed:
+                foods = parsed["foods"]
+            elif isinstance(parsed, list):
+                foods = parsed
+        except (json.JSONDecodeError, TypeError):
+            return None
+    elif isinstance(result, dict) and "foods" in result:
+        foods = result["foods"]
+    elif isinstance(result, list):
+        foods = result
+
+    if not foods or len(foods) == 0:
+        return None
+
+    # Get the first (best match) food item
+    first_food = foods[0]
+    if not isinstance(first_food, dict):
+        return None
+
+    # Extract essential fields for cache
+    cache_data = {
+        "passio_food_id": first_food.get("id") or first_food.get("resultId"),
+        "passio_ref_code": first_food.get("refCode"),
+        "passio_food_name": first_food.get("displayName") or first_food.get("shortName"),
+    }
+
+    # Extract nutrition if available (from enriched results or get_passio_food_details)
+    if "nutrients" in first_food:
+        nutrients = first_food["nutrients"]
+        cache_data["protein_per_100g"] = nutrients.get("protein", 0)
+        cache_data["carbs_per_100g"] = nutrients.get("carbs", 0)
+        cache_data["fat_per_100g"] = nutrients.get("fat", 0)
+        cache_data["calories_per_100g"] = nutrients.get("calories", 0)
+    elif "protein_per_100g" in first_food:
+        cache_data["protein_per_100g"] = first_food.get("protein_per_100g", 0)
+        cache_data["carbs_per_100g"] = first_food.get("carbs_per_100g", 0)
+        cache_data["fat_per_100g"] = first_food.get("fat_per_100g", 0)
+        cache_data["calories_per_100g"] = first_food.get("calories_per_100g", 0)
+
+    return cache_data
+
+
+def build_cached_passio_response(cached_data: Dict[str, Any]) -> str:
+    """Build a Passio-like response from cached data.
+
+    Creates a minimal response that looks like a Passio search result
+    but contains only the cached food item.
+    """
+    food_item = {
+        "id": cached_data.get("passio_food_id"),
+        "resultId": cached_data.get("passio_food_id"),
+        "refCode": cached_data.get("passio_ref_code"),
+        "displayName": cached_data.get("passio_food_name"),
+        "shortName": cached_data.get("passio_food_name"),
+        "type": "cached",
+        "dataOrigin": "PASSIO_CACHE",
+    }
+
+    # Add nutrition if available
+    if cached_data.get("protein_per_100g") is not None:
+        food_item["nutrients"] = {
+            "protein": cached_data.get("protein_per_100g", 0),
+            "carbs": cached_data.get("carbs_per_100g", 0),
+            "fat": cached_data.get("fat_per_100g", 0),
+            "calories": cached_data.get("calories_per_100g", 0),
+        }
+        food_item["protein_per_100g"] = cached_data.get("protein_per_100g", 0)
+        food_item["carbs_per_100g"] = cached_data.get("carbs_per_100g", 0)
+        food_item["fat_per_100g"] = cached_data.get("fat_per_100g", 0)
+        food_item["calories_per_100g"] = cached_data.get("calories_per_100g", 0)
+
+    response = {"foods": [food_item]}
+    return json.dumps(response)
+
+
 def wrap_mcp_tool(tool: Any) -> Any:
     """
     Wrap an MCP tool to add input validation and logging.
@@ -268,13 +429,31 @@ def wrap_mcp_tool(tool: Any) -> Any:
             try:
                 validated_input = validate_tool_input(raw_input)
 
+                # =============================================================
+                # Passio Search Optimization: Cache + Filtering
+                # =============================================================
+                is_passio_search = "passio" in tool_name.lower() and "search" in tool_name.lower()
+
                 # Inject default limit for Passio search tools to avoid context overflow
                 # The Passio API can return 100+ results (150K+ chars) without a limit
-                if "passio" in tool_name.lower() and "search" in tool_name.lower():
+                if is_passio_search:
                     if isinstance(validated_input, dict) and "limit" not in validated_input:
                         default_limit = int(os.getenv("PASSIO_DEFAULT_LIMIT", "5"))
                         validated_input["limit"] = default_limit
                         print(f"   📉 Added default limit={default_limit} to Passio search", file=sys.stderr)
+
+                    # Check cache for Passio search queries
+                    query = validated_input.get("query", "") if isinstance(validated_input, dict) else ""
+                    if query:
+                        search_cache = get_passio_search_cache()
+                        cached_result = search_cache.get(query)
+                        if cached_result:
+                            print(f"   🎯 CACHE HIT for '{query}' - skipping API call", file=sys.stderr)
+                            result = build_cached_passio_response(cached_result)
+                            # Log the cached result summary
+                            result_summary = str(result)[:200]
+                            print(f"   ✅ Cached result: {result_summary}...\n", file=sys.stderr)
+                            return result
 
                 # Check for batch marker - process multiple items sequentially
                 if isinstance(validated_input, dict) and "__batch_items__" in validated_input:
@@ -294,6 +473,27 @@ def wrap_mcp_tool(tool: Any) -> Any:
                         result = original_run(**validated_input)
                     else:
                         result = original_run(validated_input, *args, **kwargs)
+
+                    # =============================================================
+                    # Passio Post-Processing: Filter + Cache
+                    # =============================================================
+                    if is_passio_search and result:
+                        # Filter the response to reduce token usage
+                        original_len = len(str(result))
+                        result = filter_passio_response(result)
+                        filtered_len = len(str(result))
+                        reduction = ((original_len - filtered_len) / original_len * 100) if original_len > 0 else 0
+                        print(f"   📉 Filtered Passio response: {original_len} → {filtered_len} chars ({reduction:.0f}% reduction)", file=sys.stderr)
+
+                        # Cache the first result for future queries
+                        query = validated_input.get("query", "") if isinstance(validated_input, dict) else ""
+                        if query:
+                            cache_data = extract_passio_data_for_cache(result, query)
+                            if cache_data and cache_data.get("passio_ref_code"):
+                                search_cache = get_passio_search_cache()
+                                search_cache.set(query, cache_data)
+                                print(f"   💾 Cached result for '{query}': {cache_data.get('passio_food_name')}", file=sys.stderr)
+
             except Exception as e:
                 print(
                     f"❌ Tool input validation failed: {e}\n"

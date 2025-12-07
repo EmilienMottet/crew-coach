@@ -1,11 +1,115 @@
-"""Cache for Passio food nutritional data to minimize API calls."""
+"""Cache for Passio food nutritional data and search results to minimize API calls."""
 import json
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from datetime import datetime
 
 CACHE_FILE = Path(__file__).parent / ".passio_nutrition_cache.json"
+SEARCH_CACHE_FILE = Path(__file__).parent / ".passio_search_cache.json"
 CACHE_TTL_DAYS = 30  # Cache valid for 30 days
+
+
+class PassioSearchCache:
+    """Persistent cache for Passio search results.
+
+    Caches search query -> first result mapping to avoid redundant API calls.
+    Common ingredients (chicken, rice, eggs, etc.) are searched repeatedly.
+    """
+
+    def __init__(self, cache_file: Path = SEARCH_CACHE_FILE):
+        self.cache_file = cache_file
+        self._cache: Dict[str, Dict[str, Any]] = {}
+        self._load_cache()
+
+    def _normalize_query(self, query: str) -> str:
+        """Normalize query for consistent cache keys."""
+        return query.lower().strip()
+
+    def _load_cache(self):
+        """Load cache from disk, filtering expired entries."""
+        if self.cache_file.exists():
+            try:
+                with open(self.cache_file, "r") as f:
+                    data = json.load(f)
+                    now = datetime.now().timestamp()
+                    ttl_seconds = CACHE_TTL_DAYS * 86400
+                    self._cache = {
+                        k: v for k, v in data.items()
+                        if now - v.get("cached_at", 0) < ttl_seconds
+                    }
+            except (json.JSONDecodeError, IOError):
+                self._cache = {}
+
+    def _save_cache(self):
+        """Save cache to disk."""
+        try:
+            with open(self.cache_file, "w") as f:
+                json.dump(self._cache, f, indent=2)
+        except IOError as e:
+            print(f"Warning: Could not save Passio search cache: {e}")
+
+    def get(self, query: str) -> Optional[Dict[str, Any]]:
+        """Get cached search result for a query.
+
+        Args:
+            query: Search query (e.g., "chicken breast")
+
+        Returns:
+            Dict with passio_food_id, passio_ref_code, passio_food_name,
+            and nutrition data, or None if not cached
+        """
+        key = self._normalize_query(query)
+        entry = self._cache.get(key)
+        if entry:
+            return {
+                "passio_food_id": entry.get("passio_food_id"),
+                "passio_ref_code": entry.get("passio_ref_code"),
+                "passio_food_name": entry.get("passio_food_name"),
+                "protein_per_100g": entry.get("protein_per_100g"),
+                "carbs_per_100g": entry.get("carbs_per_100g"),
+                "fat_per_100g": entry.get("fat_per_100g"),
+                "calories_per_100g": entry.get("calories_per_100g"),
+            }
+        return None
+
+    def set(self, query: str, result: Dict[str, Any]):
+        """Store search result in cache.
+
+        Args:
+            query: Original search query
+            result: Dict with passio_food_id, passio_ref_code, passio_food_name,
+                   and nutrition data (protein_per_100g, carbs_per_100g, etc.)
+        """
+        key = self._normalize_query(query)
+        self._cache[key] = {
+            "passio_food_id": result.get("passio_food_id"),
+            "passio_ref_code": result.get("passio_ref_code"),
+            "passio_food_name": result.get("passio_food_name"),
+            "protein_per_100g": result.get("protein_per_100g"),
+            "carbs_per_100g": result.get("carbs_per_100g"),
+            "fat_per_100g": result.get("fat_per_100g"),
+            "calories_per_100g": result.get("calories_per_100g"),
+            "original_query": query,
+            "cached_at": datetime.now().timestamp(),
+        }
+        self._save_cache()
+
+    def stats(self) -> Dict[str, Any]:
+        """Return cache statistics."""
+        file_size = 0
+        if self.cache_file.exists():
+            file_size = self.cache_file.stat().st_size
+        return {
+            "total_entries": len(self._cache),
+            "file_size_bytes": file_size,
+            "file_size_kb": file_size // 1024,
+            "cache_file": str(self.cache_file),
+        }
+
+    def clear(self):
+        """Clear all cache entries."""
+        self._cache = {}
+        self._save_cache()
 
 
 class PassioNutritionCache:
@@ -132,13 +236,22 @@ class PassioNutritionCache:
         self._save_cache()
 
 
-# Singleton instance
+# Singleton instances
 _cache_instance: Optional[PassioNutritionCache] = None
+_search_cache_instance: Optional[PassioSearchCache] = None
 
 
 def get_passio_cache() -> PassioNutritionCache:
-    """Get the singleton cache instance."""
+    """Get the singleton nutrition cache instance."""
     global _cache_instance
     if _cache_instance is None:
         _cache_instance = PassioNutritionCache()
     return _cache_instance
+
+
+def get_passio_search_cache() -> PassioSearchCache:
+    """Get the singleton search cache instance."""
+    global _search_cache_instance
+    if _search_cache_instance is None:
+        _search_cache_instance = PassioSearchCache()
+    return _search_cache_instance
