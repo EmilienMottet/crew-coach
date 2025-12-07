@@ -184,6 +184,10 @@
     {
       "parameters": {
         "resume": "webhook",
+        "limitWaitTime": true,
+        "limitType": "afterTimeInterval",
+        "limitAmount": 30,
+        "limitUnit": "minutes",
         "options": {}
       },
       "id": "wait-for-callback",
@@ -198,7 +202,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const result = $input.item.json;\nreturn {\n  json: {\n    success: !result.error,\n    week_start_date: result.week_start_date,\n    total_meals: result.integration?.total_meals_created || 0,\n    summary: result.summary || 'No summary available',\n    validation_approved: result.validation?.approved || false,\n    shopping_list: result.shopping_list || [],\n    error: result.error || null\n  }\n};"
+        "jsCode": "const result = $input.item.json || {};\n\n// Handle timeout case (Wait node expired without callback)\nconst isTimeout = !result.week_start_date && !result.error;\n\nreturn {\n  json: {\n    success: !result.error && !isTimeout,\n    week_start_date: result.week_start_date || 'unknown',\n    total_meals: result.integration?.total_meals_created || 0,\n    summary: result.summary || (isTimeout ? 'Timeout: crew did not respond within 30 minutes' : 'No summary available'),\n    validation_approved: result.validation?.approved || false,\n    shopping_list: result.shopping_list || [],\n    error: isTimeout ? 'Timeout: meal planning did not complete within 30 minutes' : (result.error || null)\n  }\n};"
       },
       "id": "parse-crew-output",
       "name": "Parse Crew Output",
