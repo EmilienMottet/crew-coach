@@ -28,7 +28,7 @@ def _preview_text(value: Any, fallback: str = "N/A") -> str:
 def test_meal_planning():
     """Test the meal planning crew with a sample week."""
     # Use the requested week (user confirmed Hexis has data for this week)
-    week_start_date = "2025-12-06"
+    week_start_date = "2025-12-08"
 
     days_env = os.getenv("MEAL_PLAN_DAYS")
     try:
