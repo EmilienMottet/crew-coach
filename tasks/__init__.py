@@ -21,7 +21,10 @@ from .meal_recipe_reviewer_task import create_meal_recipe_reviewer_task
 # Supervisor/Executor/Reviewer pattern for HEXIS_ANALYSIS
 from .hexis_data_supervisor_task import create_hexis_data_supervisor_task
 from .hexis_data_executor_task import create_hexis_data_executor_task
-from .hexis_analysis_reviewer_task import create_hexis_analysis_reviewer_task
+from .hexis_analysis_reviewer_task import (
+    create_hexis_analysis_reviewer_task,
+    _extract_daily_meal_targets,  # Deterministic extraction for reliability
+)
 
 # Supervisor/Executor/Reviewer pattern for DESCRIPTION
 from .description_supervisor_task import create_description_supervisor_task
@@ -48,6 +51,7 @@ __all__ = [
     "create_hexis_data_supervisor_task",
     "create_hexis_data_executor_task",
     "create_hexis_analysis_reviewer_task",
+    "_extract_daily_meal_targets",
     # Supervisor/Executor/Reviewer pattern for DESCRIPTION
     "create_description_supervisor_task",
     "create_data_retrieval_executor_task",

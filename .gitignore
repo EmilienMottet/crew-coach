@@ -55,3 +55,4 @@ htmlcov/
 
 # Runtime state (persistent blacklist)
 .disabled_providers.json
+.passio_search_cache.json
