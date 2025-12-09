@@ -65,6 +65,7 @@ from tasks import (
     create_hexis_data_supervisor_task,
     create_hexis_data_executor_task,
     create_hexis_analysis_reviewer_task,
+    _extract_daily_meal_targets,  # Deterministic extraction for reliability
 )
 
 # NOTE: load_catalog_tool_names kept for compatibility but currently unused
@@ -497,21 +498,77 @@ class MealPlanningCrew:
         return text.strip()
 
     @staticmethod
+    def _extract_json_object(text: str) -> Optional[str]:
+        """Extract a complete JSON object using brace balancing.
+
+        More robust than regex for large/complex JSON with nested structures.
+        Handles escaped quotes and nested objects correctly.
+        """
+        start = text.find('{')
+        if start == -1:
+            return None
+
+        depth = 0
+        in_string = False
+        escape_next = False
+
+        for i, char in enumerate(text[start:], start):
+            if escape_next:
+                escape_next = False
+                continue
+            if char == '\\':
+                escape_next = True
+                continue
+            if char == '"' and not escape_next:
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if char == '{':
+                depth += 1
+            elif char == '}':
+                depth -= 1
+                if depth == 0:
+                    return text[start:i+1]
+
+        return None  # Unbalanced braces
+
+    @staticmethod
     def _payloads_from_task_output(task_output: TaskOutput) -> List[Dict[str, Any]]:
         """Extract potential JSON payloads from a task output."""
         payloads: List[Dict[str, Any]] = []
 
+        # Debug: log available sources
+        print(f"   📥 Parsing task output:", file=sys.stderr)
         if task_output.json_dict:
+            print(f"      - json_dict keys: {list(task_output.json_dict.keys())}", file=sys.stderr)
             payloads.append(task_output.json_dict)
 
         if task_output.pydantic:
+            print(f"      - pydantic: present", file=sys.stderr)
             payloads.append(task_output.pydantic.model_dump())
 
         raw_value = task_output.raw
         if raw_value:
+            print(f"      - raw length: {len(raw_value)}", file=sys.stderr)
+
+            # Clean markdown fences before parsing
+            cleaned = MealPlanningCrew._clean_json_text(raw_value)
+
+            # Try brace-balanced extraction first (most reliable for large JSON)
+            extracted = MealPlanningCrew._extract_json_object(cleaned)
+            if extracted:
+                try:
+                    parsed = json.loads(extracted)
+                    if isinstance(parsed, dict):
+                        print(f"      - Brace-balanced parse SUCCESS, keys: {list(parsed.keys())}", file=sys.stderr)
+                        payloads.append(parsed)
+                        return payloads  # Success with complete JSON - return early
+                except json.JSONDecodeError as e:
+                    print(f"      - Brace-balanced parse failed: {e}", file=sys.stderr)
+
+            # Fallback to existing logic
             try:
-                # Clean markdown fences before parsing
-                cleaned = MealPlanningCrew._clean_json_text(raw_value)
                 candidate_texts = []
 
                 if cleaned:
@@ -533,18 +590,26 @@ class MealPlanningCrew:
                         potential = json.loads(normalized)
                         if isinstance(potential, dict):
                             parsed_raw = potential
+                            print(f"      - json.loads SUCCESS, keys: {list(parsed_raw.keys())}", file=sys.stderr)
                     except json.JSONDecodeError:
                         try:
                             potential, _ = decoder.raw_decode(normalized)
                             if isinstance(potential, dict):
                                 parsed_raw = potential
+                                print(f"      - raw_decode SUCCESS, keys: {list(parsed_raw.keys())}", file=sys.stderr)
                         except json.JSONDecodeError:
                             # Fallback: Try json_repair for malformed JSON (e.g. unescaped newlines)
-                            try:
-                                potential = json_repair.repair_json(normalized, return_objects=True)
-                                if isinstance(potential, dict):
-                                    parsed_raw = potential
-                            except Exception:
+                            # 150KB limit to handle 7 days of Hexis data (~110KB)
+                            if len(normalized) < 150000:
+                                try:
+                                    potential = json_repair.repair_json(normalized, return_objects=True)
+                                    if isinstance(potential, dict):
+                                        parsed_raw = potential
+                                        print(f"      - json_repair SUCCESS, keys: {list(parsed_raw.keys())}", file=sys.stderr)
+                                except Exception:
+                                    continue
+                            else:
+                                print(f"      - Skipping json_repair (input too large: {len(normalized)} chars)", file=sys.stderr)
                                 continue
 
                     if parsed_raw is not None:
@@ -2215,7 +2280,7 @@ class MealPlanningCrew:
         print("\n   📋 Step 1a: SUPERVISOR planning data retrieval...\n", file=sys.stderr)
 
         supervisor_task = create_hexis_data_supervisor_task(
-            self.hexis_data_supervisor_agent, week_start_date
+            self.hexis_data_supervisor_agent, week_start_date, num_days=days_to_generate
         )
         supervisor_crew = Crew(
             agents=[self.hexis_data_supervisor_agent],
@@ -2233,19 +2298,32 @@ class MealPlanningCrew:
         if retrieval_plan is None:
             # Fallback: Create a minimal plan if supervisor fails
             print("\n   ⚠️  Supervisor failed to create plan, using default...\n", file=sys.stderr)
-            end_dt = datetime.fromisoformat(week_start_date) + timedelta(days=6)
+            start_dt = datetime.fromisoformat(week_start_date)
+            end_dt = start_dt + timedelta(days=days_to_generate - 1)
+
+            # Generate batches (max 3 days per batch) for fallback too
+            BATCH_SIZE = 3
+            batches = []
+            current_start = start_dt
+            priority = 1
+            while current_start <= end_dt:
+                batch_end = min(current_start + timedelta(days=BATCH_SIZE - 1), end_dt)
+                batches.append({
+                    "tool_name": "hexis__hexis_get_weekly_plan",
+                    "parameters": {
+                        "start_date": current_start.strftime("%Y-%m-%d"),
+                        "end_date": batch_end.strftime("%Y-%m-%d")
+                    },
+                    "purpose": f"Retrieve data for {current_start.strftime('%Y-%m-%d')} to {batch_end.strftime('%Y-%m-%d')}",
+                    "priority": priority
+                })
+                priority += 1
+                current_start = batch_end + timedelta(days=1)
+
             retrieval_plan = HexisDataRetrievalPlan(
                 week_start_date=week_start_date,
                 week_end_date=end_dt.strftime("%Y-%m-%d"),
-                tool_calls=[{
-                    "tool_name": "hexis_get_weekly_plan",
-                    "parameters": {
-                        "start_date": week_start_date,
-                        "end_date": end_dt.strftime("%Y-%m-%d")
-                    },
-                    "purpose": "Retrieve weekly training and nutrition data",
-                    "priority": 1
-                }],
+                tool_calls=batches,
                 analysis_focus=["training_load", "daily_energy_needs", "macro_targets"],
                 special_considerations="Focus on accurate macro extraction"
             )
@@ -2409,13 +2487,23 @@ class MealPlanningCrew:
         )
 
         # ===================================================================
-        # STEP 2b: Extract and validate per-meal targets from Hexis
+        # STEP 2b: Extract per-meal targets DETERMINISTICALLY from raw Hexis data
         # ===================================================================
-        daily_meal_targets = hexis_analysis.get("daily_meal_targets", {})
+        # NOTE: We extract meal targets directly from raw_data_dict instead of
+        # relying on the LLM to generate them. This is more reliable because:
+        # 1. LLM can truncate output (e.g., only 4/7 days)
+        # 2. The data already exists in the raw Hexis response
+        # 3. Deterministic extraction ensures ALL days are present
+        daily_meal_targets = _extract_daily_meal_targets(raw_data_dict)
         if not daily_meal_targets:
-            error_msg = "Hexis data incomplete: daily_meal_targets missing from Hexis analysis"
+            error_msg = "Hexis data incomplete: daily_meal_targets could not be extracted from raw data"
             print(f"\n❌ {error_msg}\n", file=sys.stderr)
             raise ValueError(error_msg)
+
+        print(
+            f"\n✅ Deterministically extracted meal targets for {len(daily_meal_targets)} days\n",
+            file=sys.stderr,
+        )
 
         # Enrich each daily_target with meal_targets from Hexis
         for daily_target in nutrition_plan.get("daily_targets", []):

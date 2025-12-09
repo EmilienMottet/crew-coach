@@ -10,21 +10,60 @@ from typing import Any
 from crewai import Task
 
 
-def create_hexis_data_supervisor_task(agent: Any, week_start_date: str) -> Task:
+def create_hexis_data_supervisor_task(
+    agent: Any, week_start_date: str, num_days: int = 7
+) -> Task:
     """
     Create a task for the Supervisor to plan Hexis data retrieval.
 
     Args:
         agent: The Supervisor agent
         week_start_date: Start date of the week to plan (ISO format YYYY-MM-DD)
+        num_days: Number of days to plan (default 7)
 
     Returns:
         Configured Task instance
     """
-    # Calculate week end date
+    # Calculate week end date based on num_days
     start_dt = datetime.fromisoformat(week_start_date)
-    end_dt = start_dt + timedelta(days=6)
+    end_dt = start_dt + timedelta(days=num_days - 1)
     week_end_date = end_dt.strftime("%Y-%m-%d")
+
+    # Generate batches (max 3 days per batch to avoid large JSON responses)
+    BATCH_SIZE = 3
+    batches = []
+    current_start = start_dt
+    priority = 1
+    while current_start <= end_dt:
+        batch_end = min(current_start + timedelta(days=BATCH_SIZE - 1), end_dt)
+        batches.append({
+            "start_date": current_start.strftime("%Y-%m-%d"),
+            "end_date": batch_end.strftime("%Y-%m-%d"),
+            "priority": priority,
+        })
+        priority += 1
+        current_start = batch_end + timedelta(days=1)
+
+    # Build tool_calls JSON for prompt
+    tool_calls_json = ",\n    ".join(
+        f'''{{
+      "tool_name": "hexis__hexis_get_weekly_plan",
+      "parameters": {{
+        "start_date": "{b['start_date']}",
+        "end_date": "{b['end_date']}"
+      }},
+      "purpose": "Retrieve data for {b['start_date']} to {b['end_date']}",
+      "priority": {b['priority']}
+    }}'''
+        for b in batches
+    )
+
+    num_batches = len(batches)
+    batch_info = (
+        f"Split into {num_batches} batches of max {BATCH_SIZE} days each to avoid large responses."
+        if num_batches > 1
+        else "Single batch (3 days or less)."
+    )
 
     description = f"""Plan the data retrieval strategy for Hexis training data analysis.
 
@@ -34,11 +73,13 @@ A separate Executor agent will make the actual tool calls based on your plan.
 DATE RANGE:
 - Start date: {week_start_date}
 - End date: {week_end_date}
+- Total days: {num_days}
+- {batch_info}
 
 YOUR TASK:
 1. Analyze what data is needed for comprehensive nutritional planning
 2. Create a retrieval plan specifying which Hexis tools to call
-3. Prioritize the tool calls (most important first)
+3. The tool_calls are PRE-BATCHED for you - use them exactly as shown
 4. Identify key analysis focus areas
 
 OUTPUT REQUIREMENTS - HexisDataRetrievalPlan JSON:
@@ -49,15 +90,7 @@ Return a JSON object with this exact structure:
   "week_start_date": "{week_start_date}",
   "week_end_date": "{week_end_date}",
   "tool_calls": [
-    {{
-      "tool_name": "hexis_get_weekly_plan",
-      "parameters": {{
-        "start_date": "{week_start_date}",
-        "end_date": "{week_end_date}"
-      }},
-      "purpose": "Retrieve complete weekly training schedule and Hexis nutritional targets",
-      "priority": 1
-    }}
+    {tool_calls_json}
   ],
   "analysis_focus": [
     "training_load",
@@ -72,9 +105,9 @@ Return a JSON object with this exact structure:
 
 GUIDELINES:
 - For meal planning, hexis_get_weekly_plan is the PRIMARY data source
-- Include both training AND nutrition data retrieval
-- The Executor will execute these tool calls in order of priority
+- The Executor will execute ALL {num_batches} tool call(s) and aggregate results
 - Be specific about parameters (dates must be in YYYY-MM-DD format)
+- DO NOT modify the tool_calls - they are pre-batched to avoid API limits
 
 Return ONLY the JSON object, no explanations."""
 

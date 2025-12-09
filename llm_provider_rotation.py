@@ -510,6 +510,7 @@ THINKING_MODELS = (
     "qwen3-vl-plus",  # Simulates ReAct text format instead of using tool_calls
     "tstars2.0",  # Also uses extended reasoning
     "gemini-2.5-computer-use-preview-10-2025",  # Hallucinates Observation: in responses
+    "gemini-2.5-flash-lite",  # Hallucinates tool calls via CLIProxyAPI /v1/chat/completions
 )
 
 
@@ -1173,23 +1174,34 @@ def _clean_json_schema(schema: Any) -> Any:
     return cleaned
 
 
-def _requires_anthropic_format(model_name: str) -> bool:
-    """Check if model requires Anthropic-style tool format instead of OpenAI format.
+def _requires_anthropic_format(model_name: str, has_tools: bool = False) -> bool:
+    """Check if model requires Anthropic-style API format.
 
-    Only Claude thinking models routed through ccproxy to Anthropic API need Anthropic format.
+    Returns True for:
+    1. Claude thinking models (always need native Anthropic API)
+    2. ALL Claude models when they have tools (CLIProxyAPI only supports
+       Claude tools via /v1/messages endpoint, not /v1/chat/completions)
+
     Other models (kimi, deepseek, etc.) use OpenAI-compatible format even if they have "thinking".
     """
     model_lower = model_name.lower()
 
-    # Only Claude/Anthropic thinking models need Anthropic tool format
-    # These are routed by ccproxy directly to the native Anthropic API
+    # Claude/Anthropic thinking models always need native Anthropic API
     anthropic_thinking_patterns = [
         "claude-sonnet-4-5-thinking",     # Claude Sonnet 4.5 thinking
         "claude-opus-4-5-thinking",       # Claude Opus 4.5 thinking variants
         "gemini-claude-sonnet-4-5-thinking",  # Gemini-proxied Claude thinking
     ]
+    if any(pattern in model_lower for pattern in anthropic_thinking_patterns):
+        return True
 
-    return any(pattern in model_lower for pattern in anthropic_thinking_patterns)
+    # Claude models with tools need Anthropic native API
+    # CLIProxyAPI doesn't properly handle tools for Claude via /v1/chat/completions
+    # but works correctly via /v1/messages (native Anthropic format)
+    if has_tools and "claude" in model_lower:
+        return True
+
+    return False
 
 
 def _is_thinking_model(model: str) -> bool:
@@ -1541,33 +1553,42 @@ class RotatingLLM(BaseLLM):
                     # Prepare API key - use Bearer token format (standard for OpenAI-compatible APIs)
                     api_key_str = str(provider.api_key) if provider.api_key else ""
 
-                    # Determine custom_llm_provider based on API base and model
-                    # All our endpoints are OpenAI-compatible
-                    custom_provider = "openai"
+                    # Determine if we need Anthropic native API
+                    # Claude models with tools need /v1/messages endpoint (CLIProxyAPI limitation)
+                    has_tools = bool(tools)
+                    use_anthropic_api = _requires_anthropic_format(provider.model, has_tools)
+
+                    # Adjust api_base for Anthropic (needs /v1/messages, not /v1/chat/completions)
+                    # LiteLLM appends /v1/messages to api_base for Anthropic, so we need to remove /v1
+                    api_base_for_call = provider.api_base
+                    if use_anthropic_api and provider.api_base.endswith("/v1"):
+                        api_base_for_call = provider.api_base[:-3]  # Remove /v1 suffix
+                        print(
+                            f"   📍 Adjusted api_base for Anthropic: {api_base_for_call}\n",
+                            file=sys.stderr
+                        )
+
+                    # Set custom provider based on API format
+                    custom_provider = "anthropic" if use_anthropic_api else "openai"
 
                     # LiteLLM needs provider prefix for some models
                     model_for_litellm = provider.model
 
-                    # Only add openai/ prefix for non-thinking Claude models
-                    # Thinking models need to go through native Anthropic path for tool format
-                    if not _requires_anthropic_format(provider.model):
-                        if "claude" in provider.model.lower() and not provider.model.lower().startswith("openai/"):
-                            # Force openai/ prefix to ensure LiteLLM uses OpenAI format for tools
-                            # This prevents LiteLLM from trying to adapt tools for Anthropic API
-                            model_for_litellm = f"openai/{provider.model}"
+                    if use_anthropic_api:
+                        # Use anthropic/ prefix to route to /v1/messages
+                        if not provider.model.lower().startswith("anthropic/"):
+                            model_for_litellm = f"anthropic/{provider.model}"
+                        print(
+                            f"   🔄 Using Anthropic native API for {provider.model} with {len(tools) if tools else 0} tools\n",
+                            file=sys.stderr
+                        )
+                    elif "claude" in provider.model.lower() and not provider.model.lower().startswith("openai/"):
+                        # Claude without tools - use openai/ prefix (original behavior)
+                        model_for_litellm = f"openai/{provider.model}"
 
-                    # Check if this model requires Anthropic tool format
+                    # Tools are passed as-is - LiteLLM handles conversion automatically
+                    # when using anthropic/ prefix and custom_llm_provider="anthropic"
                     tools_for_api = tools
-                    if _requires_anthropic_format(provider.model):
-                        print(
-                            f"   🔄 Converting {len(tools)} tools to Anthropic format for {provider.model}\n",
-                            file=sys.stderr
-                        )
-                        tools_for_api = _convert_to_anthropic_format(tools)
-                        print(
-                            f"   ✅ Converted tools: {len(tools_for_api)} tools ready\n",
-                            file=sys.stderr
-                        )
 
                     # Call litellm directly with the necessary parameters
                     import litellm
@@ -1576,7 +1597,7 @@ class RotatingLLM(BaseLLM):
                             model=model_for_litellm,
                             messages=formatted_messages,
                             tools=tools_for_api,
-                            api_base=provider.api_base,
+                            api_base=api_base_for_call,  # Adjusted for Anthropic if needed
                             api_key=api_key_str,
                             custom_llm_provider=custom_provider,
                             drop_params=True,
@@ -1771,8 +1792,8 @@ class RotatingLLM(BaseLLM):
                         current_response = litellm.completion(
                             model=model_for_litellm,
                             messages=current_messages,
-                            tools=tools_for_api,  # Use converted tools (if Anthropic format required)
-                            api_base=provider.api_base,
+                            tools=tools_for_api,
+                            api_base=api_base_for_call,  # Use adjusted api_base for Anthropic
                             api_key=api_key_str,
                             custom_llm_provider=custom_provider,
                             drop_params=True,
