@@ -353,18 +353,10 @@ class StravaDescriptionCrew:
         agent_base = os.getenv(base_key, default_base)
 
         # Log configuration for transparency
-        endpoint_type = "ccproxy"
-        if "/copilot/v1" in (agent_base or "").lower():
-            endpoint_type = "copilot"
-        elif "/codex/v1" in (agent_base or "").lower():
-            endpoint_type = "codex"
-        elif "/claude/v1" in (agent_base or "").lower():
-            endpoint_type = "claude"
-
         print(
             f"🤖 {agent_name} Agent:\n"
             f"   Model: {agent_model}\n"
-            f"   Endpoint: {endpoint_type} ({agent_base})\n",
+            f"   Endpoint: {agent_base}\n",
             file=sys.stderr,
         )
 

@@ -63,7 +63,9 @@ def create_meal_planning_supervisor_agent(llm: Any) -> Agent:
 
         DIETARY RESTRICTIONS:
         - AVOID: Smoked salmon (saumon fumé) - user does not enjoy this
-        - Substitute with fresh salmon, trout, or other fish
+        - AVOID: Cheese (fromage) - user does not enjoy this - EXCEPTION: mascarpone is allowed
+        - Substitute smoked salmon with fresh salmon, trout, or other fish
+        - Substitute cheese with other toppings/sauces or omit entirely
 
         YOUR APPROACH TO MEAL PLANNING:
 

@@ -63,8 +63,20 @@ YOUR TASK (SIMPLIFIED - MACROS ALREADY CALCULATED):
    Each meal has: calculated_totals with summed macros
    Daily totals are in: calculated_daily_totals
 
-2. CHECK COMPLIANCE (already done above)
-   If STATUS shows "⚠️ Out of range", adjust portions as noted in DELTAS section.
+2. CHECK COMPLIANCE - THIS IS BLOCKING
+   Uses UNIFIED THRESHOLDS (OR logic = more lenient):
+   - Calories: ±12% OR ±300 kcal (whichever passes)
+   - Protein: ±18% OR ±15g (whichever passes)
+   - Carbs: ±18% OR ±25g (whichever passes)
+   - Fat: ±20% OR ±12g (whichever passes)
+
+   If STATUS shows "⚠️ Out of range" with macro exceeding BOTH thresholds:
+   - DO NOT finalize the meal plan
+   - Set "compliance_failed": true in your output
+   - List specific issues in "compliance_issues" array
+   - The system will RETRY with your feedback
+
+   ONLY proceed to step 3 if ALL macros pass at least ONE threshold (% or absolute).
 
 3. ASSEMBLE FINAL OUTPUT
    Create DailyMealPlan JSON using the pre-calculated values.
@@ -140,13 +152,19 @@ YOUR TASK:
    For each meal, sum all ingredients' macros.
    For daily totals, sum all meals' macros
 
-2. VALIDATE AGAINST TARGETS (STRICT)
-   - Calories: {target_calories} kcal (within ±10%)
-   - Protein: {target_protein}g (within ±5%)
-   - Carbs: {target_carbs}g (within ±5%)
-   - Fat: {target_fat}g (within ±5%)
+2. VALIDATE AGAINST TARGETS - BLOCKING COMPLIANCE CHECK
+   - Calories: {target_calories} kcal (tolerance: ±10%)
+   - Protein: {target_protein}g (tolerance: ±15%)
+   - Carbs: {target_carbs}g (tolerance: ±15%)
+   - Fat: {target_fat}g (tolerance: ±15%)
 
-   If outside tolerance, adjust portions accordingly.
+   ⚠️ THIS IS A BLOCKING CHECK - If ANY macro exceeds tolerance:
+   - DO NOT finalize the meal plan
+   - Set "compliance_failed": true in your output
+   - Add "compliance_issues" array listing each violation (e.g., "Carbs +25% over target")
+   - The system will RETRY with your feedback to adjust the Supervisor's plan
+
+   ONLY proceed to step 3 if ALL macros are within tolerance.
 
 3. ASSEMBLE FINAL OUTPUT
    Create DailyMealPlan JSON with:

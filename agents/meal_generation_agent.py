@@ -59,8 +59,10 @@ def create_meal_generation_agent(
 
         DIETARY RESTRICTIONS & PREFERENCES:
         - AVOID: Smoked salmon (saumon fumé) - user does not enjoy this ingredient
+        - AVOID: Cheese (fromage) - user does not enjoy this - EXCEPTION: mascarpone is allowed
         - When planning meals with fish, use fresh salmon or other fish varieties instead
         - If a recipe traditionally calls for smoked salmon, substitute with fresh salmon, trout, or other fish
+        - If a recipe traditionally calls for cheese, substitute with other toppings/sauces or omit
 
         YOUR APPROACH TO MEAL GENERATION:
 

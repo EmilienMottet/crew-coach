@@ -489,45 +489,18 @@ The system builds MCP references in `crew.py:_build_intervals_mcp_references()` 
 - `OPENAI_MODEL_NAME`: Model identifier (e.g., `claude-sonnet-4.5`, `gpt-5-mini`)
 - **LiteLLM prefix**: Models are referenced as `openai/{model_name}` internally (except for ccproxy endpoints)
 
-**Model Normalization**:
+**Endpoint**:
 
-The system automatically normalizes model names based on the endpoint being used. This ensures compatibility across different ccproxy endpoints:
+All models are available through a single unified endpoint: `https://ccproxy.emottet.com/v1`
 
-1. **Copilot Endpoint** (`/copilot/v1`):
-   - Uses short model names: `gpt-5`, `gpt-5-mini`, `claude-sonnet-4.5`, `gemini-2.5-pro`
-   - Example: `claude-sonnet-4.5` → `claude-sonnet-4.5` (unchanged)
-   - System prompts: ✅ Enabled
-
-2. **Codex Endpoint** (`/codex/v1`):
-   - Only accepts: `gpt-5`, `gpt-5-codex`
-   - Example: `claude-sonnet-4.5` → `gpt-5` (fallback)
-   - System prompts: ❌ Disabled (automatically stripped)
-   - Tool calls: ✅ Enabled (GPT-5 supports MCP tool calls)
-
-3. **Claude Endpoint** (`/claude/v1`):
-   - Requires full versioned names: `claude-sonnet-4-5-20250929`, `claude-haiku-4-5-20251001`
-   - Example: `claude-sonnet-4.5` → `claude-sonnet-4-5-20250929` (auto-mapped)
-   - System prompts: ✅ Enabled
-
-**Agent Tool Requirements & Endpoint Compatibility**:
-
-All endpoints support tool calling with MCP tools:
-
-| Agent | Requires Tools | Compatible Endpoints |
-|-------|---------------|---------------------|
-| Description | ✅ Yes (Strava, Intervals.icu, Weather) | Copilot, Claude, Codex |
-| Music | ✅ Yes (Spotify) | Copilot, Claude, Codex |
-| Privacy | ⚪ No | Copilot, Claude, Codex |
-| Translation | ⚪ No | Copilot, Claude, Codex |
-
-**Note**: The Codex endpoint strips system prompts but fully supports tool calls.
+Supported models include: `gpt-5`, `gpt-5-mini`, `claude-sonnet-4.5`, `claude-sonnet-4-5-20250929`, `claude-haiku-4.5`, `gemini-2.5-pro`, etc.
 
 **Startup Logs**:
 - On startup, you'll see logs like:
   ```
-  🤖 MUSIC Agent: ✅ with tools
+  🤖 MUSIC Agent:
      Model: claude-haiku-4-5
-     Endpoint: copilot (https://ccproxy.emottet.com/v1)
+     Endpoint: https://ccproxy.emottet.com/v1
   ```
 
 **Testing Model Normalization**:
@@ -805,10 +778,6 @@ TRANSLATION_SOURCE_LANGUAGE=English
     -d '{"model": "claude-sonnet-4.5", "messages": [{"role": "user", "content": "test"}]}'
   ```
 - **Manual override**: Set exact model name in `LLM_PROVIDER_ROTATION` if needed
-- **Endpoint requirements**:
-  - Copilot: Use short names (`gpt-5`, `claude-sonnet-4.5`)
-  - Codex: Use `gpt-5` or `gpt-5-codex` only
-  - Claude: Use full versions (`claude-sonnet-4-5-20250929`)
 
 ### MCP Connection Failures
 - **Cause**: Invalid `MCP_SERVER_URL` or network issues

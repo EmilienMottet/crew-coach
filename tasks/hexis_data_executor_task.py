@@ -44,10 +44,10 @@ def create_hexis_data_executor_task(
         batch_instructions += f"""
 Batch {i}: hexis_get_weekly_plan(start_date="{params.get('start_date')}", end_date="{params.get('end_date')}")"""
 
-    description = f"""Execute the Hexis data retrieval plan and return raw data.
+    description = f"""Execute the Hexis data retrieval plan.
 
-**YOUR ROLE**: You are the EXECUTOR. You EXECUTE tool calls and return raw data.
-Do NOT analyze or interpret the data - the Reviewer agent will do that.
+**YOUR ROLE**: You are the EXECUTOR. You EXECUTE tool calls.
+The raw data is automatically captured by Python - you do NOT need to copy it.
 
 DATA RETRIEVAL PLAN FROM SUPERVISOR:
 {plan_json}
@@ -58,50 +58,43 @@ YOUR TASK - Execute {num_batches} BATCHED tool call(s):
 EXECUTION INSTRUCTIONS:
 1. Execute EACH tool call in the plan (there are {num_batches} batches)
 2. For each batch, call hexis_get_weekly_plan with the specified start_date and end_date
-3. Record each result in tool_results array
-4. If a tool call fails, record the error and continue to next batch
-5. Return ALL data received from ALL batches
+3. After EACH call, note if it succeeded or failed
+4. Continue until all {num_batches} batches are executed
 
-OUTPUT REQUIREMENTS - RawHexisData JSON:
+**IMPORTANT**: The raw data is captured automatically by Python.
+You do NOT need to copy or return the full data in your response.
+Just confirm the calls were made.
 
-After executing ALL tool calls, return a JSON object:
+OUTPUT REQUIREMENTS - Execution Summary JSON:
+
+After executing ALL tool calls, return a BRIEF JSON confirmation:
 ```json
 {{
   "week_start_date": "{week_start_date}",
   "week_end_date": "{week_end_date}",
-  "tool_results": [
-    {{
-      "tool_name": "hexis__hexis_get_weekly_plan",
-      "success": true,
-      "result": {{ ... raw tool result for batch 1 ... }},
-      "error_message": null
-    }},
-    {{
-      "tool_name": "hexis__hexis_get_weekly_plan",
-      "success": true,
-      "result": {{ ... raw tool result for batch 2 ... }},
-      "error_message": null
-    }}
+  "batches_executed": [
+    {{"batch": 1, "start_date": "...", "end_date": "...", "success": true}},
+    {{"batch": 2, "start_date": "...", "end_date": "...", "success": true}},
+    {{"batch": 3, "start_date": "...", "end_date": "...", "success": true}}
   ],
   "total_calls": {num_batches},
   "successful_calls": {num_batches},
-  "weekly_plan_data": null,
-  "retrieval_notes": "Successfully retrieved all {num_batches} batch(es)"
+  "retrieval_notes": "Successfully executed all {num_batches} batch(es)"
 }}
 ```
 
 CRITICAL:
-- Execute ALL {num_batches} tool call(s) FIRST, then format the output
-- Include the COMPLETE raw data from EACH batch in tool_results
-- The weekly_plan_data can be null - the Reviewer will aggregate from tool_results
-- Each tool_result should contain the full "data" with "days" array from Hexis
+- Execute ALL {num_batches} tool call(s)
+- Do NOT copy raw data into your response (it's captured automatically)
+- Just return a brief confirmation of which batches succeeded/failed
+- Keep your response under 1000 characters
 
-Return ONLY the JSON object after tool execution, no explanations."""
+Return ONLY the brief JSON confirmation, no explanations."""
 
     return Task(
         description=description,
         agent=agent,
-        expected_output=f"""Complete JSON object with raw Hexis data from all {num_batches} batch(es).
-Format: {{"week_start_date": "{week_start_date}", "week_end_date": "{week_end_date}", "tool_results": [...], "total_calls": {num_batches}, ...}}
-NO markdown fences, NO explanatory text, ONLY the JSON object.""",
+        expected_output=f"""Brief JSON confirmation of tool execution for all {num_batches} batch(es).
+Format: {{"week_start_date": "{week_start_date}", "week_end_date": "{week_end_date}", "batches_executed": [...], "total_calls": {num_batches}, "successful_calls": N}}
+NO raw data, NO markdown fences, ONLY brief JSON confirmation under 1000 chars.""",
     )

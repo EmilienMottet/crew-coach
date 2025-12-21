@@ -113,6 +113,7 @@ VARIETY AND PRACTICALITY RULES:
     - Avoid US-specific items (e.g., "ranch dressing", "Monterey Jack", "collard greens").
     - Use French culinary terms for cuts of meat/fish where appropriate.
 - Respect dietary note: never use smoked salmon; substitute with fresh fish options.
+- Respect dietary note: never use cheese (EXCEPTION: mascarpone is allowed); substitute with other toppings/sauces or omit.
 - Align timing with training context (reference meal_timing_notes from the target).
 
 QUALITY EXPECTATIONS:

@@ -23,6 +23,21 @@ from crewai.utilities.types import LLMMessage
 from pydantic import BaseModel
 import json
 
+# Import centralized LLM configuration
+from llm_config import (
+    COMPLEX_MODELS,
+    INTERMEDIATE_MODELS,
+    SIMPLE_MODELS,
+    FALLBACK_MODELS,
+    CATEGORY_CASCADE,
+    THINKING_MODELS,
+    DEFAULT_AGENT_BLACKLISTS,
+    DEFAULT_BASE_URL,
+    TOOL_FREE_ENDPOINT_HINTS,
+    TOOL_FREE_MODEL_HINTS,
+    is_thinking_model,
+)
+
 
 RATE_LIMIT_KEYWORDS = ("rate limit", "quota", "429", "token_expired", "no quota", "unknown provider", "404", "not found", "model not available", "auth_unavailable", "no auth available", "authorized for use with claude code")
 
@@ -152,6 +167,43 @@ class PersistentProviderBlacklist:
         if reenabled_keys:
             self._save()
             print(f"✅ Blacklist: {len(reenabled_keys)} expired provider(s) now available", file=sys.stderr)
+
+    def _extract_resets_at(self, error_msg: str) -> Optional[int]:
+        """Extract resets_at timestamp from provider error message.
+
+        Some providers return quota reset information in their error responses:
+        - OpenAI-style: "resets_at": 1766324470
+        - Alternative: "resets_in_seconds": 5971
+
+        Args:
+            error_msg: Error message from provider
+
+        Returns:
+            Unix timestamp when quota resets, or None if not found
+        """
+        import re
+
+        if not error_msg:
+            return None
+
+        # Try to extract "resets_at": <timestamp>
+        resets_at_match = re.search(r'"resets_at"\s*:\s*(\d+)', error_msg)
+        if resets_at_match:
+            try:
+                return int(resets_at_match.group(1))
+            except ValueError:
+                pass
+
+        # Try to extract "resets_in_seconds": <seconds> and convert to timestamp
+        resets_in_match = re.search(r'"resets_in_seconds"\s*:\s*(\d+)', error_msg)
+        if resets_in_match:
+            try:
+                seconds = int(resets_in_match.group(1))
+                return int(time.time()) + seconds
+            except ValueError:
+                pass
+
+        return None
 
     def _calculate_ttl(self, strike_count: int) -> int:
         """Calculate TTL based on strike count with exponential backoff.
@@ -292,8 +344,19 @@ class PersistentProviderBlacklist:
             else:
                 strike_count = 1
 
-            # Calculate TTL based on strikes
-            ttl_seconds = self._calculate_ttl(strike_count)
+            # Calculate TTL: prefer provider's resets_at timestamp if available
+            provider_resets_at = self._extract_resets_at(error_msg)
+            if provider_resets_at:
+                # Use provider's reset timestamp for more accurate TTL
+                ttl_seconds = max(60, int(provider_resets_at - now))  # Min 60s
+                ttl_seconds = min(ttl_seconds, self._max_ttl)  # Cap at max TTL
+                print(
+                    f"   ℹ️  Using provider's resets_at timestamp (TTL: {ttl_seconds}s)",
+                    file=sys.stderr,
+                )
+            else:
+                # Fallback to exponential backoff
+                ttl_seconds = self._calculate_ttl(strike_count)
 
             # Update entry
             self._providers[provider_key] = {
@@ -369,173 +432,32 @@ class PersistentProviderBlacklist:
             days = seconds // 86400
             return f"{days} day{'s' if days > 1 else ''}"
 
-# Minimum expected response length for structured JSON outputs (e.g., meal plans)
-# Responses shorter than this are likely truncated by the provider
-MIN_EXPECTED_RESPONSE_LENGTH = 500
+# Minimum expected response length for non-JSON responses
+# JSON responses are validated by parsing, not length
+# Lowered from 500 to 100 to avoid false positives on valid short responses
+MIN_EXPECTED_RESPONSE_LENGTH = 100
 
-# Codex endpoint requires system prompts to be stripped and merged into user message
-# This is specific to the /codex/v1 endpoint optimization for code generation
-PROMPTLESS_ENDPOINT_HINTS = ("codex",)
+# Truncation retry configuration
+# Retry on same provider before rotating (truncation can be transient)
+TRUNCATION_MAX_SAME_PROVIDER_RETRIES = 2
+TRUNCATION_RETRY_DELAY_SECONDS = 2.0
+
+# All models are now accessible via the unified /v1 endpoint
+# No endpoint requires system prompts to be stripped
+PROMPTLESS_ENDPOINT_HINTS: tuple = ()
 PROMPTLESS_MODEL_HINTS: tuple = ()  # No model-level restrictions on our endpoints
 
-# IMPORTANT: ALL our endpoints support function calling (tools/MCP):
-#   ✅ /copilot/v1  - supports tools + system prompts
-#   ✅ /codex/v1    - supports tools (strips system prompts)
-#   ✅ /claude/v1   - supports tools + system prompts
-#
-# Available models ALL support function calling:
-#   - GPT family: gpt-5, gpt-5-mini, gpt-5-codex, gpt-4.1, gpt-4o, etc.
-#   - Claude family: claude-sonnet-4.5, claude-haiku-4.5, claude-3.5-sonnet, etc.
-#   - Other: gemini-2.5-pro, grok-code-fast-1
-#
-# No restrictions needed - all combinations work with CrewAI tools/MCP
-# Model Categories (from ccproxy /models endpoint)
-# All models use https://ccproxy.emottet.com/v1 endpoint
-COMPLEX_MODELS = (
-    # Thinking models (extended reasoning)
-    "claude-opus-4-5-thinking-high",
-    "claude-opus-4-5-thinking",
-    "claude-sonnet-4-5-thinking",
-    "gemini-claude-sonnet-4-5-thinking",
-    "gemini-claude-opus-4-5-thinking",
-    "deepseek-r1",
-    "kimi-k2-thinking",
-    "qwen3-235b-a22b-thinking-2507",
-    "tstars2.0",
-    # High-performance models
-    "gpt-5.1-codex-max-xhigh",
-    "gpt-5.1-codex-max-high",
-    "gpt-5.1-high",
-    # Premium models
-    "claude-opus-4-5-20251101",
-    "gemini-3-pro-preview",
-)
-
-INTERMEDIATE_MODELS = (
-    # Latest Claude models (most reliable)
-    "claude-sonnet-4-5-20250929",
-    "claude-sonnet-4.5-copilot",
-    # GPT models (standard)
-    "gpt-5.1",
-    "gpt-5.1-codex-max",
-    "gpt-5.1-codex",
-    "gpt-5.1-codex-high",
-    "gpt-5.1-medium",
-    "gpt-5.1-codex-medium",
-    # Gemini models
-    "gemini-2.5-pro",
-    "gemini-claude-sonnet-4-5",
-    # Chinese models (high-performance)
-    "glm-4.6",
-    "deepseek-v3.2",
-    "kimi-k2",
-    "minimax-m2",
-    "qwen3-max",
-    # Open-source models
-    "gpt-oss-120b-medium",
-    # qwen3-235b last - known to return truncated responses via ccproxy
-    "qwen3-235b",
-)
-
-SIMPLE_MODELS = (
-    # Claude lite models
-    "claude-haiku-4-5-20251001",
-    "claude-haiku-4.5-copilot",
-    # Gemini lite models
-    "gemini-2.5-flash",
-    "gemini-2.5-flash-lite",
-    "gemini-2.5-computer-use-preview-10-2025",
-    # GPT low/light models
-    "gpt-5.1-low",
-    "gpt-5.1-codex-low",
-    "gpt-5.1-codex-max-low",
-    "gpt-5.1-codex-max-medium",
-    "gpt-5.1-codex-mini",
-    "gpt-5.1-codex-mini-high",
-    "gpt-5.1-codex-mini-medium",
-    "gpt-5.1-none",
-    # Qwen models
-    # "qwen3-32b" removed - hallucinates tool results instead of calling tools (returns tool_calls=None with fake data)
-    # "qwen3-coder" removed - ccproxy returns HTTP 435 "Model not support"
-    # "qwen3-coder-flash",
-    # "qwen3-coder-plus",
-    # "qwen3-max-preview",
-    # Note: qwen3-vl-plus removed - simulates ReAct text format instead of using tool_calls
-    # Thinking models (low tier)
-    "claude-opus-4-5-thinking-medium",
-    "claude-opus-4-5-thinking-low",
-)
-
-FALLBACK_MODELS = (
-    "gpt-5-mini",
-    "raptor-mini",
-)
-
-# Category cascade order (from highest to lowest tier)
-CATEGORY_CASCADE = ["complex", "intermediate", "simple", "fallback"]
-
-# Default blacklists per agent - centralized to avoid duplication across crews
-# These are applied automatically when build_category_cascade() is called
-# Note: Can be overridden via {AGENT_NAME}_BLACKLISTED_MODELS env var
-DEFAULT_AGENT_BLACKLISTS: Dict[str, List[str]] = {
-    # These models don't handle complex Hexis tool calls well
-    # gemini-claude-sonnet-4-5-thinking uses ReAct text format instead of native tool_calls
-    "HEXIS_ANALYSIS": ["gpt-5", "gpt-5-codex", "gemini-claude-sonnet-4-5-thinking"],
-    # gemini-3-pro-preview has meal logging issues
-    # gemini-claude-sonnet-4-5-thinking has tool schema format incompatibility
-    "MEALY_INTEGRATION": ["gemini-3-pro-preview", "gemini-claude-sonnet-4-5-thinking"],
-}
-
-TOOL_FREE_ENDPOINT_HINTS: tuple = ()  # No endpoint blocks tools
-TOOL_FREE_MODEL_HINTS: tuple = (
-    "deepseek-r1",   # DeepSeek-R1 returns 514/516 errors with tool calls
-    "kimi-k2-thinking",  # Reasoning models typically don't support tools
-)     # Models that cannot execute tool/function calls
-
-# Models with extended thinking that hallucinate tool calls instead of using tool_calls
-# These models MUST NOT be used for agents with tools - they simulate ReAct in content
-# instead of producing proper tool_calls, causing CrewAI to treat their response as
-# a "Final Answer" without executing any tools
-THINKING_MODELS = (
-    "claude-opus-4-5-thinking-high",
-    "claude-opus-4-5-thinking",
-    "claude-opus-4-5-thinking-medium",
-    "claude-opus-4-5-thinking-low",
-    "claude-sonnet-4-5-thinking",
-    "gemini-claude-sonnet-4-5-thinking",
-    "gemini-claude-opus-4-5-thinking",
-    "deepseek-r1",
-    "kimi-k2-thinking",
-    "qwen3-235b-a22b-thinking-2507",
-    "qwen3-vl-plus",  # Simulates ReAct text format instead of using tool_calls
-    "tstars2.0",  # Also uses extended reasoning
-    "gemini-2.5-computer-use-preview-10-2025",  # Hallucinates Observation: in responses
-    "gemini-2.5-flash-lite",  # Hallucinates tool calls via CLIProxyAPI /v1/chat/completions
-)
+# NOTE: Model lists (COMPLEX_MODELS, INTERMEDIATE_MODELS, SIMPLE_MODELS, FALLBACK_MODELS,
+# CATEGORY_CASCADE, THINKING_MODELS, DEFAULT_AGENT_BLACKLISTS, TOOL_FREE_*) are now
+# imported from llm_config.py - single source of truth for all LLM configuration.
 
 
 def _is_thinking_model_name(model: str) -> bool:
     """Check if a model name is a thinking/reasoning model that hallucinates tool calls.
 
-    Thinking models simulate the entire ReAct workflow (Action/Observation) in their
-    content instead of producing proper tool_calls. This causes CrewAI to treat the
-    response as complete without executing any tools.
+    Delegates to is_thinking_model() from llm_config.py.
     """
-    model_lower = model.lower()
-
-    # Explicit list check
-    if model in THINKING_MODELS:
-        return True
-
-    # Pattern-based check for any model with "thinking" in the name
-    if "thinking" in model_lower:
-        return True
-
-    # DeepSeek R1 variants
-    if "deepseek" in model_lower and "r1" in model_lower:
-        return True
-
-    return False
+    return is_thinking_model(model)
 
 
 def _validate_llm_response(response: Any, context: str = "LLM call") -> Any:
@@ -564,6 +486,60 @@ def _validate_llm_response(response: Any, context: str = "LLM call") -> Any:
         raise ValueError(f"{context}: response.choices is empty")
 
     return response
+
+
+def _parse_react_format(content: str) -> dict | None:
+    """Parse ReAct format from content if present.
+
+    Some models (like gemini-2.5-flash-lite) output tool calls in ReAct text format:
+        Action: tool_name
+        Action Input: {"arg": "value"}
+
+    Instead of using the proper tool_calls API field. This function detects and
+    parses this format so the tool can still be executed.
+
+    Args:
+        content: The message content to parse
+
+    Returns:
+        dict with 'name' and 'arguments' if ReAct format found, None otherwise
+    """
+    if not content:
+        return None
+
+    import re
+
+    # Look for Action: and Action Input: pattern (case-insensitive)
+    # Action can be at the end of reasoning text, so we look for the last occurrence
+    action_match = re.search(r'Action:\s*(\S+)', content, re.IGNORECASE)
+
+    if not action_match:
+        return None
+
+    # Look for Action Input: with JSON object
+    # The JSON might be on the same line or the next line
+    input_match = re.search(
+        r'Action Input:\s*(\{.*?\})',
+        content,
+        re.DOTALL | re.IGNORECASE
+    )
+
+    if not input_match:
+        return None
+
+    tool_name = action_match.group(1).strip()
+    arguments = input_match.group(1).strip()
+
+    # Validate that arguments is valid JSON
+    try:
+        json.loads(arguments)
+    except json.JSONDecodeError:
+        return None
+
+    return {
+        'name': tool_name,
+        'arguments': arguments
+    }
 
 
 def get_models_for_category(category: str) -> tuple[str, ...]:
@@ -1174,17 +1150,32 @@ def _clean_json_schema(schema: Any) -> Any:
     return cleaned
 
 
-def _requires_anthropic_format(model_name: str, has_tools: bool = False) -> bool:
+def _requires_anthropic_format(model_name: str, has_tools: bool = False, api_base: str = "") -> bool:
     """Check if model requires Anthropic-style API format.
 
     Returns True for:
     1. Claude thinking models (always need native Anthropic API)
-    2. ALL Claude models when they have tools (CLIProxyAPI only supports
-       Claude tools via /v1/messages endpoint, not /v1/chat/completions)
+    2. Claude models with tools on non-proxy endpoints
+
+    Returns False for proxy endpoints (ccproxy, cliapi) which use OpenAI-compatible
+    format for tool calling.
 
     Other models (kimi, deepseek, etc.) use OpenAI-compatible format even if they have "thinking".
+
+    Args:
+        model_name: Model name to check
+        has_tools: Whether agent has tools
+        api_base: API base URL to check for proxy endpoints
     """
     model_lower = model_name.lower()
+
+    # CRITICAL: Never use Anthropic native API for proxy endpoints
+    # Proxies like ccproxy use OpenAI-compatible format for tool calling
+    # They don't support /v1/messages endpoint, only /v1/chat/completions
+    if api_base:
+        proxy_patterns = ["ccproxy", "cliapi", "proxy"]
+        if any(pattern in api_base.lower() for pattern in proxy_patterns):
+            return False
 
     # Claude/Anthropic thinking models always need native Anthropic API
     anthropic_thinking_patterns = [
@@ -1292,6 +1283,8 @@ class RotatingLLM(BaseLLM):
         # Needed because CrewAI doesn't preserve thinking blocks in messages
         self._last_thinking_blocks: List[Dict[str, Any]] | None = None
         self._last_reasoning_content: str | None = None
+        # Track truncation retry attempts per provider (transient issue mitigation)
+        self._truncation_retry_count: Dict[str, int] = {}
 
         primary_llm = self._instantiate_llm(self._providers[0])
         self._llms[0] = primary_llm
@@ -1555,8 +1548,9 @@ class RotatingLLM(BaseLLM):
 
                     # Determine if we need Anthropic native API
                     # Claude models with tools need /v1/messages endpoint (CLIProxyAPI limitation)
+                    # BUT proxy endpoints (ccproxy) use OpenAI-compatible format for tool calling
                     has_tools = bool(tools)
-                    use_anthropic_api = _requires_anthropic_format(provider.model, has_tools)
+                    use_anthropic_api = _requires_anthropic_format(provider.model, has_tools, provider.api_base)
 
                     # Adjust api_base for Anthropic (needs /v1/messages, not /v1/chat/completions)
                     # LiteLLM appends /v1/messages to api_base for Anthropic, so we need to remove /v1
@@ -1674,6 +1668,105 @@ class RotatingLLM(BaseLLM):
                                 self._last_reasoning_content = reasoning_content
 
                         if not (hasattr(choice.message, 'tool_calls') and choice.message.tool_calls):
+                            # No tool_calls in response - check for ReAct format in content
+                            react_action = _parse_react_format(choice.message.content)
+
+                            if react_action and available_functions:
+                                tool_name = react_action['name']
+                                tool_args_str = react_action['arguments']
+
+                                if tool_name in available_functions:
+                                    # Found ReAct format with valid tool - execute it
+                                    iteration += 1
+                                    print(
+                                        f"   🔄 Detected ReAct format in content (iteration {iteration}): {tool_name}\n",
+                                        file=sys.stderr
+                                    )
+
+                                    try:
+                                        # Parse arguments
+                                        tool_args = json.loads(tool_args_str) if isinstance(tool_args_str, str) else tool_args_str
+
+                                        # Get the tool callable
+                                        tool_func = available_functions[tool_name]
+
+                                        # Execute the tool
+                                        if hasattr(tool_func, '_run'):
+                                            tool_result = tool_func._run(**tool_args) if isinstance(tool_args, dict) else tool_func._run(tool_args)
+                                        elif hasattr(tool_func, 'run'):
+                                            tool_result = tool_func.run(**tool_args) if isinstance(tool_args, dict) else tool_func.run(tool_args)
+                                        elif callable(tool_func):
+                                            tool_result = tool_func(**tool_args) if isinstance(tool_args, dict) else tool_func(tool_args)
+                                        else:
+                                            tool_result = {"error": f"Tool {tool_name} is not callable"}
+
+                                        print(
+                                            f"   ✅ Tool {tool_name} executed successfully (ReAct)\n"
+                                            f"      Result: {str(tool_result)[:200]}...\n",
+                                            file=sys.stderr
+                                        )
+
+                                        # Generate a pseudo tool_call_id for ReAct format
+                                        react_tool_call_id = f"react_{tool_name}_{iteration}"
+
+                                        tool_results = [{
+                                            "tool_call_id": react_tool_call_id,
+                                            "role": "tool",
+                                            "name": tool_name,
+                                            "content": json.dumps(tool_result) if not isinstance(tool_result, str) else tool_result
+                                        }]
+
+                                        # Build assistant message with ReAct content (no tool_calls)
+                                        assistant_message = {
+                                            "role": "assistant",
+                                            "content": choice.message.content,
+                                            "tool_calls": [{
+                                                "id": react_tool_call_id,
+                                                "type": "function",
+                                                "function": {
+                                                    "name": tool_name,
+                                                    "arguments": tool_args_str
+                                                }
+                                            }]
+                                        }
+
+                                        current_messages = current_messages + [assistant_message] + tool_results
+
+                                        # Call LLM again with tool results
+                                        print(
+                                            f"   🔁 Sending ReAct tool result back to LLM...\n",
+                                            file=sys.stderr
+                                        )
+
+                                        current_response = litellm.completion(
+                                            model=model_for_litellm,
+                                            messages=current_messages,
+                                            tools=tools_for_api,
+                                            api_base=api_base_for_call,
+                                            api_key=api_key_str,
+                                            custom_llm_provider=custom_provider,
+                                            drop_params=True,
+                                            request_timeout=240,
+                                            max_tokens=32000,
+                                        )
+
+                                        # Validate follow-up response
+                                        try:
+                                            _validate_llm_response(current_response, f"ReAct tool loop iteration {iteration}")
+                                        except ValueError as e:
+                                            print(f"   ❌ Invalid LLM response in ReAct tool loop: {e}\n", file=sys.stderr)
+                                            response = "Error: LLM returned invalid response after ReAct tool execution"
+                                            break
+
+                                        continue  # Continue the tool loop
+
+                                    except Exception as tool_error:
+                                        print(
+                                            f"   ❌ ReAct tool {tool_name} failed: {tool_error}\n",
+                                            file=sys.stderr
+                                        )
+                                        # Fall through to treat as final response
+
                             # No more tool calls - we have the final response
                             response = choice.message.content or str(choice.message)
                             break
@@ -1848,13 +1941,23 @@ class RotatingLLM(BaseLLM):
 
                 # Check if response appears truncated
                 if _is_response_truncated(response_str):
+                    provider_key = self._provider_key(provider)
+
+                    # Track truncation occurrences for debugging
+                    self._truncation_retry_count[provider_key] = self._truncation_retry_count.get(provider_key, 0) + 1
+                    truncation_count = self._truncation_retry_count[provider_key]
+
                     error_msg = f"Truncated response ({response_len} chars)"
                     print(
-                        f"\n⚠️  {self._agent_name}: response TRUNCATED ({response_len} chars)\n"
-                        f"   Provider {provider.label} ({provider.model}) returned incomplete output\n"
+                        f"\n⚠️  {self._agent_name}: TRUNCATED RESPONSE DETECTED\n"
+                        f"   Provider: {provider.label}\n"
+                        f"   Model: {provider.model}\n"
+                        f"   Response length: {response_len} chars\n"
+                        f"   Truncation count for this provider: {truncation_count}\n"
                         f"   Disabling provider and rotating to next...\n",
                         file=sys.stderr,
                     )
+
                     # Disable provider and try next one
                     self._disable_provider(provider, error_msg)
                     last_error = RuntimeError(error_msg)
@@ -1863,7 +1966,10 @@ class RotatingLLM(BaseLLM):
                 self._last_success_index = index
                 self._sync_metadata(llm)
 
-                # Reset strike count on successful call
+                # Reset truncation and strike counts on successful call
+                provider_key = self._provider_key(provider)
+                if provider_key in self._truncation_retry_count:
+                    del self._truncation_retry_count[provider_key]
                 self._reset_provider_strikes(provider)
 
                 # Log which provider was successfully used
@@ -2047,29 +2153,50 @@ def _is_response_truncated(
     """Detect if a response appears to be truncated.
 
     Returns True if:
-    - Response is shorter than min_length, OR
-    - Response contains JSON that fails to parse (incomplete JSON)
+    - Response is empty or very short (1-10 chars) and not valid minimal JSON, OR
+    - Response contains JSON that fails to parse (incomplete JSON), OR
+    - Response is non-JSON and shorter than min_length
 
-    This helps detect when a provider silently truncates output
-    due to internal token limits or timeouts.
+    IMPORTANT: Valid JSON is NEVER considered truncated, regardless of length.
+    This prevents false positives on short but complete JSON responses.
     """
     if not response:
         return True
 
-    response_len = len(response)
-
-    # Check minimum length
-    if response_len < min_length:
-        return True
-
-    # If response looks like JSON, verify it's complete
     stripped = response.strip()
+
+    # Very short responses (< 10 chars) are almost certainly truncated
+    # unless they are valid minimal JSON like "{}", "[]", "null", "true", "false"
+    if len(stripped) < 10:
+        # Check if it's valid minimal JSON
+        if stripped in ("{}", "[]", "null", "true", "false"):
+            return False  # Valid minimal JSON
+
+        # Single char or very short non-JSON is definitely truncated
+        if len(stripped) <= 2:
+            return True
+
+        # Try to parse as JSON
+        try:
+            json.loads(stripped)
+            return False  # Valid short JSON
+        except json.JSONDecodeError:
+            return True  # Short non-JSON = truncated
+
+    # If response looks like JSON, check JSON validity
+    # Valid JSON = not truncated, regardless of length
     if stripped.startswith("{") or stripped.startswith("["):
         try:
             json.loads(stripped)
+            return False  # Valid JSON = not truncated
         except json.JSONDecodeError:
             # JSON is incomplete/malformed - likely truncated
             return True
+
+    # For non-JSON responses, use length threshold
+    response_len = len(response)
+    if response_len < min_length:
+        return True
 
     return False
 
