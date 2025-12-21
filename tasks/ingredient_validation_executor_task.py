@@ -51,21 +51,14 @@ MEAL PLAN FROM SUPERVISOR:
 INGREDIENTS TO VALIDATE ({len(ingredients_list)} total):
 {ingredients_preview}
 
-YOUR TASK (2 STEPS PER INGREDIENT):
+YOUR TASK (1 STEP PER INGREDIENT):
 
-STEP 1: Search for the ingredient
-- Call `hexis_search_passio_foods` with a simple search term
+Call `hexis_search_passio_foods` with a simple search term:
 - Record passio_food_id, passio_ref_code, passio_food_name
+- The nutritional data (protein_per_100g, etc.) will be fetched AUTOMATICALLY by Python
+- You do NOT need to call hexis_get_passio_food_details
 
-STEP 2: Get nutritional details
-- Call `hexis_get_passio_food_details` with the ref_code from Step 1
-- Extract and record nutritional data per 100g:
-  * protein_per_100g
-  * carbs_per_100g
-  * fat_per_100g
-  * calories_per_100g
-
-Focus on proteins, carbs, and fats - skip minor spices/herbs
+Focus on main ingredients - skip minor spices/herbs
 
 SEARCH STRATEGY:
 - Use SIMPLE terms: "chicken breast", "rice", "olive oil", "eggs"
@@ -87,26 +80,17 @@ EXAMPLE TOOL CALLS:
 
 For "120g chicken breast":
 ```
-# Step 1: Search
 Action: hexis_search_passio_foods
 Action Input: {{"query": "chicken breast", "limit": 5}}
 # Result: {{"id": "abc123", "name": "Chicken Breast, raw", "refCode": "eyJ..."}}
-
-# Step 2: Get nutrition details
-Action: hexis_get_passio_food_details
-Action Input: {{"ref_code": "eyJ..."}}
-# Result: {{"protein": 31.0, "carbs": 0.0, "fat": 3.6, "calories": 165}}
+# → Record passio_food_id="abc123", passio_ref_code="eyJ...", passio_food_name="Chicken Breast, raw"
 ```
 
 For "200g cooked quinoa":
 ```
-# Step 1: Search
 Action: hexis_search_passio_foods
 Action Input: {{"query": "quinoa", "limit": 5}}
-
-# Step 2: Get nutrition details
-Action: hexis_get_passio_food_details
-Action Input: {{"ref_code": "<refCode from search result>"}}
+# → Record the first result's id, refCode, and displayName
 ```
 
 OUTPUT FORMAT - ValidatedIngredientsList JSON:
@@ -125,11 +109,7 @@ OUTPUT FORMAT - ValidatedIngredientsList JSON:
           "passio_ref_code": "eyJ...",
           "passio_food_name": "Greek Yogurt, plain",
           "quantity_g": 200,
-          "validation_status": "found",
-          "protein_per_100g": 10.0,
-          "carbs_per_100g": 4.0,
-          "fat_per_100g": 0.7,
-          "calories_per_100g": 59.0
+          "validation_status": "found"
         }},
         {{
           "name": "100g mixed berries",
@@ -137,11 +117,7 @@ OUTPUT FORMAT - ValidatedIngredientsList JSON:
           "passio_ref_code": "eyJ...",
           "passio_food_name": "Berries, mixed frozen",
           "quantity_g": 100,
-          "validation_status": "found",
-          "protein_per_100g": 0.7,
-          "carbs_per_100g": 12.0,
-          "fat_per_100g": 0.3,
-          "calories_per_100g": 57.0
+          "validation_status": "found"
         }}
       ],
       "validation_success": true
@@ -154,9 +130,8 @@ OUTPUT FORMAT - ValidatedIngredientsList JSON:
 }}
 ```
 
-IMPORTANT - MACRO DATA IS REQUIRED:
-The Reviewer agent uses protein_per_100g, carbs_per_100g, fat_per_100g, calories_per_100g
-to calculate accurate daily totals. Without this data, validation will fail!
+NOTE: Nutritional data (protein_per_100g, carbs_per_100g, etc.) will be auto-fetched by Python.
+You only need to capture passio_food_id, passio_ref_code, and passio_food_name.
 
 VALIDATION STATUS VALUES:
 - "found": Ingredient found exactly in Passio database

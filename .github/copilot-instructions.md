@@ -171,7 +171,7 @@ OPENAI_API_KEY=your-api-key
 **Legacy Basic Auth (REMOVED)**: Previous versions used `OPENAI_API_AUTH_TOKEN` with Basic Authentication. This has been **removed** for simplicity and better compatibility with standard OpenAI-compatible endpoints.
 
 ### LLM Endpoint Setup
-- Use `OPENAI_API_BASE` for custom endpoints (e.g., `https://ccproxy.emottet.com/copilot/v1`)
+- Use `OPENAI_API_BASE` for custom endpoints (e.g., `https://ccproxy.emottet.com/v1`)
 - Use `OPENAI_MODEL_NAME` for model selection (e.g., `claude-sonnet-4.5`, `gpt-5-mini`)
 - CrewAI uses **LiteLLM**, which provides abstraction over multiple LLM providers
 - Set `drop_params=True` to ignore unsupported parameters

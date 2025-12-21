@@ -53,7 +53,7 @@ class MetaMCPAdapter:
         adapter.stop()
     """
 
-    def __init__(self, mcp_url: str, api_key: str, connect_timeout: int = 30):
+    def __init__(self, mcp_url: str, api_key: str, connect_timeout: int = 30, tool_timeout: int = 60):
         """
         Initialize the MetaMCP adapter.
 
@@ -61,6 +61,7 @@ class MetaMCPAdapter:
             mcp_url: Base MCP server URL (without api_key parameter)
             api_key: MetaMCP API key
             connect_timeout: Connection timeout in seconds
+            tool_timeout: Timeout for individual tool calls in seconds (default: 60)
         """
         # Clean URL but preserve the path (e.g., /sse or /mcp)
         if "?" in mcp_url:
@@ -70,6 +71,7 @@ class MetaMCPAdapter:
 
         self.api_key = api_key
         self.connect_timeout = connect_timeout
+        self.tool_timeout = tool_timeout
 
         # Async resources
         self.loop = None
@@ -155,7 +157,7 @@ class MetaMCPAdapter:
         for mcp_tool in self.mcp_tools:
             try:
                 # Create a sync wrapper for the tool call
-                def make_tool_func(tool_name):
+                def make_tool_func(tool_name, tool_timeout):
                     def tool_func(arguments=None):
                         if not self.session or not self.loop:
                             raise RuntimeError("MCP adapter not initialized")
@@ -165,11 +167,17 @@ class MetaMCPAdapter:
                             self.session.call_tool(tool_name, arguments),
                             self.loop
                         )
-                        return future.result()
+                        try:
+                            return future.result(timeout=tool_timeout)
+                        except TimeoutError:
+                            raise TimeoutError(
+                                f"MCP tool '{tool_name}' timed out after {tool_timeout}s. "
+                                f"The API server may be unresponsive."
+                            )
                     return tool_func
 
                 # Use CrewAIAdapter to convert the MCP tool with proper schema
-                tool = self.crewai_adapter.adapt(make_tool_func(mcp_tool.name), mcp_tool)
+                tool = self.crewai_adapter.adapt(make_tool_func(mcp_tool.name, self.tool_timeout), mcp_tool)
                 crewai_tools.append(tool)
             except Exception as e:
                 # If schema conversion fails (circular refs, etc.), fall back to simple tool
@@ -186,6 +194,8 @@ class MetaMCPAdapter:
         from pydantic import Field, create_model
 
         # Create a sync wrapper for the async MCP tool
+        tool_timeout = self.tool_timeout  # Capture for closure
+
         def tool_func(**kwargs):
             """Execute MCP tool synchronously."""
             if not self.session or not self.loop:
@@ -196,7 +206,13 @@ class MetaMCPAdapter:
                 self.session.call_tool(mcp_tool.name, kwargs or None),
                 self.loop
             )
-            result = future.result()
+            try:
+                result = future.result(timeout=tool_timeout)
+            except TimeoutError:
+                raise TimeoutError(
+                    f"MCP tool '{mcp_tool.name}' timed out after {tool_timeout}s. "
+                    f"The API server may be unresponsive."
+                )
 
             # Extract content from result
             if hasattr(result, 'content') and result.content:

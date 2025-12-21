@@ -7,6 +7,7 @@ from datetime import datetime
 CACHE_FILE = Path(__file__).parent / ".passio_nutrition_cache.json"
 SEARCH_CACHE_FILE = Path(__file__).parent / ".passio_search_cache.json"
 CACHE_TTL_DAYS = 30  # Cache valid for 30 days
+NEGATIVE_CACHE_TTL_DAYS = 7  # Negative cache expires faster (no data found)
 
 
 class PassioSearchCache:
@@ -56,11 +57,20 @@ class PassioSearchCache:
 
         Returns:
             Dict with passio_food_id, passio_ref_code, passio_food_name,
-            and nutrition data, or None if not cached
+            and nutrition data, or None if not cached.
+            For negative cache entries, returns {"negative": True, "reason": ...}
         """
         key = self._normalize_query(query)
         entry = self._cache.get(key)
         if entry:
+            # Check if this is a negative cache entry (no data found)
+            if entry.get("negative"):
+                ttl = entry.get("ttl_days", NEGATIVE_CACHE_TTL_DAYS) * 86400
+                if datetime.now().timestamp() - entry.get("cached_at", 0) < ttl:
+                    return {"negative": True, "reason": entry.get("reason", "no_data")}
+                # Negative cache expired, return None to trigger new search
+                return None
+            # Normal cache entry
             return {
                 "passio_food_id": entry.get("passio_food_id"),
                 "passio_ref_code": entry.get("passio_ref_code"),
@@ -94,6 +104,26 @@ class PassioSearchCache:
         }
         self._save_cache()
 
+    def set_negative(self, query: str, reason: str = "no_nutrition_data"):
+        """Cache a negative result (no data found from Passio API).
+
+        This prevents repeated API calls for items that don't have nutrition data.
+        Uses a shorter TTL than positive cache entries.
+
+        Args:
+            query: Original search query
+            reason: Reason for negative cache (e.g., "no_nutrition_data", "api_error")
+        """
+        key = self._normalize_query(query)
+        self._cache[key] = {
+            "negative": True,
+            "reason": reason,
+            "original_query": query,
+            "cached_at": datetime.now().timestamp(),
+            "ttl_days": NEGATIVE_CACHE_TTL_DAYS,
+        }
+        self._save_cache()
+
     def stats(self) -> Dict[str, Any]:
         """Return cache statistics."""
         file_size = 0
@@ -105,6 +135,17 @@ class PassioSearchCache:
             "file_size_kb": file_size // 1024,
             "cache_file": str(self.cache_file),
         }
+
+    def delete(self, query: str):
+        """Delete a specific cache entry.
+
+        Args:
+            query: Search query to delete from cache
+        """
+        key = self._normalize_query(query)
+        if key in self._cache:
+            del self._cache[key]
+            self._save_cache()
 
     def clear(self):
         """Clear all cache entries."""

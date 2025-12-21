@@ -6,13 +6,15 @@ import llm_auth_init  # noqa: F401
 
 import concurrent.futures
 import copy
+import threading
+import time
 import json
 import os
 import sys
 from collections import Counter
 from datetime import datetime, timedelta
 import pytz
-from typing import Any, Dict, List, Optional, Tuple, Type
+from typing import Any, Callable, Dict, List, Optional, Tuple, Type
 import json_repair  # Added for robust JSON parsing
 
 from crewai import Crew, LLM, Process
@@ -72,9 +74,86 @@ from tasks import (
 from mcp_utils import build_mcp_references, load_catalog_tool_names
 from mcp_auth_wrapper import MetaMCPAdapter
 from llm_provider_rotation import create_llm_with_rotation, get_model_for_category
-from mcp_tool_wrapper import wrap_mcp_tools, wrap_mcp_tool
+from validation_config import check_variety, MIN_UNIQUE_MEALS_RATIO
+from mcp_tool_wrapper import (
+    wrap_mcp_tools,
+    wrap_mcp_tool,
+    reset_hexis_tool_results,
+    get_hexis_tool_results,
+    capture_hexis_result,
+)
 from tools.hexis_composite_tool import create_hexis_log_meal_tool
-from macro_calculator import enrich_validated_ingredients, format_pre_calculated_summary
+from macro_calculator import (
+    enrich_validated_ingredients,
+    fetch_nutrition_for_ingredients,
+    format_pre_calculated_summary,
+)
+
+
+# ==============================================================================
+# Utility functions for deterministic day_name handling
+# ==============================================================================
+DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+
+
+def _date_to_day_name(date_str: str) -> str:
+    """Convert ISO date string to English day name deterministically.
+
+    Args:
+        date_str: Date in YYYY-MM-DD format (e.g., "2025-12-19")
+
+    Returns:
+        English day name (e.g., "Friday")
+
+    Raises:
+        ValueError: If date_str is not a valid ISO date
+    """
+    dt = datetime.fromisoformat(date_str)
+    return DAY_NAMES[dt.weekday()]  # weekday() returns 0=Monday, 6=Sunday
+
+
+def _fix_daily_target_day_names(nutrition_plan: Dict[str, Any]) -> Dict[str, Any]:
+    """Fix day_name values using deterministic date conversion.
+
+    The LLM sometimes generates wrong day_name/date pairs (e.g., "Friday" for
+    a date that is actually Saturday). This function overwrites day_name with
+    the correct value computed from the date.
+
+    Args:
+        nutrition_plan: WeeklyNutritionPlan dict from LLM with daily_targets
+
+    Returns:
+        Same nutrition_plan with corrected day_names (modified in place)
+    """
+    fixes_applied = 0
+    for target in nutrition_plan.get("daily_targets", []):
+        date_str = target.get("date", "")
+        if not date_str:
+            continue
+        try:
+            expected_day_name = _date_to_day_name(date_str)
+            actual_day_name = target.get("day_name", "")
+
+            if actual_day_name != expected_day_name:
+                print(
+                    f"   🔧 Fix day_name: {date_str} was '{actual_day_name}' -> '{expected_day_name}'",
+                    file=sys.stderr,
+                )
+                target["day_name"] = expected_day_name
+                fixes_applied += 1
+        except ValueError as e:
+            print(
+                f"   ⚠️  Could not parse date '{date_str}': {e}",
+                file=sys.stderr,
+            )
+
+    if fixes_applied > 0:
+        print(
+            f"\n   ✅ Fixed {fixes_applied} day_name(s) in nutrition plan\n",
+            file=sys.stderr,
+        )
+
+    return nutrition_plan
 
 
 class MealPlanningCrew:
@@ -173,14 +252,15 @@ class MealPlanningCrew:
             has_tools=False,  # Pure reasoning - thinking models allowed
         )
 
-        # HEXIS_DATA_EXECUTOR: Tool execution only - NO thinking models
-        self.hexis_data_executor_llm = self._create_agent_llm(
-            agent_name="HEXIS_DATA_EXECUTOR",
-            default_model=simple_model_name,
-            default_base=base_url,
-            default_key=api_key,
-            has_tools=True,  # Uses hexis_get_weekly_plan - NO thinking models
-        )
+        # HEXIS_DATA_EXECUTOR: BYPASSED - Now using direct Python tool calls
+        # The executor LLM was unreliable (hallucinated tool calls instead of executing them)
+        # self.hexis_data_executor_llm = self._create_agent_llm(
+        #     agent_name="HEXIS_DATA_EXECUTOR",
+        #     default_model=simple_model_name,
+        #     default_base=base_url,
+        #     default_key=api_key,
+        #     has_tools=True,  # Uses hexis_get_weekly_plan - NO thinking models
+        # )
 
         # HEXIS_ANALYSIS_REVIEWER: Pure reasoning (no tools) - thinking models OK
         self.hexis_analysis_reviewer_llm = self._create_agent_llm(
@@ -325,17 +405,18 @@ class MealPlanningCrew:
 
         # EXECUTOR: Tool execution - validates ingredients (hexis_search_passio_foods)
         # Only needs the search tool, not all hexis tools
-        passio_search_tool = next(
-            (t for t in hexis_tools if "search_passio" in t.name.lower()),
+        # IMPORTANT: Use exact match to avoid selecting barcode or advanced variants
+        self.passio_search_tool = next(
+            (t for t in hexis_tools if t.name.lower() == "hexis__hexis_search_passio_foods"),
             None
         )
-        executor_tools = [passio_search_tool] if passio_search_tool else []
+        executor_tools = [self.passio_search_tool] if self.passio_search_tool else []
         self.ingredient_validation_executor_agent = create_ingredient_validation_executor_agent(
             self.ingredient_validation_executor_llm,
             tools=executor_tools if executor_tools else None
         )
-        if passio_search_tool:
-            print(f"   ✅ Executor agent has hexis_search_passio_foods tool\n", file=sys.stderr)
+        if self.passio_search_tool:
+            print(f"   ✅ Executor agent has {self.passio_search_tool.name} tool\n", file=sys.stderr)
         else:
             print(f"   ⚠️  Executor agent missing hexis_search_passio_foods tool!\n", file=sys.stderr)
 
@@ -356,19 +437,21 @@ class MealPlanningCrew:
 
         # EXECUTOR: Tool execution - retrieves Hexis data (hexis_get_weekly_plan)
         # Only needs the weekly plan tool
-        hexis_weekly_plan_tool = next(
-            (t for t in hexis_tools if "get_weekly_plan" in t.name.lower()),
-            None
-        )
-        hexis_executor_tools = [hexis_weekly_plan_tool] if hexis_weekly_plan_tool else hexis_tools
-        self.hexis_data_executor_agent = create_hexis_data_executor_agent(
-            self.hexis_data_executor_llm,
-            tools=hexis_executor_tools if hexis_executor_tools else None
-        )
-        if hexis_weekly_plan_tool:
-            print(f"   ✅ HEXIS Executor agent has hexis_get_weekly_plan tool\n", file=sys.stderr)
-        else:
-            print(f"   ⚠️  HEXIS Executor using all Hexis tools (hexis_get_weekly_plan not found)\n", file=sys.stderr)
+        # EXECUTOR: BYPASSED - Now using direct Python tool calls in generate_meal_plan()
+        # The LLM executor was unreliable (hallucinated tool calls for batches 2-3)
+        # hexis_weekly_plan_tool = next(
+        #     (t for t in hexis_tools if "get_weekly_plan" in t.name.lower()),
+        #     None
+        # )
+        # hexis_executor_tools = [hexis_weekly_plan_tool] if hexis_weekly_plan_tool else hexis_tools
+        # self.hexis_data_executor_agent = create_hexis_data_executor_agent(
+        #     self.hexis_data_executor_llm,
+        #     tools=hexis_executor_tools if hexis_executor_tools else None
+        # )
+        # if hexis_weekly_plan_tool:
+        #     print(f"   ✅ HEXIS Executor agent has hexis_get_weekly_plan tool\n", file=sys.stderr)
+        # else:
+        #     print(f"   ⚠️  HEXIS Executor using all Hexis tools (hexis_get_weekly_plan not found)\n", file=sys.stderr)
 
         # REVIEWER: Pure reasoning - analyzes data and creates final output (NO TOOLS)
         self.hexis_analysis_reviewer_agent = create_hexis_analysis_reviewer_agent(
@@ -440,18 +523,10 @@ class MealPlanningCrew:
         agent_base = os.getenv(base_key, default_base)
 
         # Log configuration for transparency
-        endpoint_type = "ccproxy"
-        if "/copilot/v1" in (agent_base or "").lower():
-            endpoint_type = "copilot"
-        elif "/codex/v1" in (agent_base or "").lower():
-            endpoint_type = "codex"
-        elif "/claude/v1" in (agent_base or "").lower():
-            endpoint_type = "claude"
-
         print(
             f"🤖 {agent_name} Agent:\n"
             f"   Model: {agent_model}\n"
-            f"   Endpoint: {endpoint_type} ({agent_base})\n",
+            f"   Endpoint: {agent_base}\n",
             file=sys.stderr,
         )
 
@@ -483,18 +558,380 @@ class MealPlanningCrew:
             has_tools=has_tools,
         )
 
+    def _validate_ingredients_parallel(
+        self,
+        meal_template: Dict[str, Any],
+        max_workers: int = 10,
+    ) -> Dict[str, Any]:
+        """Validate all ingredients in parallel using ThreadPoolExecutor.
+
+        Bypasses the slow sequential CrewAI agent loop (1 tool call per iteration)
+        by executing all ingredient searches in parallel via Python.
+
+        Args:
+            meal_template: Dict with 'meals' list containing MealTemplate dicts
+            max_workers: Maximum concurrent search threads (default 10)
+
+        Returns:
+            ValidatedIngredientsList dict ready for the Reviewer
+        """
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        import re
+
+        if not self.passio_search_tool:
+            print("   ⚠️ No passio_search_tool available for parallel validation", file=sys.stderr)
+            return self._empty_validation_result(meal_template)
+
+        # Extract unique ingredients from all meals
+        # Key: normalized ingredient name, Value: (original_name, quantity_g)
+        unique_ingredients: Dict[str, tuple] = {}
+        meals = meal_template.get("meals", [])
+
+        for meal in meals:
+            ingredients_list = meal.get("ingredients_to_validate", [])
+            for ingredient_str in ingredients_list:
+                # Parse "120g chicken breast" -> (120.0, "chicken breast")
+                quantity_g, clean_name = self._parse_ingredient_string(ingredient_str)
+                key = clean_name.lower().strip()
+                if key and key not in unique_ingredients:
+                    unique_ingredients[key] = (ingredient_str, quantity_g, clean_name)
+
+        if not unique_ingredients:
+            print("   ⚠️ No ingredients to validate", file=sys.stderr)
+            return self._empty_validation_result(meal_template)
+
+        print(f"   🔍 Validating {len(unique_ingredients)} unique ingredients in parallel (max_workers={max_workers})...", file=sys.stderr)
+
+        # Search all ingredients in parallel
+        validated_cache: Dict[str, Dict[str, Any]] = {}
+        errors: List[str] = []
+
+        def search_single_ingredient(name: str, original: str, quantity: float) -> tuple:
+            """Search a single ingredient (runs in thread)."""
+            try:
+                result = self.passio_search_tool._run(query=name, limit=5)
+
+                # Parse result if string
+                if isinstance(result, str):
+                    result = json.loads(result)
+
+                # Extract first food match
+                foods = result.get("foods", [])
+                if foods:
+                    first_match = foods[0]
+                    return (name, {
+                        "name": original,
+                        "passio_food_id": first_match.get("id") or first_match.get("resultId"),
+                        "passio_food_name": first_match.get("displayName") or first_match.get("shortName") or first_match.get("longName"),
+                        "passio_ref_code": first_match.get("refCode"),
+                        "quantity_g": quantity,
+                        "validation_status": "found",
+                    })
+                else:
+                    return (name, {
+                        "name": original,
+                        "validation_status": "not_found",
+                        "quantity_g": quantity,
+                    })
+            except Exception as e:
+                return (name, {
+                    "name": original,
+                    "validation_status": "error",
+                    "substitution_note": str(e)[:100],
+                    "quantity_g": quantity,
+                })
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {
+                executor.submit(search_single_ingredient, name, orig, qty): name
+                for name, (orig, qty, _) in unique_ingredients.items()
+            }
+
+            for future in as_completed(futures):
+                name, result = future.result()
+                validated_cache[name] = result
+
+        # Count successes
+        successful = sum(1 for v in validated_cache.values() if v.get("validation_status") == "found")
+        print(f"   ✅ Validated {successful}/{len(unique_ingredients)} ingredients in parallel", file=sys.stderr)
+
+        # Build ValidatedIngredientsList structure
+        validated_meals = []
+        total_validations = 0
+        successful_validations = 0
+
+        for meal in meals:
+            meal_ingredients = []
+            ingredients_list = meal.get("ingredients_to_validate", [])
+
+            for ingredient_str in ingredients_list:
+                _, clean_name = self._parse_ingredient_string(ingredient_str)
+                key = clean_name.lower().strip()
+                total_validations += 1
+
+                if key in validated_cache:
+                    cached = validated_cache[key]
+                    meal_ingredients.append(cached)
+                    if cached.get("validation_status") == "found":
+                        successful_validations += 1
+                else:
+                    # Fallback for missing cache entry
+                    meal_ingredients.append({
+                        "name": ingredient_str,
+                        "validation_status": "not_found",
+                    })
+
+            validated_meals.append({
+                "meal_type": meal.get("meal_type", "Unknown"),
+                "meal_name": meal.get("meal_name", "Unknown"),
+                "validated_ingredients": meal_ingredients,
+                "validation_success": all(
+                    ing.get("validation_status") == "found" for ing in meal_ingredients
+                ),
+            })
+
+        return {
+            "day_name": meal_template.get("day_name", "Unknown"),
+            "date": meal_template.get("date", ""),
+            "validated_meals": validated_meals,
+            "total_validations": total_validations,
+            "successful_validations": successful_validations,
+            "substitutions_made": 0,
+        }
+
+    # Unit conversions for ingredient parsing (grams per unit)
+    UNIT_CONVERSIONS = {
+        # Eggs by size
+        "egg": 50, "eggs": 50,
+        "large egg": 60, "large eggs": 60,
+        "medium egg": 50, "medium eggs": 50,
+        "small egg": 40, "small eggs": 40,
+        # Bread slices
+        "slice": 30, "slices": 30,
+        "large slice": 40, "large slices": 40,
+        "medium slice": 30, "medium slices": 30,
+        "small slice": 20, "small slices": 20,
+        # Volume measures (approximate gram equivalents)
+        "cup": 240, "cups": 240,
+        "tbsp": 15, "tsp": 5,
+        # Generic pieces
+        "piece": 50, "pieces": 50,
+        "large piece": 75, "large pieces": 75,
+        "medium piece": 50, "medium pieces": 50,
+        "small piece": 30, "small pieces": 30,
+        # Common items
+        "banana": 120, "bananas": 120,
+        "apple": 180, "apples": 180,
+        "tortilla": 50, "tortillas": 50,
+        "whole wheat tortilla": 50, "whole wheat tortillas": 50,
+    }
+
+    def _parse_ingredient_string(self, ingredient_str: str) -> tuple:
+        """Parse ingredient string like '120g chicken breast' into (quantity_g, name).
+
+        Handles various formats:
+        - "120g chicken breast" -> (120, "chicken breast")
+        - "2 large eggs" -> (120, "eggs")  # 2 × 60g
+        - "3 eggs" -> (150, "eggs")  # 3 × 50g
+        - "2 slices bread" -> (60, "bread")  # 2 × 30g
+        - "1.5kg rice" -> (1500, "rice")
+        - "olive oil" -> (None, "olive oil")
+
+        Returns:
+            (quantity_g: float or None, clean_name: str)
+        """
+        import re
+
+        ingredient_str = ingredient_str.strip()
+
+        # Pattern 1: "2 large eggs", "3 medium slices", "4 small pieces"
+        match = re.match(
+            r'^(\d+(?:\.\d+)?)\s+(large|medium|small)\s+(eggs?|slices?|pieces?|bananas?|apples?|tortillas?)(.*)$',
+            ingredient_str, re.IGNORECASE
+        )
+        if match:
+            qty = float(match.group(1))
+            size = match.group(2).lower()
+            unit = match.group(3).lower()
+            rest = match.group(4).strip()
+
+            # Build conversion key: "large eggs" or "large egg"
+            key = f"{size} {unit}"
+            conversion = self.UNIT_CONVERSIONS.get(key, self.UNIT_CONVERSIONS.get(unit, 50))
+
+            # Name is either the rest or the unit itself
+            name = rest if rest else unit.rstrip('s')
+            return (qty * conversion, name)
+
+        # Pattern 2: "2 eggs", "3 slices bread", "1 banana"
+        match = re.match(
+            r'^(\d+(?:\.\d+)?)\s+(eggs?|slices?|pieces?|cups?|tbsp|tsp|bananas?|apples?|tortillas?)\s*(.*)$',
+            ingredient_str, re.IGNORECASE
+        )
+        if match:
+            qty = float(match.group(1))
+            unit = match.group(2).lower()
+            rest = match.group(3).strip()
+
+            conversion = self.UNIT_CONVERSIONS.get(unit, 50)
+            name = rest if rest else unit.rstrip('s')
+            return (qty * conversion, name)
+
+        # Pattern 3: "120g chicken", "1.5kg rice", "200ml milk", "2l water"
+        match = re.match(
+            r'^(\d+(?:\.\d+)?)\s*(g|kg|ml|l)\s+(.+)$',
+            ingredient_str, re.IGNORECASE
+        )
+        if match:
+            qty = float(match.group(1))
+            unit = match.group(2).lower()
+            name = match.group(3).strip()
+
+            if unit == "kg":
+                qty *= 1000
+            elif unit == "l":
+                qty *= 1000
+            # ml and g are already in the right unit
+            return (qty, name)
+
+        # Pattern 4: "120g" at start without space (e.g., "120g chicken breast")
+        match = re.match(
+            r'^(\d+(?:\.\d+)?)(g|kg|ml|l)(.+)$',
+            ingredient_str, re.IGNORECASE
+        )
+        if match:
+            qty = float(match.group(1))
+            unit = match.group(2).lower()
+            name = match.group(3).strip()
+
+            if unit == "kg":
+                qty *= 1000
+            elif unit == "l":
+                qty *= 1000
+            return (qty, name)
+
+        # Pattern 5: No quantity found, return the whole string as name
+        return (None, ingredient_str)
+
+    def _empty_validation_result(self, meal_template: Dict[str, Any]) -> Dict[str, Any]:
+        """Return an empty validation result for fallback cases."""
+        return {
+            "day_name": meal_template.get("day_name", "Unknown"),
+            "date": meal_template.get("date", ""),
+            "validated_meals": [],
+            "total_validations": 0,
+            "successful_validations": 0,
+            "substitutions_made": 0,
+        }
+
+    def _create_passio_nutrition_fetcher(self) -> Callable[[str], Optional[Dict[str, Any]]]:
+        """Create a function that fetches nutrition data from Passio API.
+
+        Returns a callable that takes a ref_code and returns nutrition data.
+        This is used by fetch_nutrition_for_ingredients to get per-100g values.
+        """
+        # Find the hexis_get_passio_food_details tool
+        details_tool = None
+        for tool in self.mcp_tools:
+            if "get_passio_food_details" in tool.name.lower():
+                details_tool = tool
+                break
+
+        if details_tool is None:
+            print("   ⚠️ hexis_get_passio_food_details tool not found in MCP tools", file=sys.stderr)
+            return lambda ref_code: None
+
+        def fetch_nutrition(ref_code: str) -> Optional[Dict[str, Any]]:
+            """Fetch nutrition data for a single ingredient.
+
+            Parses the nested Passio API response and extracts macro nutrients.
+            Returns flat dict with protein, carbs, fat, calories (per 100g).
+            """
+            try:
+                # Call the MCP tool
+                result = details_tool._run(ref_code=ref_code)
+
+                # Parse result if it's a string
+                if isinstance(result, str):
+                    result = json.loads(result)
+
+                # Extract nutrients from nested structure:
+                # result.results[0].ingredients[0].nutrients[]
+                nutrients_list = []
+                results = result.get("results", [])
+                if results:
+                    ingredients = results[0].get("ingredients", [])
+                    if ingredients:
+                        nutrients_list = ingredients[0].get("nutrients", [])
+
+                if not nutrients_list:
+                    return None
+
+                # Build lookup map: nutrient_name -> amount
+                nutrient_map = {}
+                for n in nutrients_list:
+                    name = n.get("nutrient", {}).get("name", "")
+                    unit = n.get("nutrient", {}).get("unit", "")
+                    amount = n.get("amount", 0)
+                    # Store with unit suffix for energy disambiguation
+                    nutrient_map[f"{name}|{unit}"] = amount
+                    nutrient_map[name] = amount  # Also store without unit
+
+                # Extract macros using Passio's nutrient names
+                protein = nutrient_map.get("Protein", 0)
+                fat = nutrient_map.get("Total lipid (fat)", 0)
+                carbs = nutrient_map.get("Carbohydrate, by difference", 0)
+                # Energy in KCAL (not kJ)
+                calories = nutrient_map.get("Energy|KCAL", 0)
+                if not calories:
+                    calories = nutrient_map.get("Energy", 0)
+                    # If we got kJ, convert to kcal (rough: kJ / 4.184)
+                    if calories > 1000:  # Likely kJ
+                        calories = round(calories / 4.184)
+
+                return {
+                    "protein": protein,
+                    "carbs": carbs,
+                    "fat": fat,
+                    "calories": calories,
+                }
+            except Exception as e:
+                print(f"      ⚠️ Passio fetch error: {e}", file=sys.stderr)
+                return None
+
+        return fetch_nutrition
+
     @staticmethod
     def _clean_json_text(text: str) -> str:
-        """Remove markdown fences, thought blocks, and whitespace from JSON text."""
+        """Remove markdown fences, thought blocks, reasoning prefixes from JSON text."""
         import re
-        # Remove markdown code fences (anywhere in text, including with leading/trailing whitespace)
+        text = text.strip()
+
+        # STRATEGY: Strip everything before the first '{' if it looks like reasoning
+        # This handles multiline reasoning from thinking models (e.g., "Thought: ...")
+        first_brace = text.find('{')
+        if first_brace > 0:
+            prefix = text[:first_brace]
+            # Check if the prefix looks like LLM reasoning (common patterns)
+            reasoning_indicators = [
+                'Thought:', 'I need to', 'Let me', 'Looking at',
+                'I should', 'First,', 'To ', 'Based on', 'Given ',
+                'I will', "I'll", 'My approach', 'The task',
+            ]
+            prefix_lower = prefix.lower()
+            if any(indicator.lower() in prefix_lower for indicator in reasoning_indicators):
+                # Strip everything before the JSON
+                text = text[first_brace:]
+
+        text = text.strip()
+
+        # Remove markdown code fences (anywhere in text)
         text = re.sub(r'```json\s*\n?', '', text)  # Remove opening fence
         text = re.sub(r'\n?\s*```', '', text)  # Remove closing fence
-        
+
         # Remove <thought>...</thought> blocks (common in thinking models)
-        # Use dotall flag to match newlines within the block
         text = re.sub(r'<thought>.*?</thought>', '', text, flags=re.DOTALL)
-        
+
         return text.strip()
 
     @staticmethod
@@ -534,6 +971,34 @@ class MealPlanningCrew:
         return None  # Unbalanced braces
 
     @staticmethod
+    def _heal_hexis_analysis_structure(data: Dict[str, Any]) -> Dict[str, Any]:
+        """Heal common structural errors in HexisWeeklyAnalysis JSON.
+
+        Common error: LLM forgets closing brace for daily_energy_needs, causing
+        daily_macro_targets and nutritional_priorities to be incorrectly nested.
+        """
+        if not isinstance(data, dict):
+            return data
+
+        # Check if daily_macro_targets is incorrectly nested inside daily_energy_needs
+        daily_energy = data.get("daily_energy_needs", {})
+        if isinstance(daily_energy, dict):
+            nested_macros = daily_energy.get("daily_macro_targets")
+            nested_priorities = daily_energy.get("nutritional_priorities")
+
+            if nested_macros and "daily_macro_targets" not in data:
+                print("   🔧 Structure healing: Moving daily_macro_targets to root", file=sys.stderr)
+                data["daily_macro_targets"] = nested_macros
+                del daily_energy["daily_macro_targets"]
+
+            if nested_priorities and "nutritional_priorities" not in data:
+                print("   🔧 Structure healing: Moving nutritional_priorities to root", file=sys.stderr)
+                data["nutritional_priorities"] = nested_priorities
+                del daily_energy["nutritional_priorities"]
+
+        return data
+
+    @staticmethod
     def _payloads_from_task_output(task_output: TaskOutput) -> List[Dict[str, Any]]:
         """Extract potential JSON payloads from a task output."""
         payloads: List[Dict[str, Any]] = []
@@ -562,6 +1027,8 @@ class MealPlanningCrew:
                     parsed = json.loads(extracted)
                     if isinstance(parsed, dict):
                         print(f"      - Brace-balanced parse SUCCESS, keys: {list(parsed.keys())}", file=sys.stderr)
+                        # Apply structure healing for HexisWeeklyAnalysis
+                        parsed = MealPlanningCrew._heal_hexis_analysis_structure(parsed)
                         payloads.append(parsed)
                         return payloads  # Success with complete JSON - return early
                 except json.JSONDecodeError as e:
@@ -613,6 +1080,8 @@ class MealPlanningCrew:
                                 continue
 
                     if parsed_raw is not None:
+                        # Apply structure healing for HexisWeeklyAnalysis
+                        parsed_raw = MealPlanningCrew._heal_hexis_analysis_structure(parsed_raw)
                         payloads.append(parsed_raw)
                     else:
                         # Log failure to parse this candidate
@@ -630,10 +1099,14 @@ class MealPlanningCrew:
         candidates: List[Dict[str, Any]] = []
 
         if crew_output.json_dict:
-            candidates.append(crew_output.json_dict)
+            # Apply structure healing for HexisWeeklyAnalysis
+            healed = MealPlanningCrew._heal_hexis_analysis_structure(crew_output.json_dict)
+            candidates.append(healed)
 
         if crew_output.pydantic:
-            candidates.append(crew_output.pydantic.model_dump())
+            # Apply structure healing for HexisWeeklyAnalysis
+            healed = MealPlanningCrew._heal_hexis_analysis_structure(crew_output.pydantic.model_dump())
+            candidates.append(healed)
 
         for task_output in reversed(crew_output.tasks_output or []):
             candidates.extend(self._payloads_from_task_output(task_output))
@@ -674,6 +1147,30 @@ class MealPlanningCrew:
                 file=sys.stderr,
             )
 
+        return None
+
+    def _extract_compliance_failure(
+        self, crew_output: CrewOutput
+    ) -> Optional[Dict[str, Any]]:
+        """Extract compliance failure from reviewer output before DailyMealPlan validation.
+
+        When the Reviewer detects macro compliance issues, it returns:
+        {"compliance_failed": true, "compliance_issues": [...]}
+
+        This method checks for this pattern BEFORE attempting DailyMealPlan validation,
+        allowing us to capture the feedback and pass it to the next Supervisor attempt.
+
+        Returns:
+            Dict with compliance_issues if compliance failed, None otherwise
+        """
+        for candidate in self._collect_payload_candidates(crew_output):
+            if isinstance(candidate, dict) and candidate.get("compliance_failed") is True:
+                return {
+                    "compliance_failed": True,
+                    "compliance_issues": candidate.get("compliance_issues", []),
+                    "calculated_totals": candidate.get("calculated_totals"),
+                    "target_totals": candidate.get("target_totals"),
+                }
         return None
 
     def _enrich_meal_template_with_targets(
@@ -774,6 +1271,7 @@ class MealPlanningCrew:
         nutrition_plan: Dict[str, Any],
         max_days: Optional[int] = None,
         validation_feedback: Optional[Dict[str, Any]] = None,
+        previous_successful_plans: Optional[List[Dict[str, Any]]] = None,
     ) -> Optional[List[Dict[str, Any]]]:
         """Generate daily meal plans using Supervisor/Executor/Reviewer pattern.
 
@@ -783,6 +1281,9 @@ class MealPlanningCrew:
         3. REVIEWER: Pure reasoning - calculates macros and finalizes (thinking models OK)
 
         This prevents thinking models from hallucinating tool calls.
+
+        If previous_successful_plans is provided, days that already exist in that list
+        will be reused instead of regenerated. Only missing days will be generated.
         """
         daily_targets = nutrition_plan.get("daily_targets", [])
 
@@ -813,26 +1314,333 @@ class MealPlanningCrew:
 
             daily_targets = daily_targets[:max_days]
 
+        # Filter out days that were already successfully generated
+        reused_plans: List[Dict[str, Any]] = []
+        targets_to_generate = daily_targets
+
+        if previous_successful_plans:
+            # Build set of day_names that already succeeded
+            successful_day_names = {
+                plan.get("day_name") for plan in previous_successful_plans
+            }
+            # Keep plans from previous round
+            reused_plans = [
+                plan for plan in previous_successful_plans
+                if plan.get("day_name") in {t.get("day_name") for t in daily_targets}
+            ]
+            # Only generate days that are missing
+            targets_to_generate = [
+                target for target in daily_targets
+                if target.get("day_name") not in successful_day_names
+            ]
+
+            if reused_plans:
+                reused_names = ", ".join(p.get("day_name", "?") for p in reused_plans)
+                print(
+                    f"\n♻️  Reusing {len(reused_plans)} successful day(s) from previous round: {reused_names}\n",
+                    file=sys.stderr,
+                )
+
+            if not targets_to_generate:
+                print(
+                    f"\n✅ All {len(reused_plans)} day(s) already generated successfully, nothing to regenerate\n",
+                    file=sys.stderr,
+                )
+                # Sort by date and return
+                reused_plans.sort(key=lambda x: x.get("date", ""))
+                return reused_plans
+
         # Check if parallel generation is enabled (default: True for 2+ days)
         parallel_enabled = os.getenv("PARALLEL_DAY_GENERATION", "true").lower() == "true"
-        num_days = len(daily_targets)
+        num_days = len(targets_to_generate)
 
         if parallel_enabled and num_days >= 2:
             print(
-                f"\n🚀 Parallel mode: Generating {num_days} days concurrently (max 2 workers)...\n",
+                f"\n🚀 Parallel mode: Generating {num_days} days concurrently (max 4 workers)...\n",
                 file=sys.stderr,
             )
-            return self._generate_days_parallel(
-                daily_targets, nutrition_plan, validation_feedback
+            new_plans = self._generate_days_parallel(
+                targets_to_generate, nutrition_plan, validation_feedback
             )
         else:
             print(
                 f"\n📋 Sequential mode: Generating {num_days} day(s) one at a time...\n",
                 file=sys.stderr,
             )
-            return self._generate_days_sequential(
-                daily_targets, nutrition_plan, validation_feedback
+            new_plans = self._generate_days_sequential(
+                targets_to_generate, nutrition_plan, validation_feedback
             )
+
+        # Merge reused plans with newly generated plans
+        if new_plans is None:
+            # Generation failed - return reused plans if any
+            if reused_plans:
+                print(
+                    f"\n⚠️  Generation failed, returning {len(reused_plans)} reused day(s)\n",
+                    file=sys.stderr,
+                )
+                reused_plans.sort(key=lambda x: x.get("date", ""))
+                return reused_plans
+            return None
+
+        # === FIX: Programmatic variety check ===
+        # Check for duplicate meals across days and regenerate if needed
+        if len(new_plans) >= 2:
+            uniqueness_check = self._check_meal_uniqueness(new_plans)
+            variety_result = check_variety(
+                unique_meals=uniqueness_check["unique_meals"],
+                expected_meals=uniqueness_check["total_meals"],
+            )
+
+            print(
+                f"\n🔍 Variety check: {variety_result['message']}\n",
+                file=sys.stderr,
+            )
+
+            if uniqueness_check["duplicates"]:
+                print(
+                    f"   ⚠️  Duplicates found: {list(uniqueness_check['duplicates'].keys())[:5]}...\n",
+                    file=sys.stderr,
+                )
+
+                # Regenerate duplicate days (only in parallel mode, sequential already has context)
+                if parallel_enabled:
+                    new_plans = self._regenerate_duplicate_days(
+                        new_plans,
+                        uniqueness_check["duplicates"],
+                        targets_to_generate,
+                        nutrition_plan,
+                    )
+
+                    # Re-check after regeneration
+                    final_check = self._check_meal_uniqueness(new_plans)
+                    print(
+                        f"\n   ✅ After regeneration: {final_check['unique_meals']}/{final_check['total_meals']} unique ({final_check['ratio']:.0%})\n",
+                        file=sys.stderr,
+                    )
+
+        merged_plans = reused_plans + new_plans
+        merged_plans.sort(key=lambda x: x.get("date", ""))
+        return merged_plans
+
+    def _generate_variety_seed(
+        self, daily_targets: List[Dict[str, Any]]
+    ) -> Dict[str, Dict[str, str]]:
+        """Pre-assign unique meal themes per day to ensure variety in parallel mode.
+
+        This ensures that even when days are generated concurrently without context
+        from previous days, each day will have unique meal themes.
+
+        IMPORTANT: Uses DATE as key (not day_name) to avoid misalignment when LLM
+        generates incorrect day_name/date pairs.
+
+        Args:
+            daily_targets: List of daily targets with date and day_name
+
+        Returns:
+            Dict mapping DATE to theme assignments (breakfast, lunch, dinner)
+        """
+        breakfast_themes = [
+            "Oeufs brouillés aux légumes grillés",
+            "Porridge d'avoine aux fruits et noix",
+            "Smoothie bowl protéiné aux baies",
+            "Tartines complètes avocat-oeuf poché",
+            "Pancakes protéinés aux fruits rouges",
+            "Yaourt grec aux graines de chia et miel",
+            "Omelette aux champignons et fines herbes",
+        ]
+
+        lunch_themes = [
+            "Salade composée poulet-quinoa",
+            "Bowl méditerranéen au thon",
+            "Wrap complet dinde-crudités",
+            "Poke bowl saumon-edamame",
+            "Salade César au poulet grillé",
+            "Buddha bowl lentilles-légumes rôtis",
+            "Taboulé de quinoa au poulet",
+        ]
+
+        dinner_themes = [
+            "Saumon grillé et légumes vapeur",
+            "Poulet rôti aux herbes et patate douce",
+            "Steak de thon et riz complet",
+            "Filet de cabillaud en papillote",
+            "Escalope de dinde et quinoa aux légumes",
+            "Curry de crevettes et riz basmati",
+            "Pavé de boeuf et légumes grillés",
+        ]
+
+        variety_seed = {}
+        for i, target in enumerate(daily_targets):
+            # Use DATE as key (not day_name) to ensure correct lookup even if LLM
+            # generated wrong day_name/date pairs
+            date_key = target.get("date", f"day_{i+1}")
+            variety_seed[date_key] = {
+                "breakfast_theme": breakfast_themes[i % len(breakfast_themes)],
+                "lunch_theme": lunch_themes[i % len(lunch_themes)],
+                "dinner_theme": dinner_themes[i % len(dinner_themes)],
+            }
+
+        return variety_seed
+
+    def _is_valid_executor_result(
+        self, result: Optional[ValidatedIngredientsList]
+    ) -> bool:
+        """Check if the Executor result is valid (has validated ingredients).
+
+        Args:
+            result: The parsed ValidatedIngredientsList model or None
+
+        Returns:
+            True if result has successful validations, False otherwise
+        """
+        if result is None:
+            return False
+
+        result_dict = result.model_dump() if hasattr(result, "model_dump") else result
+        if not isinstance(result_dict, dict):
+            return False
+
+        # Check for validated_meals
+        validated_meals = result_dict.get("validated_meals", [])
+        if not validated_meals:
+            return False
+
+        # Check for successful_validations > 0
+        return result_dict.get("successful_validations", 0) > 0
+
+    def _check_meal_uniqueness(
+        self, daily_plans: List[Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        """Check meal uniqueness across all generated days.
+
+        Args:
+            daily_plans: List of generated daily meal plans
+
+        Returns:
+            Dict with uniqueness analysis:
+            - unique_meals: count of unique meal names
+            - total_meals: total meals checked
+            - ratio: uniqueness ratio
+            - passes_threshold: True if ratio >= 85%
+            - duplicates: dict mapping meal_name to list of days where it appears
+        """
+        all_meal_names: List[str] = []
+        meal_to_day: Dict[str, List[str]] = {}
+
+        for day_plan in daily_plans:
+            day_name = day_plan.get("day_name", "Unknown")
+            meals = day_plan.get("meals", [])
+
+            for meal in meals:
+                meal_name = meal.get("meal_name", "").lower().strip()
+                if meal_name:
+                    all_meal_names.append(meal_name)
+                    if meal_name in meal_to_day:
+                        meal_to_day[meal_name].append(day_name)
+                    else:
+                        meal_to_day[meal_name] = [day_name]
+
+        unique_meals = len(set(all_meal_names))
+        total_meals = len(all_meal_names)
+        ratio = unique_meals / total_meals if total_meals > 0 else 1.0
+
+        # Find duplicates (meals appearing in multiple days)
+        duplicates = {
+            name: days for name, days in meal_to_day.items() if len(days) > 1
+        }
+
+        return {
+            "unique_meals": unique_meals,
+            "total_meals": total_meals,
+            "ratio": ratio,
+            "passes_threshold": ratio >= MIN_UNIQUE_MEALS_RATIO,
+            "duplicates": duplicates,
+        }
+
+    def _regenerate_duplicate_days(
+        self,
+        daily_plans: List[Dict[str, Any]],
+        duplicates: Dict[str, List[str]],
+        daily_targets: List[Dict[str, Any]],
+        nutrition_plan: Dict[str, Any],
+    ) -> List[Dict[str, Any]]:
+        """Regenerate days that have duplicate meals.
+
+        Keeps the first occurrence of each meal and regenerates later days
+        that contain duplicates.
+
+        Args:
+            daily_plans: Current list of daily meal plans
+            duplicates: Dict mapping meal_name to list of days
+            daily_targets: Original daily targets for regeneration
+            nutrition_plan: Weekly nutrition plan context
+
+        Returns:
+            Updated list of daily plans with duplicates resolved
+        """
+        # Find which days need regeneration (keep first occurrence, regenerate later ones)
+        days_to_regenerate: set = set()
+        for meal_name, day_list in duplicates.items():
+            # Keep the first day, regenerate others
+            for day in day_list[1:]:
+                days_to_regenerate.add(day)
+
+        if not days_to_regenerate:
+            return daily_plans
+
+        print(
+            f"\n🔄 Regenerating {len(days_to_regenerate)} day(s) with duplicate meals: {', '.join(days_to_regenerate)}\n",
+            file=sys.stderr,
+        )
+
+        # Create a mutable copy
+        updated_plans = list(daily_plans)
+
+        # Regenerate each duplicate day with full context from other days
+        for day_name in days_to_regenerate:
+            # Find the target for this day
+            day_target = None
+            for t in daily_targets:
+                if t.get("day_name") == day_name:
+                    day_target = t
+                    break
+
+            if day_target is None:
+                print(
+                    f"   ⚠️  Could not find target for {day_name}, skipping\n",
+                    file=sys.stderr,
+                )
+                continue
+
+            # Pass ALL other days as previous_days context to avoid re-duplication
+            other_days = [p for p in updated_plans if p.get("day_name") != day_name]
+
+            # Generate with variety feedback
+            new_plan = self._generate_single_day(
+                day_target,
+                nutrition_plan,
+                other_days,  # Full context from all other days
+                validation_feedback={"variety_issue": f"Regenerating {day_name} due to duplicate meals"},
+            )
+
+            if new_plan:
+                # Replace in list
+                for i, p in enumerate(updated_plans):
+                    if p.get("day_name") == day_name:
+                        updated_plans[i] = new_plan
+                        print(
+                            f"   ✅ {day_name}: Regenerated successfully\n",
+                            file=sys.stderr,
+                        )
+                        break
+            else:
+                print(
+                    f"   ❌ {day_name}: Regeneration failed, keeping original\n",
+                    file=sys.stderr,
+                )
+
+        return updated_plans
 
     def _generate_days_parallel(
         self,
@@ -842,55 +1650,87 @@ class MealPlanningCrew:
     ) -> Optional[List[Dict[str, Any]]]:
         """Generate daily meal plans in parallel using ThreadPoolExecutor.
 
-        Each day is generated independently. Results are sorted by date.
+        Uses shared context with staggered starts so each worker can see
+        completed results from earlier workers, reducing duplicates.
         """
-        max_workers = min(2, len(daily_targets))  # Limit to 2 concurrent days
+        max_workers = min(4, len(daily_targets))  # Limit to 4 concurrent days
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-            # Submit all days for parallel processing
-            future_to_target = {
-                executor.submit(
-                    self._generate_single_day,
+        # Generate variety seed BEFORE parallel execution
+        variety_seed = self._generate_variety_seed(daily_targets)
+        print(
+            f"\n🎲 Variety seed generated for {len(variety_seed)} days\n",
+            file=sys.stderr,
+        )
+
+        # Shared context: completed plans accessible to all workers
+        generated_plans: Dict[str, Dict[str, Any]] = {}
+        lock = threading.Lock()
+        failed_days: List[str] = []
+
+        def generate_with_context(target: Dict[str, Any], idx: int) -> Optional[Dict[str, Any]]:
+            """Generate a single day with access to shared completed context."""
+            day_name = target.get("day_name", "Unknown")
+            date_key = target.get("date", "")  # Use date for variety_seed lookup
+
+            try:
+                # Get already-completed days as context (thread-safe read)
+                with lock:
+                    previous_days = list(generated_plans.values())
+
+                # Generate with context from completed days
+                # NOTE: variety_seed uses DATE as key (not day_name) to ensure correct
+                # lookup even if LLM generated wrong day_name/date pairs
+                result = self._generate_single_day(
                     target,
                     nutrition_plan,
-                    [],  # No previous_days context in parallel mode
+                    previous_days,  # Pass completed days as context
                     validation_feedback,
-                ): target
-                for target in daily_targets
-            }
+                    variety_seed.get(date_key, {}),
+                )
 
-            generated_daily_plans: List[Dict[str, Any]] = []
-            failed_days: List[str] = []
-
-            for future in concurrent.futures.as_completed(future_to_target):
-                target = future_to_target[future]
-                day_name = target.get("day_name", "Unknown")
-
-                try:
-                    daily_plan = future.result()
-                    if daily_plan:
-                        generated_daily_plans.append(daily_plan)
-                        print(f"\n✅ {day_name}: Completed successfully\n", file=sys.stderr)
-                    else:
+                if result:
+                    # Store result for other workers to see
+                    with lock:
+                        generated_plans[day_name] = result
+                    print(f"\n✅ {day_name}: Completed successfully\n", file=sys.stderr)
+                    return result
+                else:
+                    with lock:
                         failed_days.append(day_name)
-                        print(f"\n❌ {day_name}: Failed to generate\n", file=sys.stderr)
-                except Exception as e:
+                    print(f"\n❌ {day_name}: Failed to generate\n", file=sys.stderr)
+                    return None
+
+            except Exception as e:
+                with lock:
                     failed_days.append(day_name)
-                    print(f"\n❌ {day_name}: Error - {e}\n", file=sys.stderr)
+                print(f"\n❌ {day_name}: Error - {e}\n", file=sys.stderr)
+                return None
+
+        # Submit with staggered starts (0.5s delay per day) to allow context sharing
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = []
+            for idx, target in enumerate(daily_targets):
+                if idx > 0:
+                    time.sleep(0.5)  # Stagger starts to allow earlier days to complete first
+                futures.append(executor.submit(generate_with_context, target, idx))
+
+            # Wait for all to complete
+            concurrent.futures.wait(futures)
 
         if failed_days:
             print(
                 f"\n⚠️  {len(failed_days)} day(s) failed: {', '.join(failed_days)}\n",
                 file=sys.stderr,
             )
-            if len(generated_daily_plans) == 0:
+            if len(generated_plans) == 0:
                 return None
 
-        # Sort by date to maintain order
+        # Convert to list and sort by date
+        generated_daily_plans = list(generated_plans.values())
         generated_daily_plans.sort(key=lambda x: x.get("date", ""))
 
         print(
-            f"\n✅ Generated {len(generated_daily_plans)} daily plans in parallel\n",
+            f"\n✅ Generated {len(generated_daily_plans)} daily plans in parallel (with shared context)\n",
             file=sys.stderr,
         )
         return generated_daily_plans
@@ -937,6 +1777,7 @@ class MealPlanningCrew:
         nutrition_plan: Dict[str, Any],
         previous_days: List[Dict[str, Any]],
         validation_feedback: Optional[Dict[str, Any]] = None,
+        variety_seed: Optional[Dict[str, str]] = None,
     ) -> Optional[Dict[str, Any]]:
         """Generate a single day's meal plan using Supervisor/Executor/Reviewer pattern.
 
@@ -945,6 +1786,7 @@ class MealPlanningCrew:
             nutrition_plan: Weekly context
             previous_days: Previously generated days (for variety, may be empty in parallel mode)
             validation_feedback: Feedback from failed attempts
+            variety_seed: Pre-assigned meal themes for this day (used in parallel mode)
 
         Returns:
             DailyMealPlan dict or None if failed
@@ -956,12 +1798,15 @@ class MealPlanningCrew:
             file=sys.stderr,
         )
 
-        max_attempts = 3
+        max_attempts = 4  # 4th attempt uses relaxed thresholds (+50%)
         daily_plan: Optional[Dict[str, Any]] = None
 
         for attempt in range(1, max_attempts + 1):
+            # 4th attempt uses relaxed thresholds (+50%) as a fallback
+            use_relaxed = (attempt == max_attempts)
+            threshold_note = " (RELAXED thresholds +50%)" if use_relaxed else ""
             print(
-                f"\n🔄 {day_name} - Attempt {attempt}/{max_attempts}...\n",
+                f"\n🔄 {day_name} - Attempt {attempt}/{max_attempts}{threshold_note}...\n",
                 file=sys.stderr,
             )
 
@@ -985,6 +1830,7 @@ class MealPlanningCrew:
                 previous_days=previous_days,
                 validation_feedback=validation_feedback,
                 meal_targets=meal_targets,
+                variety_seed=variety_seed,
             )
             supervisor_crew = Crew(
                 agents=[self.meal_planning_supervisor_agent],
@@ -1015,48 +1861,25 @@ class MealPlanningCrew:
             )
 
             # =================================================================
-            # STEP 2: EXECUTOR - Validate ingredients (tool calls only)
+            # STEP 2: PARALLEL INGREDIENT VALIDATION (Python ThreadPoolExecutor)
             # =================================================================
-            print(f"   🔍 Step 2: Executor validating ingredients...", file=sys.stderr)
+            # Bypasses slow CrewAI agent loop (1 tool call per iteration)
+            # by validating all ingredients in parallel via Python
+            print(f"   🔍 Step 2: Parallel ingredient validation...", file=sys.stderr)
 
-            executor_task = create_ingredient_validation_executor_task(
-                self.ingredient_validation_executor_agent,
-                meal_plan_template=meal_template,
-            )
-            executor_crew = Crew(
-                agents=[self.ingredient_validation_executor_agent],
-                tasks=[executor_task],
-                process=Process.sequential,
-                verbose=True,
-                max_iter=20,  # Allow multiple tool calls
-                memory=False,
+            validated_ingredients = self._validate_ingredients_parallel(
+                meal_template, max_workers=10
             )
 
-            executor_result = executor_crew.kickoff()
-            validated_ingredients_model = self._extract_model_from_output(
-                executor_result, ValidatedIngredientsList
+            # =================================================================
+            # STEP 2a-bis: FETCH MISSING NUTRITION DATA FROM PASSIO API
+            # =================================================================
+            # The LLM Executor only calls hexis_search_passio_foods (step 1).
+            # We now auto-fetch nutrition using hexis_get_passio_food_details.
+            nutrition_fetcher = self._create_passio_nutrition_fetcher()
+            validated_ingredients = fetch_nutrition_for_ingredients(
+                validated_ingredients, nutrition_fetcher
             )
-
-            if validated_ingredients_model is None:
-                print(
-                    f"\n   ⚠️  Executor failed to validate ingredients, using empty validation...\n",
-                    file=sys.stderr,
-                )
-                # Create empty validation to allow Reviewer to proceed
-                validated_ingredients = {
-                    "day_name": meal_template.get("day_name", day_name),
-                    "date": meal_template.get("date", day_date),
-                    "validated_meals": [],
-                    "total_validations": 0,
-                    "successful_validations": 0,
-                    "substitutions_made": 0,
-                }
-            else:
-                validated_ingredients = validated_ingredients_model.model_dump()
-                print(
-                    f"   ✅ Executor validated {validated_ingredients.get('successful_validations', 0)}/{validated_ingredients.get('total_validations', 0)} ingredients\n",
-                    file=sys.stderr,
-                )
 
             # =================================================================
             # STEP 2b: PRE-CALCULATE MACROS IN PYTHON (optimization)
@@ -1064,12 +1887,13 @@ class MealPlanningCrew:
             # This reduces the Reviewer's work by ~50% - no more LLM math
             validated_ingredients = enrich_validated_ingredients(validated_ingredients)
 
-            # Extract target totals for summary
+            # Extract target totals for summary (macros are nested under "macros" key)
+            macros = target.get("macros", {})
             target_totals = {
                 "calories": target.get("calories", 0),
-                "protein_g": target.get("protein_g", 0),
-                "carbs_g": target.get("carbs_g", 0),
-                "fat_g": target.get("fat_g", 0),
+                "protein_g": macros.get("protein_g", 0),
+                "carbs_g": macros.get("carbs_g", 0),
+                "fat_g": macros.get("fat_g", 0),
             }
             pre_calc_summary = format_pre_calculated_summary(validated_ingredients, target_totals)
             print(f"   📊 Pre-calculated macros:\n{pre_calc_summary}\n", file=sys.stderr)
@@ -1096,6 +1920,50 @@ class MealPlanningCrew:
             )
 
             reviewer_result = reviewer_crew.kickoff()
+
+            # Check for compliance failure BEFORE DailyMealPlan validation
+            # This captures Reviewer feedback when macros are out of range
+            compliance_failure = self._extract_compliance_failure(reviewer_result)
+            if compliance_failure:
+                issues = compliance_failure.get("compliance_issues", [])
+                print(
+                    f"\n   ⚠️  Reviewer REJECTED plan due to compliance issues:",
+                    file=sys.stderr,
+                )
+                for issue in issues[:3]:
+                    print(f"      - {issue}", file=sys.stderr)
+
+                if attempt < max_attempts:
+                    # Build feedback for next Supervisor attempt from compliance failure
+                    # Convert issues to strings if they are dicts (LLM sometimes outputs structured data)
+                    issues_str = []
+                    for issue in issues[:2]:
+                        if isinstance(issue, dict):
+                            issues_str.append(str(issue.get("message", issue.get("issue", str(issue)))))
+                        else:
+                            issues_str.append(str(issue))
+                    validation_feedback = {
+                        **(validation_feedback or {}),
+                        "previous_attempt": attempt,
+                        "compliance_failed": True,
+                        "macro_issues": issues,
+                        "critical_instruction": (
+                            "The Reviewer REJECTED the previous plan. Adjust portions: "
+                            + "; ".join(issues_str)
+                        ),
+                    }
+                    print(
+                        f"\n   🔄 Retrying with Reviewer compliance feedback...\n",
+                        file=sys.stderr,
+                    )
+                    continue
+                else:
+                    print(
+                        f"\n   ⚠️  Max attempts reached with compliance failure\n",
+                        file=sys.stderr,
+                    )
+
+            # Only try DailyMealPlan parsing if not a compliance failure
             meal_model = self._extract_model_from_output(reviewer_result, DailyMealPlan)
 
             if meal_model is None:
@@ -1124,7 +1992,10 @@ class MealPlanningCrew:
             # =================================================================
             # STEP 4b: Per-day macro validation
             # =================================================================
-            macro_validation = self._validate_daily_macros(daily_plan, target, meal_targets)
+            # Pass use_relaxed=True on 4th attempt for +50% tolerance fallback
+            macro_validation = self._validate_daily_macros(
+                daily_plan, target, meal_targets, use_relaxed_thresholds=use_relaxed
+            )
             if not macro_validation["passed"]:
                 print(
                     f"\n   ⚠️  Macro validation failed: {macro_validation['reason']}\n",
@@ -1141,17 +2012,29 @@ class MealPlanningCrew:
                         "The Supervisor MUST design meals with significantly different ingredient choices or portions."
                     ) if was_adjusted else ""
 
+                    # Prioritize issues: focus on the biggest deviation first
+                    issues = macro_validation["issues"]
+                    priority_issue = issues[0] if issues else None
+                    other_issues = issues[1:] if len(issues) > 1 else []
+
+                    # Improved feedback: single priority fix + constraint to avoid breaking other macros
                     validation_feedback = {
                         **local_feedback,
                         "previous_attempt": attempt,
-                        "macro_issues": macro_validation["issues"],
+                        "priority_fix": priority_issue,
+                        "other_issues": other_issues,
+                        "macro_issues": issues,  # Keep full list for reference
                         "adjustments_needed": macro_validation["adjustments"],
                         "missing_meals": macro_validation["missing_meals"],
                         "python_adjustment_attempted": was_adjusted,
-                        "critical_instruction": python_note or "Adjust portions as indicated to meet macro targets.",
+                        "constraint": (
+                            "IMPORTANT: Fix the priority_fix issue FIRST without breaking other macros. "
+                            "Make targeted adjustments (±10-20g ingredient changes), not complete meal redesigns."
+                        ),
+                        "critical_instruction": python_note or f"Priority: {priority_issue}",
                     }
                     print(
-                        f"\n   🔄 Retrying with macro feedback (Python adjusted: {was_adjusted})...\n",
+                        f"\n   🔄 Retrying with priority feedback: {priority_issue} (Python adjusted: {was_adjusted})...\n",
                         file=sys.stderr,
                     )
                     continue
@@ -1225,6 +2108,10 @@ class MealPlanningCrew:
         carbs_pct = abs(carbs_delta) / target_carbs if target_carbs > 0 else 0
         fat_pct = abs(fat_delta) / target_fat if target_fat > 0 else 0
 
+        # Guard: Don't adjust if current values are 0 (indicates missing data, not actual deficit)
+        if current_calories == 0 or (current_protein == 0 and current_carbs == 0 and current_fat == 0):
+            return daily_plan, False  # Skip adjustment - data is incomplete
+
         if protein_pct <= TOLERANCE and carbs_pct <= TOLERANCE and fat_pct <= TOLERANCE:
             return daily_plan, False
 
@@ -1273,14 +2160,24 @@ class MealPlanningCrew:
                 calories_per_100g = calories_per_100g or 0
 
                 # Adjust based on priority macro using Passio data
+                # Cap adjustments: min 30% of original (prevent over-reduction), max 3x (prevent over-increase)
+                MIN_SCALE = 0.3
+                MAX_SCALE = 3.0
+
                 if priority_macro == "protein" and protein_pct > TOLERANCE:
                     if protein_per_100g >= 10:  # Protein-rich food (>=10g per 100g)
                         # Calculate how much to adjust
                         protein_per_g = protein_per_100g / 100
                         adjustment_g = protein_delta / protein_per_g
 
-                        # Apply adjustment (scale factor)
-                        new_qty = max(20, quantity - adjustment_g)  # Min 20g
+                        # Skip if adjustment would change quantity by more than 200%
+                        if abs(adjustment_g) > quantity * 2:
+                            continue
+
+                        # Apply adjustment with caps (min 30% of original, max 3x original)
+                        min_qty = max(20, quantity * MIN_SCALE)
+                        max_qty = quantity * MAX_SCALE
+                        new_qty = max(min_qty, min(max_qty, quantity - adjustment_g))
                         if abs(new_qty - quantity) >= 10:  # Only if significant change
                             ing["adjusted_quantity_g"] = round(new_qty)
                             was_adjusted = True
@@ -1293,7 +2190,15 @@ class MealPlanningCrew:
                     if carbs_per_100g >= 15:  # Carb-rich food (>=15g per 100g)
                         carbs_per_g = carbs_per_100g / 100
                         adjustment_g = carbs_delta / carbs_per_g
-                        new_qty = max(20, quantity - adjustment_g)
+
+                        # Skip if adjustment would change quantity by more than 200%
+                        if abs(adjustment_g) > quantity * 2:
+                            continue
+
+                        # Apply adjustment with caps (min 30% of original, max 3x original)
+                        min_qty = max(20, quantity * MIN_SCALE)
+                        max_qty = quantity * MAX_SCALE
+                        new_qty = max(min_qty, min(max_qty, quantity - adjustment_g))
                         if abs(new_qty - quantity) >= 10:
                             ing["adjusted_quantity_g"] = round(new_qty)
                             was_adjusted = True
@@ -1306,7 +2211,15 @@ class MealPlanningCrew:
                     if fat_per_100g >= 10:  # Fat-rich food (>=10g per 100g)
                         fat_per_g = fat_per_100g / 100
                         adjustment_g = fat_delta / fat_per_g
-                        new_qty = max(5, quantity - adjustment_g)  # Fats can be smaller
+
+                        # Skip if adjustment would change quantity by more than 200%
+                        if abs(adjustment_g) > quantity * 2:
+                            continue
+
+                        # Apply adjustment with caps (min 30% of original, max 3x original)
+                        min_qty = max(5, quantity * MIN_SCALE)  # Fats can be smaller (5g min)
+                        max_qty = quantity * MAX_SCALE
+                        new_qty = max(min_qty, min(max_qty, quantity - adjustment_g))
                         if abs(new_qty - quantity) >= 3:  # Smaller threshold for fats
                             ing["adjusted_quantity_g"] = round(new_qty)
                             was_adjusted = True
@@ -1381,20 +2294,67 @@ class MealPlanningCrew:
         daily_plan: Dict[str, Any],
         target: Dict[str, Any],
         meal_targets: List[Dict[str, Any]],
+        use_relaxed_thresholds: bool = False,
     ) -> Dict[str, Any]:
-        """Validate daily totals against targets with ±10% calorie and ±15% macro tolerance.
+        """Validate daily totals against targets using unified thresholds.
+
+        Uses centralized validation_config.py thresholds with OR logic:
+        pass if EITHER percentage OR absolute tolerance is met.
 
         Args:
             daily_plan: The generated daily meal plan with daily_totals
             target: The nutritional target for the day
             meal_targets: Per-meal targets from Hexis
+            use_relaxed_thresholds: If True, use +50% relaxed thresholds (4th attempt fallback)
 
         Returns:
             Dict with: passed (bool), reason (str), issues (list), adjustments (list), missing_meals (list)
         """
-        issues: List[str] = []
+        from validation_config import (
+            check_compliance,
+            check_dietary_restrictions,
+            get_adaptive_thresholds,
+        )
+
         adjustments: List[str] = []
         missing_meals: List[str] = []
+
+        # =================================================================
+        # Dietary Restrictions Check (FIRST - before macro validation)
+        # =================================================================
+        all_ingredients: List[str] = []
+        for meal in daily_plan.get("meals", []):
+            # Check ingredient strings
+            all_ingredients.extend(meal.get("ingredients", []))
+            # Also check validated_ingredients if present
+            for vi in meal.get("validated_ingredients", []):
+                if isinstance(vi, dict):
+                    all_ingredients.append(vi.get("name", "") or "")
+                    all_ingredients.append(vi.get("passio_food_name", "") or "")
+
+        dietary_check = check_dietary_restrictions(all_ingredients)
+        if not dietary_check["passed"]:
+            violation_msgs = [
+                f"FORBIDDEN: {v['ingredient']} (matched '{v['matched_keyword']}' - {v['restriction']})"
+                for v in dietary_check["violations"]
+            ]
+            adjustment_msgs = [
+                f"Remove {v['ingredient']} and substitute with allowed alternative"
+                for v in dietary_check["violations"]
+            ]
+            print(f"   ❌ Dietary restriction violations: {violation_msgs}", file=sys.stderr)
+            return {
+                "passed": False,
+                "reason": "Dietary restriction violation",
+                "issues": violation_msgs,
+                "adjustments": adjustment_msgs,
+                "missing_meals": [],
+            }
+
+        # Log any warnings (non-blocking)
+        if dietary_check.get("warnings"):
+            for w in dietary_check["warnings"]:
+                print(f"   ⚠️ Dietary warning: {w['ingredient']} ({w['restriction']})", file=sys.stderr)
 
         # Extract daily totals from plan
         daily_totals = daily_plan.get("daily_totals", {})
@@ -1407,92 +2367,74 @@ class MealPlanningCrew:
                 "missing_meals": [],
             }
 
-        # Get actual values
-        actual_calories = daily_totals.get("calories", 0)
-        actual_protein = daily_totals.get("protein_g", 0)
-        actual_carbs = daily_totals.get("carbs_g", 0)
-        actual_fat = daily_totals.get("fat_g", 0)
+        # Build actual and target dicts for compliance check
+        actual = {
+            "calories": daily_totals.get("calories", 0) or 0,
+            "protein_g": daily_totals.get("protein_g", 0) or 0,
+            "carbs_g": daily_totals.get("carbs_g", 0) or 0,
+            "fat_g": daily_totals.get("fat_g", 0) or 0,
+        }
 
-        # Get target values
-        target_calories = target.get("calories", 0)
         target_macros = target.get("macros", {})
-        target_protein = target_macros.get("protein_g", 0)
-        target_carbs = target_macros.get("carbs_g", 0)
-        target_fat = target_macros.get("fat_g", 0)
+        target_vals = {
+            "calories": target.get("calories", 0) or 0,
+            "protein_g": target_macros.get("protein_g", 0) or 0,
+            "carbs_g": target_macros.get("carbs_g", 0) or 0,
+            "fat_g": target_macros.get("fat_g", 0) or 0,
+        }
 
-        # Tolerances: ±10% calories, ±15% macros (or absolute minimums)
-        cal_tolerance = 0.10
-        macro_tolerance = 0.15
-        min_protein_diff = 10  # Allow ±10g regardless of %
-        min_carbs_diff = 20  # Allow ±20g regardless of %
-        min_fat_diff = 8  # Allow ±8g regardless of %
+        # Use centralized compliance check (OR logic: pass if either % or abs is met)
+        # Get adaptive thresholds: relaxed for 4th attempt, or looser for high-energy days
+        target_calories = int(target_vals.get("calories", 0) or 0)
+        thresholds = get_adaptive_thresholds(target_calories, use_relaxed=use_relaxed_thresholds)
+        compliance = check_compliance(actual, target_vals, thresholds)
+        issues = list(compliance["issues"])
 
-        # Check calories (±10%)
-        if target_calories > 0:
-            cal_diff = actual_calories - target_calories
-            cal_pct = abs(cal_diff) / target_calories
-            if cal_pct > cal_tolerance:
-                direction = "above" if cal_diff > 0 else "below"
-                issues.append(
-                    f"Calories {actual_calories} kcal is {abs(cal_diff):.0f} kcal ({cal_pct*100:.1f}%) {direction} target {target_calories} kcal"
-                )
-                if cal_diff < 0:
-                    # Need more calories
-                    needed = abs(cal_diff)
-                    adjustments.append(
-                        f"Add ~{needed:.0f} kcal: increase pasta/rice by {needed/3.5:.0f}g or add {needed/9:.0f}g olive oil"
-                    )
-                else:
-                    # Need fewer calories
-                    adjustments.append(
-                        f"Remove ~{cal_diff:.0f} kcal: reduce portions or fats"
-                    )
-
-        # Check protein (±15% or ±10g)
-        if target_protein > 0:
-            prot_diff = actual_protein - target_protein
-            prot_pct = abs(prot_diff) / target_protein
-            if prot_pct > macro_tolerance and abs(prot_diff) > min_protein_diff:
-                direction = "above" if prot_diff > 0 else "below"
-                issues.append(
-                    f"Protein {actual_protein:.0f}g is {abs(prot_diff):.0f}g ({prot_pct*100:.1f}%) {direction} target {target_protein:.0f}g"
-                )
-                if prot_diff < 0:
-                    adjustments.append(
-                        f"Add {abs(prot_diff):.0f}g protein: add {abs(prot_diff)/0.31:.0f}g chicken breast"
-                    )
-
-        # Check carbs (±15% or ±20g)
-        if target_carbs > 0:
-            carb_diff = actual_carbs - target_carbs
-            carb_pct = abs(carb_diff) / target_carbs
-            if carb_pct > macro_tolerance and abs(carb_diff) > min_carbs_diff:
-                direction = "above" if carb_diff > 0 else "below"
-                issues.append(
-                    f"Carbs {actual_carbs:.0f}g is {abs(carb_diff):.0f}g ({carb_pct*100:.1f}%) {direction} target {target_carbs:.0f}g"
-                )
-                if carb_diff < 0:
-                    adjustments.append(
-                        f"Add {abs(carb_diff):.0f}g carbs: add {abs(carb_diff)/0.75:.0f}g dry pasta or {abs(carb_diff)/0.78:.0f}g dry rice"
-                    )
-
-        # Check fat (±15% or ±8g)
-        if target_fat > 0:
-            fat_diff = actual_fat - target_fat
-            fat_pct = abs(fat_diff) / target_fat
-            if fat_pct > macro_tolerance and abs(fat_diff) > min_fat_diff:
-                direction = "above" if fat_diff > 0 else "below"
-                issues.append(
-                    f"Fat {actual_fat:.0f}g is {abs(fat_diff):.0f}g ({fat_pct*100:.1f}%) {direction} target {target_fat:.0f}g"
-                )
-                if fat_diff < 0:
-                    adjustments.append(
-                        f"Add {abs(fat_diff):.0f}g fat: add {abs(fat_diff)/1.0:.0f}g olive oil"
-                    )
-                else:
-                    adjustments.append(
-                        f"Remove {fat_diff:.0f}g fat: reduce oil/butter portions"
-                    )
+        # Generate adjustment suggestions for failed macros
+        for macro, info in compliance["details"].items():
+            if not info["within_tolerance"]:
+                diff = info["diff"]
+                if macro == "calories":
+                    if diff < 0:
+                        needed = abs(diff)
+                        adjustments.append(
+                            f"Add ~{needed:.0f} kcal: increase pasta/rice by {needed/3.5:.0f}g or add {needed/9:.0f}g olive oil"
+                        )
+                    else:
+                        rice_to_remove = diff / 1.3
+                        oil_to_remove = diff / 9
+                        adjustments.append(
+                            f"Remove ~{diff:.0f} kcal: reduce rice by {rice_to_remove:.0f}g or olive oil by {oil_to_remove:.0f}g"
+                        )
+                elif macro == "protein_g":
+                    if diff < 0:
+                        adjustments.append(
+                            f"Add {abs(diff):.0f}g protein: add {abs(diff)/0.31:.0f}g chicken breast"
+                        )
+                    else:
+                        chicken_to_remove = diff / 0.31
+                        adjustments.append(
+                            f"Remove {diff:.0f}g protein: reduce chicken by {chicken_to_remove:.0f}g"
+                        )
+                elif macro == "carbs_g":
+                    if diff < 0:
+                        adjustments.append(
+                            f"Add {abs(diff):.0f}g carbs: add {abs(diff)/0.75:.0f}g dry pasta"
+                        )
+                    else:
+                        rice_to_remove = diff / 0.23
+                        adjustments.append(
+                            f"Remove {diff:.0f}g carbs: reduce rice by {rice_to_remove:.0f}g"
+                        )
+                elif macro == "fat_g":
+                    if diff < 0:
+                        adjustments.append(
+                            f"Add {abs(diff):.0f}g fat: add {abs(diff):.0f}g olive oil"
+                        )
+                    else:
+                        adjustments.append(
+                            f"Remove {diff:.0f}g fat: reduce oil/butter portions"
+                        )
 
         # Check meal types coverage
         expected_meal_types = {mt.get("meal_type") for mt in meal_targets}
@@ -1504,7 +2446,7 @@ class MealPlanningCrew:
             issues.append(f"Missing meal types: {', '.join(missing_meals)}")
             adjustments.append(f"Add meals for: {', '.join(missing_meals)}")
 
-        passed = len(issues) == 0
+        passed = compliance["compliant"] and len(missing_meals) == 0
         reason = "All macros within tolerance" if passed else "; ".join(issues[:3])
 
         return {
@@ -2336,34 +3278,90 @@ class MealPlanningCrew:
         # ---------------------------------------------------------------
         print("\n   🔧 Step 1b: EXECUTOR retrieving Hexis data...\n", file=sys.stderr)
 
-        executor_task = create_hexis_data_executor_task(
-            self.hexis_data_executor_agent, week_start_date, retrieval_plan_dict
-        )
-        executor_crew = Crew(
-            agents=[self.hexis_data_executor_agent],
-            tasks=[executor_task],
-            process=Process.sequential,
-            verbose=True,
-            max_iter=15,  # Allow multiple tool calls
-            memory=False,
-        )
+        # Reset captured Hexis results before running Executor
+        # This allows us to capture tool results directly in Python
+        reset_hexis_tool_results()
 
-        executor_result = executor_crew.kickoff()
+        # ---------------------------------------------------------------
+        # STEP 1b: DIRECT PYTHON EXECUTION - Execute each batch tool call
+        # ---------------------------------------------------------------
+        # NOTE: We bypass the executor agent entirely and call the tool directly
+        # in Python. This is more reliable than asking an LLM to execute multiple
+        # tool calls, as some models (especially Gemini) hallucinate tool results
+        # in their text output instead of making real tool calls.
+        print("\n   🔧 Step 1b: Executing Hexis tool calls directly (Python)...\n", file=sys.stderr)
 
-        # Extract raw data
-        raw_hexis_data = self._extract_model_from_output(executor_result, RawHexisData)
-        if raw_hexis_data is None:
-            # Try to extract raw dict if model extraction fails
-            print("\n   ⚠️  Executor model extraction failed, trying raw dict...\n", file=sys.stderr)
-            candidates = self._collect_payload_candidates(executor_result)
-            if candidates:
-                raw_hexis_data = candidates[0]
-            else:
-                error_msg = "Executor failed to retrieve Hexis data"
-                print(f"\n❌ {error_msg}\n", file=sys.stderr)
-                raise ValueError(f"CRITICAL: {error_msg}. Cannot proceed without valid Hexis data.")
+        hexis_tool = next((t for t in self.mcp_tools if "hexis_get_weekly_plan" in t.name.lower()), None)
+        if not hexis_tool:
+            raise ValueError("hexis_get_weekly_plan tool not found in MCP tools")
 
-        raw_data_dict = raw_hexis_data.model_dump() if hasattr(raw_hexis_data, 'model_dump') else raw_hexis_data
+        tool_calls = retrieval_plan_dict.get("tool_calls", [])
+        for i, batch in enumerate(tool_calls, 1):
+            # Parameters are nested under "parameters" key in the tool_call structure
+            params = batch.get("parameters", {})
+            start_date = params.get("start_date")
+            end_date = params.get("end_date")
+            print(f"   📦 Batch {i}/{len(tool_calls)}: {start_date} → {end_date}", file=sys.stderr)
+
+            try:
+                result = hexis_tool._run(start_date=start_date, end_date=end_date)
+                # Parse JSON string if needed
+                if isinstance(result, str):
+                    try:
+                        result = json.loads(result)
+                    except json.JSONDecodeError:
+                        pass
+                capture_hexis_result(
+                    tool_name="hexis__hexis_get_weekly_plan",
+                    parameters={"start_date": start_date, "end_date": end_date},
+                    result=result,
+                    success=True,
+                )
+                print(f"   ✅ Batch {i} succeeded", file=sys.stderr)
+            except Exception as e:
+                capture_hexis_result(
+                    tool_name="hexis__hexis_get_weekly_plan",
+                    parameters={"start_date": start_date, "end_date": end_date},
+                    result=None,
+                    success=False,
+                    error_message=str(e),
+                )
+                print(f"   ❌ Batch {i} failed: {e}", file=sys.stderr)
+
+        # =====================================================================
+        # CRITICAL: Use Python-captured tool results instead of LLM output
+        # This avoids truncation issues when LLM tries to copy large raw data
+        # =====================================================================
+        captured_results = get_hexis_tool_results()
+        if captured_results:
+            print(f"\n   📦 Using {len(captured_results)} captured Hexis tool result(s)\n", file=sys.stderr)
+            # Build raw_data_dict from captured results (same format as RawHexisData)
+            raw_data_dict = {
+                "week_start_date": week_start_date,
+                "week_end_date": (datetime.fromisoformat(week_start_date) + timedelta(days=6)).strftime("%Y-%m-%d"),
+                "tool_results": captured_results,
+                "total_calls": len(captured_results),
+                "successful_calls": sum(1 for r in captured_results if r.get("success", False)),
+                "weekly_plan_data": None,  # Will be aggregated from tool_results
+                "retrieval_notes": f"Captured {len(captured_results)} batch(es) via Python tool wrapper",
+            }
+        else:
+            # Fallback to LLM output extraction (original behavior)
+            print("\n   ⚠️  No captured results, falling back to LLM output extraction...\n", file=sys.stderr)
+            raw_hexis_data = self._extract_model_from_output(executor_result, RawHexisData)
+            if raw_hexis_data is None:
+                # Try to extract raw dict if model extraction fails
+                print("\n   ⚠️  Executor model extraction failed, trying raw dict...\n", file=sys.stderr)
+                candidates = self._collect_payload_candidates(executor_result)
+                if candidates:
+                    raw_hexis_data = candidates[0]
+                else:
+                    error_msg = "Executor failed to retrieve Hexis data"
+                    print(f"\n❌ {error_msg}\n", file=sys.stderr)
+                    raise ValueError(f"CRITICAL: {error_msg}. Cannot proceed without valid Hexis data.")
+
+            raw_data_dict = raw_hexis_data.model_dump() if hasattr(raw_hexis_data, 'model_dump') else raw_hexis_data
+
         print(f"\n   ✅ Raw data retrieved (keys: {list(raw_data_dict.keys())})\n", file=sys.stderr)
 
         # ---------------------------------------------------------------
@@ -2458,6 +3456,10 @@ class MealPlanningCrew:
             return {"error": error_msg, "step": "weekly_structure"}
 
         nutrition_plan_full = structure_model.model_dump()
+
+        # Fix any LLM-generated day_name errors using deterministic date conversion
+        nutrition_plan_full = _fix_daily_target_day_names(nutrition_plan_full)
+
         original_target_count = len(nutrition_plan_full.get("daily_targets", []))
 
         days_to_process = max(1, days_to_generate)
@@ -2556,6 +3558,8 @@ class MealPlanningCrew:
         validation_feedback: Optional[Dict[str, Any]] = None
         meal_plan: Optional[Dict[str, Any]] = None
         validation: Dict[str, Any] = {"approved": False, "validation_summary": "Not yet validated"}
+        # Track successful days between retries to avoid regenerating them
+        previous_successful_plans: Optional[List[Dict[str, Any]]] = None
 
         for validation_attempt in range(1, max_validation_retries + 1):
             attempt_label = f"[Attempt {validation_attempt}/{max_validation_retries}]"
@@ -2570,7 +3574,11 @@ class MealPlanningCrew:
                 nutrition_plan,
                 max_days=days_to_process,
                 validation_feedback=validation_feedback,
+                previous_successful_plans=previous_successful_plans,
             )
+            # Track successful plans for next retry (if needed)
+            if daily_plans:
+                previous_successful_plans = daily_plans
 
             if daily_plans is None:
                 error_msg = f"{attempt_label} Daily meal generation failed after all attempts"

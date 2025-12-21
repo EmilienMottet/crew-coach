@@ -186,7 +186,7 @@ Les agents relancent désormais automatiquement l'inférence sur une autre passe
 ENABLE_LLM_PROVIDER_ROTATION=true
 
 # Chaîne globale : label|model|api_base|api_key_hint séparés par des « ; »
-LLM_PROVIDER_ROTATION="anthropic|claude-sonnet-4.5|https://anthropic.proxy/v1|ANTHROPIC_API_KEY;codex-gpt5|gpt-5|https://ccproxy.emottet.com/codex/v1|ENV:OPENAI_API_KEY;openrouter|same|https://openrouter.ai/api/v1|ENV:OPENROUTER_KEY"
+LLM_PROVIDER_ROTATION="anthropic|claude-sonnet-4.5|https://anthropic.proxy/v1|ANTHROPIC_API_KEY;ccproxy-gpt5|gpt-5|https://ccproxy.emottet.com/v1|ENV:OPENAI_API_KEY;openrouter|same|https://openrouter.ai/api/v1|ENV:OPENROUTER_KEY"
 
 # Chaîne spécifique à un agent (ex : Activity Description Writer)
 DESCRIPTION_PROVIDER_ROTATION="azure-sonnet|claude-sonnet-4.5|https://azure.example/v1|AZURE_KEY"

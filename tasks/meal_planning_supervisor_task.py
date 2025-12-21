@@ -14,6 +14,7 @@ def create_meal_planning_supervisor_task(
     previous_days: Iterable[Dict[str, Any]] | None = None,
     validation_feedback: Dict[str, Any] | None = None,
     meal_targets: list[Dict[str, Any]] | None = None,
+    variety_seed: Dict[str, str] | None = None,
 ) -> Task:
     """
     Create a task for the Supervisor to design a day's meal plan.
@@ -29,6 +30,7 @@ def create_meal_planning_supervisor_task(
         previous_days: Already planned days (to avoid duplicates)
         validation_feedback: Feedback from previous validation attempts
         meal_targets: Per-meal targets from Hexis (REQUIRED - contains exact calories/macros/carbCode)
+        variety_seed: Pre-assigned meal themes (used in parallel mode to ensure variety)
 
     Returns:
         Task for meal plan design
@@ -124,6 +126,26 @@ This is attempt #{attempt + 1}. Please adjust your meal plan accordingly.
 {chr(10).join(f"  ✓ {adj}" for adj in adjustments[:5])}
 """
 
+    # Build variety context section (used in parallel mode)
+    variety_context = ""
+    if variety_seed:
+        breakfast_theme = variety_seed.get("breakfast_theme", "")
+        lunch_theme = variety_seed.get("lunch_theme", "")
+        dinner_theme = variety_seed.get("dinner_theme", "")
+
+        variety_context = f"""
+
+🎲 MANDATORY MEAL THEMES (PARALLEL MODE):
+You MUST create meals that match these pre-assigned themes to ensure variety across the week.
+
+- **Breakfast**: {breakfast_theme}
+- **Lunch**: {lunch_theme}
+- **Dinner**: {dinner_theme}
+
+These themes are MANDATORY - do NOT deviate from them. Adapt the ingredients and portions
+to match the Hexis targets while keeping the theme/style of each meal.
+"""
+
     description = f"""
 Design a complete meal plan for a single day that matches the nutritional targets.
 
@@ -142,7 +164,7 @@ WEEKLY CONTEXT (use for variety and strategy):
 
 EXISTING DAYS TO AVOID DUPLICATES:
 {previous_days_json}
-{feedback_section}
+{feedback_section}{variety_context}
 
 ⚠️ MANDATORY ROOT FIELDS - YOUR JSON MUST INCLUDE THESE (validation fails without them):
 Copy these EXACT values from the DAILY TARGET above into your JSON response:
@@ -197,6 +219,22 @@ CARBCODE GUIDANCE:
 - MEDIUM: Balanced carbs from whole grains (quinoa, brown rice), fruits, starchy vegetables
 - HIGH: High-carb recovery foods (pasta, white rice, bread), sports nutrition, fruits
 
+CARB QUANTITY REFERENCE (use these values for accurate estimation):
+- 100g cooked rice = 23g carbs
+- 100g cooked pasta = 25g carbs
+- 100g cooked quinoa = 21g carbs
+- 1 slice bread (30g) = 15g carbs
+- 100g potato = 17g carbs
+- 100g sweet potato = 20g carbs
+- 100g banana = 23g carbs
+- 100g berries = 10g carbs
+- 100g oats (dry) = 66g carbs → use 40g dry oats = 26g carbs for breakfast
+- 100g Greek yogurt = 4g carbs
+
+Example to hit 45g carbs:
+- Option A: 150g rice (35g) + 50g berries (5g) + vegetables (5g) = 45g
+- Option B: 100g pasta (25g) + 80g banana (18g) + vegetables (2g) = 45g
+
 INGREDIENT NAMING RULES (CRITICAL for Executor validation):
 - Use SIMPLE, COMMON ingredient names
 - Include quantities in grams when possible
@@ -210,6 +248,16 @@ MACRO ESTIMATION:
 - Daily totals should be within ±5% of the day's target
 - The Reviewer will verify against Hexis targets
 
+⚠️ MANDATORY VALIDATION - VERIFY BEFORE SUBMITTING:
+Before finalizing, SUM your meal macros and VERIFY they match the daily targets:
+- Sum of all meal calories MUST equal ~{day_target_calories} kcal (tolerance: ±50 kcal)
+- Sum of all meal protein MUST equal ~{day_target_protein}g (tolerance: ±5g)
+- Sum of all meal carbs MUST equal ~{day_target_carbs}g (tolerance: ±5g)
+- Sum of all meal fat MUST equal ~{day_target_fat}g (tolerance: ±5g)
+
+If your totals don't match, ADJUST ingredient quantities before submitting.
+Example: If carbs are 40g over target, reduce rice by 170g (170g rice = ~40g carbs).
+
 VARIETY RULES:
 - Do not repeat meals from EXISTING DAYS
 - Rotate protein sources, cuisines, and cooking methods
@@ -222,6 +270,8 @@ PRACTICAL CONSTRAINTS:
 - Lunch/Dinner prep: <45 minutes
 - Use ingredients from French supermarkets (Leclerc, Carrefour)
 - Never use smoked salmon (user preference)
+- Never use cheese (user preference) - EXCEPTION: mascarpone is allowed
+- Never use carbonated drinks (user preference)
 
 Return ONLY valid JSON without markdown fences or commentary.
 """
