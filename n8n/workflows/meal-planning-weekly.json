@@ -1,6 +1,7 @@
 {
   "id": "VSOAzIak3SfoMqVR",
   "name": "Weekly Meal Plan Generator",
+  "active": true,
   "nodes": [
     {
       "parameters": {
