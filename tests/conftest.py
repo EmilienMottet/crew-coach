@@ -5,6 +5,20 @@ from datetime import datetime, timezone
 from crew import StravaDescriptionCrew
 
 
+def pytest_collection_modifyitems(config, items):
+    """Skip MCP-required tests in CI environment."""
+    is_ci = (
+        os.getenv("CI", "false").lower() == "true"
+        or os.getenv("GITHUB_ACTIONS", "false").lower() == "true"
+    )
+
+    if is_ci:
+        skip_mcp = pytest.mark.skip(reason="MCP servers not available in CI")
+        for item in items:
+            if "mcp_required" in item.keywords:
+                item.add_marker(skip_mcp)
+
+
 @pytest.fixture(scope="session")
 def test_env_vars():
     """Ensure required environment variables are set for tests."""

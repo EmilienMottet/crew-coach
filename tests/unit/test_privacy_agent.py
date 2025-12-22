@@ -5,6 +5,7 @@ from schemas import PrivacyAssessment
 
 @pytest.mark.priority_high
 @pytest.mark.unit
+@pytest.mark.mcp_required
 class TestPrivacyAgent:
     """Test privacy detection and work hours compliance."""
 

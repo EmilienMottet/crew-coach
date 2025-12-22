@@ -9,6 +9,7 @@ class TestJSONParsing:
     """Test robust JSON parsing from LLM responses."""
 
     @pytest.mark.timeout(120)
+    @pytest.mark.mcp_required
     def test_standard_json_output(self, crew_instance, sample_activity_outside_work):
         """Standard case: clean JSON output."""
         result = crew_instance.process_activity(sample_activity_outside_work)
@@ -20,6 +21,7 @@ class TestJSONParsing:
         assert "description" in result
 
     @pytest.mark.timeout(120)
+    @pytest.mark.mcp_required
     def test_activity_with_null_fields(self, crew_instance):
         """Handle activity with null/missing fields gracefully."""
         from tests.fixtures.activities import ACTIVITIES
@@ -33,6 +35,7 @@ class TestJSONParsing:
         assert len(result["description"]) > 0, "Description should not be empty"
 
     @pytest.mark.timeout(30)
+    @pytest.mark.mcp_required
     def test_malformed_input_error_handling(self, crew_instance):
         """Malformed input should return error dict or handle gracefully."""
         malformed_input = {"invalid": "structure"}
