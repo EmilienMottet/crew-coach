@@ -16,10 +16,7 @@
       "name": "Schedule Trigger - Sunday 20:00",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
-      "position": [
-        112,
-        496
-      ]
+      "position": [112, 496]
     },
     {
       "parameters": {
@@ -29,10 +26,7 @@
       "name": "Calculate Week Dates",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [
-        336,
-        496
-      ]
+      "position": [336, 496]
     },
     {
       "parameters": {
@@ -58,10 +52,7 @@
       "name": "Fetch Training Events",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.3,
-      "position": [
-        560,
-        496
-      ],
+      "position": [560, 496],
       "alwaysOutputData": true,
       "continueOnFail": true
     },
@@ -73,10 +64,7 @@
       "name": "Calculate New Training Times",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [
-        784,
-        496
-      ]
+      "position": [784, 496]
     },
     {
       "parameters": {
@@ -105,10 +93,7 @@
       "name": "Check Updates Needed",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
-      "position": [
-        1008,
-        496
-      ]
+      "position": [1008, 496]
     },
     {
       "parameters": {
@@ -142,10 +127,7 @@
       "name": "Update Training Time",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.3,
-      "position": [
-        1232,
-        424
-      ]
+      "position": [1232, 424]
     },
     {
       "parameters": {
@@ -155,10 +137,7 @@
       "name": "Merge & Continue",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [
-        1456,
-        424
-      ]
+      "position": [1456, 424]
     },
     {
       "parameters": {
@@ -166,7 +145,7 @@
         "url": "http://crew:8000/meal-plan-async",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={ \"callback_url\": \"{{ $execution.resumeUrl }}\" }",
+        "jsonBody": "={ \"callback_url\": \"{{ $execution.resumeUrl }}\", \"week_start_date\": \"{{ $('Calculate Week Dates').item.json.week_start }}\" }",
         "options": {
           "response": {},
           "timeout": 30000
@@ -176,10 +155,7 @@
       "name": "Start Async Meal Plan",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.3,
-      "position": [
-        1680,
-        496
-      ]
+      "position": [1680, 496]
     },
     {
       "parameters": {
@@ -195,10 +171,7 @@
       "name": "Wait for Meal Plan Callback",
       "type": "n8n-nodes-base.wait",
       "typeVersion": 1.1,
-      "position": [
-        1904,
-        496
-      ],
+      "position": [1904, 496],
       "webhookId": "481ebaba-f683-43a5-9b77-086eee6ab427"
     },
     {
@@ -209,10 +182,7 @@
       "name": "Parse Crew Output",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [
-        2128,
-        496
-      ]
+      "position": [2128, 496]
     },
     {
       "parameters": {
@@ -241,10 +211,7 @@
       "name": "Check Success",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
-      "position": [
-        2352,
-        496
-      ]
+      "position": [2352, 496]
     },
     {
       "parameters": {
@@ -259,10 +226,7 @@
       "name": "Success Notification",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
-      "position": [
-        2576,
-        208
-      ],
+      "position": [2576, 208],
       "webhookId": "33b6e0e0-d3a4-48d7-a6c4-3921ceadfda3",
       "credentials": {
         "telegramApi": {
@@ -284,10 +248,7 @@
       "name": "Error Notification",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
-      "position": [
-        2576,
-        784
-      ],
+      "position": [2576, 784],
       "webhookId": "5cadddb2-4c47-49eb-8a8f-d4307ad69d96",
       "credentials": {
         "telegramApi": {
@@ -304,10 +265,7 @@
       "name": "Log Execution Result",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [
-        2576,
-        400
-      ]
+      "position": [2576, 400]
     },
     {
       "parameters": {
@@ -318,10 +276,7 @@
       "name": "Split Out Daily Plans",
       "type": "n8n-nodes-base.splitOut",
       "typeVersion": 1,
-      "position": [
-        2576,
-        496
-      ]
+      "position": [2576, 496]
     },
     {
       "parameters": {
@@ -332,10 +287,7 @@
       "name": "Loop Daily Plans",
       "type": "n8n-nodes-base.splitInBatches",
       "typeVersion": 1,
-      "position": [
-        2576,
-        592
-      ]
+      "position": [2576, 592]
     },
     {
       "parameters": {
@@ -347,10 +299,7 @@
       "name": "Send Daily Menu",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
-      "position": [
-        2800,
-        592
-      ],
+      "position": [2800, 592],
       "webhookId": "fad91094-ff87-40be-9341-c72dca7f6ee3",
       "credentials": {
         "telegramApi": {
@@ -360,7 +309,6 @@
       }
     }
   ],
-  "pinData": {},
   "connections": {
     "Schedule Trigger - Sunday 20:00": {
       "main": [
@@ -543,15 +491,6 @@
       ]
     },
     "Fetch Training Events": {
-      "0": [
-        [
-          {
-            "node": "Calculate New Training Times",
-            "type": "0",
-            "index": 0
-          }
-        ]
-      ],
       "main": [
         [
           {
@@ -563,30 +502,9 @@
       ]
     }
   },
-  "active": true,
   "settings": {
     "executionOrder": "v1",
-    "callerPolicy": "workflowsFromSameOwner",
-    "availableInMCP": false
+    "callerPolicy": "workflowsFromSameOwner"
   },
-  "versionId": "63517c22-66e6-40a7-a8ab-08e855acd4ce",
-  "meta": {
-    "templateCredsSetupCompleted": true,
-    "instanceId": "089593b0375f52cffd2e682594e43cdd96459883230a04bef809490471c267bb"
-  },
-  "id": "VSOAzIak3SfoMqVR",
-  "tags": [
-    {
-      "updatedAt": "2025-11-03T21:19:27.932Z",
-      "createdAt": "2025-11-03T21:19:27.932Z",
-      "id": "SvfwsMIdMU4Mcssi",
-      "name": "automation"
-    },
-    {
-      "updatedAt": "2025-11-03T21:19:27.930Z",
-      "createdAt": "2025-11-03T21:19:27.930Z",
-      "id": "iQ5VAWKF1stNmolK",
-      "name": "meal-planning"
-    }
-  ]
+  "pinData": {}
 }
