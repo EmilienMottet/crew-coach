@@ -6,6 +6,7 @@ from tests.conftest import assert_french_text, assert_character_limits, assert_h
 
 @pytest.mark.priority_high
 @pytest.mark.unit
+@pytest.mark.mcp_required
 class TestTranslationAgent:
     """Test French translation accuracy and constraints."""
 

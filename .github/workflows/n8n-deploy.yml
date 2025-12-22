@@ -33,6 +33,34 @@ jobs:
             exit 1
           fi
 
+      - name: Test n8n connectivity
+        run: |
+          set -euo pipefail
+          N8N_API_URL='${{ secrets.N8N_API_URL }}'
+          N8N_API_KEY='${{ secrets.N8N_API_KEY }}'
+          echo "Testing connectivity to ${N8N_API_URL%/}/api/v1/workflows..."
+
+          # Test with extended timeout and verbose output on failure
+          if ! curl -sS --connect-timeout 30 --max-time 60 -o /dev/null -w '%{http_code}' \
+            -H "X-N8N-API-KEY: ${N8N_API_KEY}" \
+            "${N8N_API_URL%/}/api/v1/workflows" > /tmp/status 2>/tmp/curl_err; then
+            echo "Failed to connect to n8n API:" >&2
+            cat /tmp/curl_err >&2
+            echo "" >&2
+            echo "Possible causes:" >&2
+            echo "  - n8n instance not accessible from GitHub Actions (private network/firewall)" >&2
+            echo "  - SSL certificate issues" >&2
+            echo "  - Incorrect N8N_API_URL secret" >&2
+            exit 1
+          fi
+
+          status=$(cat /tmp/status)
+          if [ "${status}" -ge 400 ]; then
+            echo "n8n API returned HTTP ${status} - check N8N_API_KEY secret" >&2
+            exit 1
+          fi
+          echo "Connectivity OK (HTTP ${status})"
+
       - name: Deploy workflows
         run: |
           set -euo pipefail
@@ -56,7 +84,8 @@ jobs:
             update_payload=$(jq -c '{name, active, nodes, connections, settings}' "${file}")
             tmpfile=$(mktemp)
 
-            update_status=$(curl -sS -L -o "${tmpfile}" -w '%{http_code}' \
+            update_status=$(curl -sS -L --connect-timeout 30 --max-time 120 \
+              -o "${tmpfile}" -w '%{http_code}' \
               -X PUT "${N8N_API_URL%/}/api/v1/workflows/${workflow_id}" \
               -H "Content-Type: application/json" \
               -H "X-N8N-API-KEY: ${N8N_API_KEY}" \
@@ -64,7 +93,8 @@ jobs:
 
             if [ "${update_status}" = "404" ]; then
               create_payload=$(jq -c '{name, active, nodes, connections, settings, meta, tags}' "${file}")
-              create_status=$(curl -sS -L -o "${tmpfile}" -w '%{http_code}' \
+              create_status=$(curl -sS -L --connect-timeout 30 --max-time 120 \
+                -o "${tmpfile}" -w '%{http_code}' \
                 -X POST "${N8N_API_URL%/}/api/v1/workflows" \
                 -H "Content-Type: application/json" \
                 -H "X-N8N-API-KEY: ${N8N_API_KEY}" \
