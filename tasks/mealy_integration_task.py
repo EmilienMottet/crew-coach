@@ -14,6 +14,7 @@ def create_hexis_integration_task(
     agent: Any,
     weekly_meal_plan: Dict[str, Any],
     validation_result: Dict[str, Any],
+    nutrition_plan: Dict[str, Any] | None = None,
     planned_day_count: int | None = None,
 ) -> Task:
     """
@@ -23,12 +24,35 @@ def create_hexis_integration_task(
         agent: The agent responsible for this task
         weekly_meal_plan: The validated meal plan (WeeklyMealPlan as dict)
         validation_result: The validation assessment (NutritionalValidation as dict)
+        nutrition_plan: The nutrition targets to use for validation (prevents hallucination)
 
     Returns:
         Configured Task instance
     """
     meal_plan_json = json.dumps(weekly_meal_plan, indent=2)
     validation_json = json.dumps(validation_result, indent=2)
+
+    # Build explicit daily targets section to prevent LLM hallucination
+    daily_targets_section = ""
+    if nutrition_plan and "daily_targets" in nutrition_plan:
+        targets_list = []
+        for t in nutrition_plan.get("daily_targets", []):
+            targets_list.append({
+                "date": t.get("date", "?"),
+                "day_name": t.get("day_name", "?"),
+                "calories": t.get("calories", 0),
+                "protein_g": t.get("protein_g", 0),
+                "carbs_g": t.get("carbs_g", 0),
+                "fat_g": t.get("fat_g", 0),
+            })
+        daily_targets_json = json.dumps(targets_list, indent=2)
+        daily_targets_section = f"""
+        ⚠️ CIBLES JOURNALIÈRES DE RÉFÉRENCE (NE PAS DÉDUIRE D'AUTRES SOURCES):
+        {daily_targets_json}
+
+        IMPORTANT: Si vous devez valider les macros des repas, utilisez UNIQUEMENT ces cibles ci-dessus.
+        Ne déduisez PAS les cibles à partir d'autres données dans le contexte!
+        """
 
     planned_days = planned_day_count or len(weekly_meal_plan.get("daily_plans", []))
     if not planned_days:
@@ -44,7 +68,7 @@ def create_hexis_integration_task(
 
         VALIDATION RESULT:
         {validation_json}
-
+        {daily_targets_section}
         MEAL PLAN TO INTEGRATE:
         {meal_plan_json}
 
@@ -227,7 +251,10 @@ def create_mealy_integration_task(
     agent: Any,
     weekly_meal_plan: Dict[str, Any],
     validation_result: Dict[str, Any],
+    nutrition_plan: Dict[str, Any] | None = None,
     planned_day_count: int | None = None,
 ) -> Task:
     """Deprecated: Use create_hexis_integration_task instead."""
-    return create_hexis_integration_task(agent, weekly_meal_plan, validation_result, planned_day_count)
+    return create_hexis_integration_task(
+        agent, weekly_meal_plan, validation_result, nutrition_plan, planned_day_count
+    )

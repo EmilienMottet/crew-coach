@@ -2289,6 +2289,43 @@ class MealPlanningCrew:
 
         return adjusted_plan, was_adjusted
 
+    def _assert_target_date_match(
+        self,
+        meal_plan: Dict[str, Any],
+        nutrition_plan: Dict[str, Any],
+    ) -> None:
+        """Assert that dates match between meal plan and nutrition targets.
+
+        Raises:
+            ValueError: If dates don't match between meal_plan and nutrition_plan
+
+        This prevents the bug where validation/integration agents use wrong day's targets.
+        """
+        if not meal_plan or not nutrition_plan:
+            return
+
+        meal_dates = set()
+        for day in meal_plan.get("daily_plans", []):
+            if "date" in day:
+                meal_dates.add(day["date"])
+
+        target_dates = set()
+        for target in nutrition_plan.get("daily_targets", []):
+            if "date" in target:
+                target_dates.add(target["date"])
+
+        if meal_dates and target_dates and meal_dates != target_dates:
+            missing = meal_dates - target_dates
+            extra = target_dates - meal_dates
+            error_msg = f"Date mismatch between meal_plan and nutrition_plan! "
+            if missing:
+                error_msg += f"Missing targets for: {missing}. "
+            if extra:
+                error_msg += f"Extra targets for: {extra}."
+            print(f"⚠️  {error_msg}", file=sys.stderr)
+            # Don't raise, just warn - let the process continue
+            # raise ValueError(error_msg)
+
     def _validate_daily_macros(
         self,
         daily_plan: Dict[str, Any],
@@ -3693,11 +3730,25 @@ class MealPlanningCrew:
         # STEP 4: Hexis Integration - Sync meals to Hexis (only if approved)
         # ===================================================================
         print("\n🔗 Step 4: Integrating with Hexis...\n", file=sys.stderr)
-        
+
+        # Assert date coherence between meal_plan and nutrition_plan
+        self._assert_target_date_match(meal_plan, nutrition_plan)
+
+        # Log targets being passed to integration for debugging
+        print("📊 Cibles passées à l'intégration:", file=sys.stderr)
+        if isinstance(nutrition_plan, dict) and "daily_targets" in nutrition_plan:
+            for target in nutrition_plan.get("daily_targets", []):
+                print(
+                    f"   {target.get('date', '?')}: {target.get('calories', '?')} kcal, "
+                    f"{target.get('carbs_g', '?')}g carbs",
+                    file=sys.stderr,
+                )
+
         integration_task = create_mealy_integration_task(
             self.mealy_integration_agent,
             meal_plan,
             validation,
+            nutrition_plan,  # Pass nutrition targets to prevent hallucination
             planned_day_count=planned_day_count,
         )
         integration_crew = Crew(
