@@ -27,7 +27,8 @@ RUN pip wheel --no-cache-dir --wheel-dir=/wheels -r requirements.txt
 FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    CREWAI_ENABLE_TELEMETRY=false
 
 WORKDIR /app
 

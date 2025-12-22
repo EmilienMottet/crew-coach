@@ -39,7 +39,7 @@ from llm_config import (
 )
 
 
-RATE_LIMIT_KEYWORDS = ("rate limit", "quota", "429", "token_expired", "no quota", "unknown provider", "404", "not found", "model not available", "auth_unavailable", "no auth available", "authorized for use with claude code")
+RATE_LIMIT_KEYWORDS = ("rate limit", "quota", "429", "token_expired", "no quota", "unknown provider", "404", "not found", "model not available", "auth_unavailable", "no auth available", "authorized for use with claude code", "403", "forbidden", "permission_denied", "subscription_required")
 
 # Persistent blacklist configuration
 DEFAULT_BLACKLIST_FILE = ".disabled_providers.json"
@@ -2131,7 +2131,7 @@ def _is_rate_limit_error(exc: Exception) -> bool:
         return True
 
     status_code = getattr(exc, "status_code", None) or getattr(exc, "http_status", None)
-    if status_code in {402, 429}:  # 402 = quota exceeded, 429 = rate limit
+    if status_code in {402, 403, 429}:  # 402 = quota exceeded, 403 = forbidden/no license, 429 = rate limit
         return True
 
     # Handle codex endpoint 401 "token_expired" as quota error (not real auth failure)
