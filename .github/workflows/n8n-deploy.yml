@@ -53,7 +53,7 @@ jobs:
               exit 1
             fi
 
-            update_payload=$(jq -c 'del(.id)' "${file}")
+            update_payload=$(jq -c '{name, active, nodes, connections, settings}' "${file}")
             tmpfile=$(mktemp)
 
             update_status=$(curl -sS -L -o "${tmpfile}" -w '%{http_code}' \
