@@ -157,7 +157,7 @@ Pygments==2.19.2
 PyJWT==2.9.0
 pylance==0.9.18
 PyMuPDF==1.26.6
-pypdf==5.9.0
+pypdf==6.4.0
 pypdfium2==5.0.0
 PyPika==0.48.9
 pyproject_hooks==1.2.0
