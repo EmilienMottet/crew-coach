@@ -184,13 +184,12 @@
     {
       "parameters": {
         "resume": "webhook",
+        "httpMethod": "POST",
         "limitWaitTime": true,
         "limitType": "afterTimeInterval",
         "limitAmount": 30,
         "limitUnit": "minutes",
-        "options": {
-          "httpMethod": "POST"
-        }
+        "options": {}
       },
       "id": "wait-for-callback",
       "name": "Wait for Meal Plan Callback",
