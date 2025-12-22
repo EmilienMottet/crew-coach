@@ -188,7 +188,9 @@
         "limitType": "afterTimeInterval",
         "limitAmount": 30,
         "limitUnit": "minutes",
-        "options": {}
+        "options": {
+          "httpMethod": "POST"
+        }
       },
       "id": "wait-for-callback",
       "name": "Wait for Meal Plan Callback",
