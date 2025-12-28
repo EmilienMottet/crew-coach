@@ -57,3 +57,4 @@ htmlcov/
 .disabled_providers.json
 .passio_search_cache.json
 .passio_nutrition_cache.json
+.env

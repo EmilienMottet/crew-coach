@@ -1798,6 +1798,30 @@ class MealPlanningCrew:
             file=sys.stderr,
         )
 
+        # Detect EXTREME days (Very low/high calories)
+        target_calories = int(target.get("calories", 2000))
+        is_extreme_low = target_calories < 1800
+        is_extreme_high = target_calories > 3500
+        is_extreme = is_extreme_low or is_extreme_high
+
+        if is_extreme:
+            mode_type = "LOW CALORIE (Simplicity Mode)" if is_extreme_low else "HIGH CALORIE (Fueling Mode)"
+            print(
+                f"   ⚠️  EXTREME TARGET DETECTED: {target_calories} kcal - Activating {mode_type}",
+                file=sys.stderr,
+            )
+            # Inject Simplicity Mode instruction into feedback if not already present
+            if validation_feedback is None:
+                validation_feedback = {}
+
+            existing_instruction = validation_feedback.get("critical_instruction", "")
+            if "SIMPLICITY MODE: ON" not in existing_instruction:
+                validation_feedback["critical_instruction"] = (
+                    f"SIMPLICITY MODE: ON. Target is {target_calories} kcal. "
+                    "Use simple component meals (Protein + Veg + Carb Source). "
+                    "Do NOT use complex recipes."
+                ) + (" " + existing_instruction if existing_instruction else "")
+
         max_attempts = 4  # 4th attempt uses relaxed thresholds (+50%)
         daily_plan: Optional[Dict[str, Any]] = None
 
@@ -2055,8 +2079,175 @@ class MealPlanningCrew:
                 f"\n❌ {day_name}: Failed to produce a valid daily plan after {max_attempts} attempts\n",
                 file=sys.stderr,
             )
+            # Fallback: Construct a "mathematical" meal plan if LLM fails
+            print(f"   🧱 Engaging Fallback Protocol: Constructing mathematical meal plan...", file=sys.stderr)
+            daily_plan = self._generate_fallback_meal_plan(target)
+            if daily_plan:
+                print(f"   ✅ Fallback plan constructed successfully", file=sys.stderr)
+                return daily_plan
 
         return daily_plan
+
+    def _generate_fallback_meal_plan(self, target: Dict[str, Any]) -> Dict[str, Any]:
+        """Construct a 'boring but compliant' meal plan mathematically.
+
+        Used when LLM generation fails repeatedly.
+        Constructs meals using reference foods (Chicken, Rice, Oil, Veg) calculated to hit macros exactly.
+        """
+        day_name = target.get("day_name", "Unknown")
+        date_str = target.get("date", "")
+
+        # Targets
+        target_macros = target.get("macros", {})
+        total_protein = target_macros.get("protein_g", 0)
+        total_carbs = target_macros.get("carbs_g", 0)
+        total_fat = target_macros.get("fat_g", 0)
+        total_cals = target.get("calories", 0)
+
+        # Meal distribution (approximate)
+        # Breakfast (25%), Lunch (35%), Snack (10%), Dinner (30%)
+        meal_ratios = [
+            ("Breakfast", 0.25),
+            ("Lunch", 0.35),
+            ("Afternoon Snack", 0.10),
+            ("Dinner", 0.30)
+        ]
+
+        meals = []
+        running_totals = {"protein": 0, "carbs": 0, "fat": 0, "calories": 0}
+
+        for meal_type, ratio in meal_ratios:
+            # Target for this meal
+            m_protein = total_protein * ratio
+            m_carbs = total_carbs * ratio
+            m_fat = total_fat * ratio
+
+            # Reference Foods (per 100g)
+            # Chicken Breast: 31P, 0C, 3.6F, 165kcal
+            # Basmati Rice (cooked): 2.6P, 25C, 0.9F, 120kcal (approx)
+            # Olive Oil: 0P, 0C, 100F, 884kcal
+            # Green Beans: 1.8P, 7C, 0.2F, 31kcal
+
+            # Calculate quantities
+            # 1. Protein source (Chicken)
+            # 31g P / 100g -> qty = target / 0.31
+            chicken_qty = m_protein / 0.31
+
+            # 2. Carb source (Rice)
+            # 25g C / 100g -> qty = target / 0.25
+            rice_qty = m_carbs / 0.25
+
+            # 3. Fat source (Oil)
+            # 100g F / 100g -> qty = target / 1.0
+            # Subtract fat from chicken (3.6g/100g) and rice (0.9g/100g)
+            fat_from_chicken = (chicken_qty / 100) * 3.6
+            fat_from_rice = (rice_qty / 100) * 0.9
+            remaining_fat = max(0, m_fat - fat_from_chicken - fat_from_rice)
+            oil_qty = remaining_fat  # since oil is 100% fat
+
+            # Veggie filler (fixed 150g)
+            veg_qty = 150
+
+            # Round quantities
+            chicken_qty = round(chicken_qty)
+            rice_qty = round(rice_qty)
+            oil_qty = round(oil_qty)
+
+            # Build ingredients list
+            ingredients = []
+            validated = []
+
+            if chicken_qty > 10:
+                name = f"{chicken_qty}g Chicken Breast"
+                ingredients.append(name)
+                validated.append({
+                    "name": name,
+                    "passio_food_id": "550", # Generic ID
+                    "passio_food_name": "Chicken Breast",
+                    "quantity_g": chicken_qty,
+                    "protein_per_100g": 31,
+                    "carbs_per_100g": 0,
+                    "fat_per_100g": 3.6,
+                    "calories_per_100g": 165
+                })
+
+            if rice_qty > 10:
+                name = f"{rice_qty}g Cooked White Rice"
+                ingredients.append(name)
+                validated.append({
+                    "name": name,
+                    "passio_food_id": "551",
+                    "passio_food_name": "White Rice",
+                    "quantity_g": rice_qty,
+                    "protein_per_100g": 2.6,
+                    "carbs_per_100g": 25,
+                    "fat_per_100g": 0.9,
+                    "calories_per_100g": 120
+                })
+
+            if oil_qty > 2:
+                name = f"{oil_qty}g Olive Oil"
+                ingredients.append(name)
+                validated.append({
+                    "name": name,
+                    "passio_food_id": "552",
+                    "passio_food_name": "Olive Oil",
+                    "quantity_g": oil_qty,
+                    "protein_per_100g": 0,
+                    "carbs_per_100g": 0,
+                    "fat_per_100g": 100,
+                    "calories_per_100g": 884
+                })
+
+            ingredients.append(f"{veg_qty}g Steamed Green Beans")
+            validated.append({
+                "name": "Green Beans",
+                "passio_food_id": "553",
+                "passio_food_name": "Green Beans",
+                "quantity_g": veg_qty,
+                "protein_per_100g": 1.8,
+                "carbs_per_100g": 7,
+                "fat_per_100g": 0.2,
+                "calories_per_100g": 31
+            })
+
+            # Recalculate actuals
+            act_p = (chicken_qty * 0.31) + (rice_qty * 0.026) + (veg_qty * 0.018)
+            act_c = (rice_qty * 0.25) + (veg_qty * 0.07)
+            act_f = (chicken_qty * 0.036) + (rice_qty * 0.009) + (veg_qty * 0.002) + oil_qty
+            act_cal = (chicken_qty * 1.65) + (rice_qty * 1.20) + (veg_qty * 0.31) + (oil_qty * 8.84)
+
+            meals.append({
+                "meal_type": meal_type,
+                "meal_name": f"Fallback {meal_type} (Chicken/Rice)",
+                "description": "Simple fallback meal generated to meet nutritional targets.",
+                "calories": round(act_cal),
+                "protein_g": round(act_p, 1),
+                "carbs_g": round(act_c, 1),
+                "fat_g": round(act_f, 1),
+                "preparation_time_min": 15,
+                "ingredients": ingredients,
+                "validated_ingredients": validated,
+                "recipe_notes": "Generated by Fallback Protocol due to planning failure."
+            })
+
+            running_totals["protein"] += act_p
+            running_totals["carbs"] += act_c
+            running_totals["fat"] += act_f
+            running_totals["calories"] += act_cal
+
+        return {
+            "day_name": day_name,
+            "date": date_str,
+            "meals": meals,
+            "daily_totals": {
+                "protein_g": round(running_totals["protein"], 1),
+                "carbs_g": round(running_totals["carbs"], 1),
+                "fat_g": round(running_totals["fat"], 1),
+                "calories": round(running_totals["calories"])
+            },
+            "notes": "Fallback plan generated automatically to ensure macro compliance."
+        }
 
     def _adjust_ingredient_quantities(
         self,

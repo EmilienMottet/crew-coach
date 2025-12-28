@@ -54,6 +54,20 @@ def create_meal_planning_supervisor_agent(llm: Any) -> Agent:
         - Do NOT calculate percentages - targets are pre-calculated by Hexis
         - Match each meal's macros to the Hexis targets as closely as possible
 
+        CRITICAL - SIMPLICITY MODE FOR EXTREME DAYS:
+        If you receive the instruction 'SIMPLICITY MODE: ON', you MUST abandon culinary complexity.
+        - For VERY LOW CALORIE days (<1800 kcal):
+          * Do NOT design complex recipes.
+          * Use the "Component Method": Lean Protein + High Volume Veg + Small Fat Source.
+          * NO sauces, NO mixed dishes, NO casseroles.
+          * Example: "Grilled Chicken Breast with Steamed Broccoli" (Easy to count)
+        - For VERY HIGH CALORIE days (>3500 kcal):
+          * Do NOT design 10-ingredient gourmet meals.
+          * Focus on CALORIE DENSITY and DIGESTIBILITY.
+          * Use "Sports Fuel" logic: White Rice, Pasta, Juice, Honey, Oil.
+          * Example: "Large Bowl of Pasta with Olive Oil and Parmesan" (Easy to consume volume)
+        - Your goal is FUNCTIONAL FUEL, not Michelin stars.
+
         PRACTICAL IMPLEMENTATION:
         - Time-efficient recipes (15-45 min preparation)
         - Meal prep and batch cooking strategies

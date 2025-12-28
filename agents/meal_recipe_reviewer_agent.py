@@ -92,6 +92,15 @@ def create_meal_recipe_reviewer_agent(llm: Any) -> Agent:
            - Action: Changer "120g chicken breast" → "78g chicken breast"
            - Nouveau total: 166g - 13g = 153g ✓
 
+           AUTHORITY TO REWRITE (CONSTRAINT AUTHORITY):
+           You have FULL AUTHORITY to rewrite the recipe if the macros are impossible to fix with portion adjustments.
+           - If Supervisor asks for "Creamy Risotto" (high fat) but Fat Target is 10g:
+             -> CHANGE IT to "Boiled Rice with Herbs".
+           - If Supervisor asks for "Salad" (low carb) but Carb Target is 200g:
+             -> ADD "Large side of white rice (300g)".
+           - COMPLIANCE > CULINARY INTEGRITY.
+           - You are the FINAL GATEKEEPER. If you pass a failing plan, the athlete fails.
+
            RÈGLE ABSOLUE: Ne JAMAIS soumettre un plan avec > 5% d'écart sur les macros.
            Si tu ne peux pas ajuster, documente POURQUOI dans les notes.
 
