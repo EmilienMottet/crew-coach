@@ -33,6 +33,27 @@ jobs:
             exit 1
           fi
 
+      - name: Substitute secrets in workflows
+        env:
+          INTERVALS_ICU_API_KEY: ${{ secrets.INTERVALS_ICU_API_KEY }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_CREDENTIAL_ID: ${{ secrets.TELEGRAM_CREDENTIAL_ID }}
+        run: |
+          chmod +x .github/scripts/substitute-n8n-secrets.sh
+          .github/scripts/substitute-n8n-secrets.sh
+
+      - name: Validate substituted workflows
+        run: |
+          for file in /tmp/n8n-workflows/*.json; do
+            echo "Validating: $(basename $file)"
+            jq . "$file" > /dev/null || exit 1
+            # Verify no placeholders remain
+            if grep -q "YOUR_\|PLACEHOLDER" "$file"; then
+              echo "ERROR: Found unsubstituted placeholder in $file"
+              exit 1
+            fi
+          done
+
       - name: Test n8n connectivity
         run: |
           set -euo pipefail
@@ -67,9 +88,10 @@ jobs:
           N8N_API_URL='${{ secrets.N8N_API_URL }}'
           N8N_API_KEY='${{ secrets.N8N_API_KEY }}'
           shopt -s nullglob
-          files=(n8n/workflows/*.json)
+          # Use substituted files from temporary directory
+          files=(/tmp/n8n-workflows/*.json)
           if [ ${#files[@]} -eq 0 ]; then
-            echo "No workflow definitions found under n8n/workflows." >&2
+            echo "No workflow definitions found under /tmp/n8n-workflows." >&2
             exit 1
           fi
 

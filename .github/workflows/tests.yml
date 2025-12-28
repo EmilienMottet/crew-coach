@@ -47,6 +47,9 @@ jobs:
           WORK_END_MORNING: "12:00"
           WORK_START_AFTERNOON: "14:00"
           WORK_END_AFTERNOON: "17:00"
+          INTERVALS_ICU_API_KEY: ${{ secrets.INTERVALS_ICU_API_KEY }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_CREDENTIAL_ID: ${{ secrets.TELEGRAM_CREDENTIAL_ID }}
         run: |
           pytest tests/unit/test_privacy_agent.py \
                  tests/unit/test_translation_agent.py \
@@ -68,6 +71,9 @@ jobs:
           WORK_END_MORNING: "12:00"
           WORK_START_AFTERNOON: "14:00"
           WORK_END_AFTERNOON: "17:00"
+          INTERVALS_ICU_API_KEY: ${{ secrets.INTERVALS_ICU_API_KEY }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_CREDENTIAL_ID: ${{ secrets.TELEGRAM_CREDENTIAL_ID }}
         run: |
           pytest tests/ test_strava_description_crew.py \
                  -v --tb=short --cov=crew --cov=agents --cov=tasks \

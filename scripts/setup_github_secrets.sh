@@ -14,78 +14,34 @@ echo ""
 echo "Required secrets:"
 echo "----------------"
 echo ""
-
-# Read from .env file
-if [ -f .env ]; then
-    echo "✅ Found .env file, extracting values..."
-    echo ""
-
-    # Extract values
-    OPENAI_API_BASE=$(grep "^OPENAI_API_BASE=" .env | cut -d'=' -f2)
-    OPENAI_API_KEY=$(grep "^OPENAI_API_KEY=" .env | cut -d'=' -f2)
-    MCP_API_KEY=$(grep "^MCP_API_KEY=" .env | cut -d'=' -f2)
-    STRAVA_MCP_SERVER_URL=$(grep "^STRAVA_MCP_SERVER_URL=" .env | cut -d'=' -f2)
-    INTERVALS_MCP_SERVER_URL=$(grep "^INTERVALS_MCP_SERVER_URL=" .env | cut -d'=' -f2)
-    METEO_MCP_SERVER_URL=$(grep "^METEO_MCP_SERVER_URL=" .env | cut -d'=' -f2)
-    TOOLBOX_MCP_SERVER_URL=$(grep "^TOOLBOX_MCP_SERVER_URL=" .env | cut -d'=' -f2)
-
-    echo "1. OPENAI_API_BASE"
-    echo "   Value: $OPENAI_API_BASE"
-    echo ""
-
-    echo "2. OPENAI_API_KEY"
-    echo "   Value: ${OPENAI_API_KEY:0:10}... (masked)"
-    echo ""
-
-    echo "3. MCP_API_KEY"
-    echo "   Value: ${MCP_API_KEY:0:10}... (masked)"
-    echo ""
-
-    echo "4. STRAVA_MCP_SERVER_URL"
-    echo "   Value: $STRAVA_MCP_SERVER_URL"
-    echo ""
-
-    echo "5. INTERVALS_MCP_SERVER_URL"
-    echo "   Value: $INTERVALS_MCP_SERVER_URL"
-    echo ""
-
-    echo "6. METEO_MCP_SERVER_URL"
-    echo "   Value: $METEO_MCP_SERVER_URL"
-    echo ""
-
-    echo "7. TOOLBOX_MCP_SERVER_URL"
-    echo "   Value: $TOOLBOX_MCP_SERVER_URL"
-    echo ""
-
-    echo "=========================================="
-    echo "Next steps:"
-    echo "=========================================="
-    echo ""
-    echo "1. Go to: https://github.com/emottet/crew/settings/secrets/actions"
-    echo "2. Click 'New repository secret'"
-    echo "3. Add each secret above with its name and value"
-    echo ""
-    echo "Or use GitHub CLI (gh):"
-    echo "----------------------"
-    echo ""
-    echo "gh secret set OPENAI_API_BASE --body \"$OPENAI_API_BASE\""
-    echo "gh secret set OPENAI_API_KEY --body \"$OPENAI_API_KEY\""
-    echo "gh secret set MCP_API_KEY --body \"$MCP_API_KEY\""
-    echo "gh secret set STRAVA_MCP_SERVER_URL --body \"$STRAVA_MCP_SERVER_URL\""
-    echo "gh secret set INTERVALS_MCP_SERVER_URL --body \"$INTERVALS_MCP_SERVER_URL\""
-    echo "gh secret set METEO_MCP_SERVER_URL --body \"$METEO_MCP_SERVER_URL\""
-    echo "gh secret set TOOLBOX_MCP_SERVER_URL --body \"$TOOLBOX_MCP_SERVER_URL\""
-    echo ""
-else
-    echo "❌ .env file not found!"
-    echo ""
-    echo "Please create a .env file with the following variables:"
-    echo "  OPENAI_API_BASE"
-    echo "  OPENAI_API_KEY"
-    echo "  MCP_API_KEY"
-    echo "  STRAVA_MCP_SERVER_URL"
-    echo "  INTERVALS_MCP_SERVER_URL"
-    echo "  METEO_MCP_SERVER_URL"
-    echo "  TOOLBOX_MCP_SERVER_URL"
-    echo ""
-fi
+echo "1. OPENAI_API_BASE"
+echo "2. OPENAI_API_KEY"
+echo "3. MCP_API_KEY"
+echo "4. STRAVA_MCP_SERVER_URL"
+echo "5. INTERVALS_MCP_SERVER_URL"
+echo "6. METEO_MCP_SERVER_URL"
+echo "7. TOOLBOX_MCP_SERVER_URL"
+echo ""
+echo "NEW (for n8n workflows):"
+echo "8. INTERVALS_ICU_API_KEY (Base64-encoded 'API_KEY:your_key')"
+echo "9. TELEGRAM_CHAT_ID (Your Telegram chat ID)"
+echo "10. TELEGRAM_CREDENTIAL_ID (The ID of your Telegram credentials in n8n)"
+echo "11. N8N_API_URL (URL of your n8n instance)"
+echo "12. N8N_API_KEY (API key for your n8n instance)"
+echo ""
+echo "=========================================="
+echo "Next steps:"
+echo "=========================================="
+echo ""
+echo "1. Go to: https://github.com/emottet/crew/settings/secrets/actions"
+echo "2. Click 'New repository secret'"
+echo "3. Add each secret above with its name and value"
+echo ""
+echo "Or use GitHub CLI (gh):"
+echo "----------------------"
+echo ""
+echo "gh secret set OPENAI_API_BASE --body \"https://ccproxy.emottet.com/v1\""
+echo "gh secret set OPENAI_API_KEY --body \"...\""
+echo "gh secret set INTERVALS_ICU_API_KEY --body \"...\""
+echo "# ... and so on for other secrets"
+echo ""
