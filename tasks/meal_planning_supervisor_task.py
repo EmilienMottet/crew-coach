@@ -1,4 +1,5 @@
 """Task for the Meal Planning Supervisor - pure reasoning meal design."""
+
 from __future__ import annotations
 
 import json

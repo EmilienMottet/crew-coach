@@ -111,8 +111,7 @@ def estimate_nutrition_from_name(ingredient_name: str) -> Dict[str, float]:
 
     # Use matched category or default
     estimates = FALLBACK_NUTRITION_ESTIMATES.get(
-        best_match or "default",
-        FALLBACK_NUTRITION_ESTIMATES["default"]
+        best_match or "default", FALLBACK_NUTRITION_ESTIMATES["default"]
     )
 
     return {
@@ -158,7 +157,9 @@ def calculate_ingredient_macros(ingredient: Dict[str, Any]) -> Dict[str, Any]:
     return ingredient
 
 
-def calculate_meal_totals(validated_ingredients: List[Dict[str, Any]]) -> Dict[str, float]:
+def calculate_meal_totals(
+    validated_ingredients: List[Dict[str, Any]],
+) -> Dict[str, float]:
     """Calculate total macros for a meal from its validated ingredients.
 
     Args:
@@ -221,7 +222,7 @@ def calculate_daily_totals(meals: List[Dict[str, Any]]) -> Dict[str, float]:
 
 
 def enrich_validated_ingredients(
-    validated_ingredients_data: Dict[str, Any]
+    validated_ingredients_data: Dict[str, Any],
 ) -> Dict[str, Any]:
     """Enrich ValidatedIngredientsList with pre-calculated macros.
 
@@ -327,68 +328,84 @@ def suggest_adjustments(
         if macro == "protein_g":
             if delta > 0:
                 # Too much protein - suggest reduction
-                suggestions.append({
-                    "macro": "protein",
-                    "action": "reduce",
-                    "delta_g": abs(delta),
-                    "suggestion": f"Reduce chicken by {abs(delta) / 0.31:.0f}g or eggs by {abs(delta) / 6.5:.1f}",
-                })
+                suggestions.append(
+                    {
+                        "macro": "protein",
+                        "action": "reduce",
+                        "delta_g": abs(delta),
+                        "suggestion": f"Reduce chicken by {abs(delta) / 0.31:.0f}g or eggs by {abs(delta) / 6.5:.1f}",
+                    }
+                )
             else:
                 # Not enough protein - suggest addition
-                suggestions.append({
-                    "macro": "protein",
-                    "action": "increase",
-                    "delta_g": abs(delta),
-                    "suggestion": f"Add {abs(delta) / 0.31:.0f}g chicken breast or {abs(delta) / 0.20:.0f}g salmon",
-                })
+                suggestions.append(
+                    {
+                        "macro": "protein",
+                        "action": "increase",
+                        "delta_g": abs(delta),
+                        "suggestion": f"Add {abs(delta) / 0.31:.0f}g chicken breast or {abs(delta) / 0.20:.0f}g salmon",
+                    }
+                )
 
         elif macro == "carbs_g":
             if delta > 0:
-                suggestions.append({
-                    "macro": "carbs",
-                    "action": "reduce",
-                    "delta_g": abs(delta),
-                    "suggestion": f"Reduce rice by {abs(delta) / 0.23:.0f}g or pasta by {abs(delta) / 0.25:.0f}g",
-                })
+                suggestions.append(
+                    {
+                        "macro": "carbs",
+                        "action": "reduce",
+                        "delta_g": abs(delta),
+                        "suggestion": f"Reduce rice by {abs(delta) / 0.23:.0f}g or pasta by {abs(delta) / 0.25:.0f}g",
+                    }
+                )
             else:
-                suggestions.append({
-                    "macro": "carbs",
-                    "action": "increase",
-                    "delta_g": abs(delta),
-                    "suggestion": f"Add {abs(delta) / 0.23:.0f}g cooked rice or {abs(delta) / 0.49:.0f}g bread",
-                })
+                suggestions.append(
+                    {
+                        "macro": "carbs",
+                        "action": "increase",
+                        "delta_g": abs(delta),
+                        "suggestion": f"Add {abs(delta) / 0.23:.0f}g cooked rice or {abs(delta) / 0.49:.0f}g bread",
+                    }
+                )
 
         elif macro == "fat_g":
             if delta > 0:
-                suggestions.append({
-                    "macro": "fat",
-                    "action": "reduce",
-                    "delta_g": abs(delta),
-                    "suggestion": f"Reduce olive oil by {abs(delta):.0f}g or avocado by {abs(delta) / 0.15:.0f}g",
-                })
+                suggestions.append(
+                    {
+                        "macro": "fat",
+                        "action": "reduce",
+                        "delta_g": abs(delta),
+                        "suggestion": f"Reduce olive oil by {abs(delta):.0f}g or avocado by {abs(delta) / 0.15:.0f}g",
+                    }
+                )
             else:
-                suggestions.append({
-                    "macro": "fat",
-                    "action": "increase",
-                    "delta_g": abs(delta),
-                    "suggestion": f"Add {abs(delta):.0f}g olive oil or {abs(delta) / 0.49:.0f}g almonds",
-                })
+                suggestions.append(
+                    {
+                        "macro": "fat",
+                        "action": "increase",
+                        "delta_g": abs(delta),
+                        "suggestion": f"Add {abs(delta):.0f}g olive oil or {abs(delta) / 0.49:.0f}g almonds",
+                    }
+                )
 
         elif macro == "calories":
             if delta > 0:
-                suggestions.append({
-                    "macro": "calories",
-                    "action": "reduce",
-                    "delta_g": abs(delta),
-                    "suggestion": f"Reduce portion sizes or remove {abs(delta) / 9:.0f}g of fats",
-                })
+                suggestions.append(
+                    {
+                        "macro": "calories",
+                        "action": "reduce",
+                        "delta_g": abs(delta),
+                        "suggestion": f"Reduce portion sizes or remove {abs(delta) / 9:.0f}g of fats",
+                    }
+                )
             else:
-                suggestions.append({
-                    "macro": "calories",
-                    "action": "increase",
-                    "delta_g": abs(delta),
-                    "suggestion": f"Add {abs(delta) / 9:.0f}g olive oil or {abs(delta) / 6:.0f}g nuts",
-                })
+                suggestions.append(
+                    {
+                        "macro": "calories",
+                        "action": "increase",
+                        "delta_g": abs(delta),
+                        "suggestion": f"Add {abs(delta) / 9:.0f}g olive oil or {abs(delta) / 6:.0f}g nuts",
+                    }
+                )
 
     return suggestions
 
@@ -489,7 +506,9 @@ def _is_valid_passio_ref_code(ref_code: str) -> bool:
 
         # Real Passio refCodes have "labelid" or "resultid" keys
         if isinstance(parsed, dict):
-            has_real_keys = "labelid" in parsed or "resultid" in parsed or "type" in parsed
+            has_real_keys = (
+                "labelid" in parsed or "resultid" in parsed or "type" in parsed
+            )
             # Hallucinated ones have "food_id" key
             has_fake_keys = "food_id" in parsed
             return has_real_keys and not has_fake_keys
@@ -515,10 +534,20 @@ def _extract_ingredient_query(ingredient_name: str) -> str:
 
     # Remove common quantity patterns
     # "200g X", "200 g X", "2 cups X", "1/2 cup X", "100ml X"
-    cleaned = re.sub(r"^\d+(?:\.\d+)?(?:\s*(?:g|kg|ml|l|oz|cup|cups|tbsp|tsp|lb|lbs))?\s*", "", ingredient_name, flags=re.IGNORECASE)
+    cleaned = re.sub(
+        r"^\d+(?:\.\d+)?(?:\s*(?:g|kg|ml|l|oz|cup|cups|tbsp|tsp|lb|lbs))?\s*",
+        "",
+        ingredient_name,
+        flags=re.IGNORECASE,
+    )
 
     # Also remove trailing "cooked", "raw", "fresh", etc. modifiers
-    cleaned = re.sub(r"\s*,?\s*(?:cooked|raw|fresh|frozen|dried|canned)\s*$", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(
+        r"\s*,?\s*(?:cooked|raw|fresh|frozen|dried|canned)\s*$",
+        "",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
 
     return cleaned.strip().lower()
 
@@ -564,7 +593,10 @@ def fetch_nutrition_for_ingredients(
     for meal in validated_meals:
         for ing in meal.get("validated_ingredients", []):
             # Skip if already has valid nutrition data
-            if ing.get("protein_per_100g") is not None and ing.get("protein_per_100g") > 0:
+            if (
+                ing.get("protein_per_100g") is not None
+                and ing.get("protein_per_100g") > 0
+            ):
                 continue
 
             ingredient_name = ing.get("name", "")
@@ -580,7 +612,10 @@ def fetch_nutrition_for_ingredients(
                     ing["calories_per_100g"] = trusted.get("calories_per_100g", 0)
                     ing["data_source"] = "TRUSTED"
                     trusted_hit_count += 1
-                    print(f"   🔒 Using TRUSTED data for '{ingredient_name}'", file=sys.stderr)
+                    print(
+                        f"   🔒 Using TRUSTED data for '{ingredient_name}'",
+                        file=sys.stderr,
+                    )
                     continue
 
             # Get ref_code from LLM output
@@ -588,7 +623,10 @@ def fetch_nutrition_for_ingredients(
 
             # Validate the ref_code - LLMs often hallucinate fake ones
             if ref_code and not _is_valid_passio_ref_code(ref_code):
-                print(f"   ⚠️ Invalid ref_code for '{ingredient_name}', checking search cache...", file=sys.stderr)
+                print(
+                    f"   ⚠️ Invalid ref_code for '{ingredient_name}', checking search cache...",
+                    file=sys.stderr,
+                )
                 ref_code = None  # Force fallback to search cache
 
             # Fallback: Look up search cache by ingredient name to get real ref_code
@@ -600,17 +638,26 @@ def fetch_nutrition_for_ingredients(
                         ref_code = cached_search["passio_ref_code"]
                         # Also get nutrition directly from search cache if available
                         if cached_search.get("protein_per_100g") is not None:
-                            ing["protein_per_100g"] = cached_search.get("protein_per_100g", 0)
-                            ing["carbs_per_100g"] = cached_search.get("carbs_per_100g", 0)
+                            ing["protein_per_100g"] = cached_search.get(
+                                "protein_per_100g", 0
+                            )
+                            ing["carbs_per_100g"] = cached_search.get(
+                                "carbs_per_100g", 0
+                            )
                             ing["fat_per_100g"] = cached_search.get("fat_per_100g", 0)
-                            ing["calories_per_100g"] = cached_search.get("calories_per_100g", 0)
+                            ing["calories_per_100g"] = cached_search.get(
+                                "calories_per_100g", 0
+                            )
                             # Update the ingredient with the correct ref_code
                             ing["passio_ref_code"] = ref_code
                             search_cache_fallback_count += 1
                             continue
                         # Update the ingredient with the correct ref_code
                         ing["passio_ref_code"] = ref_code
-                        print(f"   ✅ Found real ref_code for '{query}' in search cache", file=sys.stderr)
+                        print(
+                            f"   ✅ Found real ref_code for '{query}' in search cache",
+                            file=sys.stderr,
+                        )
                         search_cache_fallback_count += 1
 
             # If no valid ref_code, use fallback estimation
@@ -623,7 +670,10 @@ def fetch_nutrition_for_ingredients(
                 ing["nutrition_estimated"] = True
                 ing["estimate_source"] = fallback.get("estimate_source", "default")
                 estimate_fallback_count += 1
-                print(f"   📊 No ref_code for '{ingredient_name}', using fallback (source: {ing['estimate_source']})", file=sys.stderr)
+                print(
+                    f"   📊 No ref_code for '{ingredient_name}', using fallback (source: {ing['estimate_source']})",
+                    file=sys.stderr,
+                )
                 continue
 
             # Try nutrition cache first
@@ -631,9 +681,9 @@ def fetch_nutrition_for_ingredients(
             if cached:
                 # Check if cache has real values (not 0s from failed fetches)
                 has_valid_nutrition = (
-                    cached.get("protein_per_100g", 0) > 0 or
-                    cached.get("carbs_per_100g", 0) > 0 or
-                    cached.get("fat_per_100g", 0) > 0
+                    cached.get("protein_per_100g", 0) > 0
+                    or cached.get("carbs_per_100g", 0) > 0
+                    or cached.get("fat_per_100g", 0) > 0
                 )
                 if has_valid_nutrition:
                     ing["protein_per_100g"] = cached.get("protein_per_100g", 0)
@@ -644,7 +694,10 @@ def fetch_nutrition_for_ingredients(
                     continue
                 else:
                     # Invalid cache entry (all zeros) - invalidate and refetch
-                    print(f"   ⚠️ Invalidating zero-value cache for '{ingredient_name}'", file=sys.stderr)
+                    print(
+                        f"   ⚠️ Invalidating zero-value cache for '{ingredient_name}'",
+                        file=sys.stderr,
+                    )
                     nutrition_cache.delete(ref_code)
 
             # Fetch from API with exponential backoff
@@ -659,7 +712,10 @@ def fetch_nutrition_for_ingredients(
             for attempt in range(max_retries + 1):
                 # Check circuit breaker
                 if not circuit_breaker.can_execute():
-                    print(f"   ⚡ Circuit breaker open, skipping nutrition fetch for '{ingredient_name}'", file=sys.stderr)
+                    print(
+                        f"   ⚡ Circuit breaker open, skipping nutrition fetch for '{ingredient_name}'",
+                        file=sys.stderr,
+                    )
                     break
 
                 try:
@@ -668,15 +724,24 @@ def fetch_nutrition_for_ingredients(
                     # Check for API error in response
                     if isinstance(nutrition, dict) and nutrition.get("error"):
                         error_msg = nutrition.get("error", "")
-                        if "500" in str(error_msg) or "error while searching" in str(error_msg).lower():
+                        if (
+                            "500" in str(error_msg)
+                            or "error while searching" in str(error_msg).lower()
+                        ):
                             raise RuntimeError(f"Passio API error: {error_msg}")
 
                     if nutrition:
                         # Extract nutrition values (API may return "protein" or "protein_per_100g")
-                        protein = nutrition.get("protein") or nutrition.get("protein_per_100g", 0)
-                        carbs = nutrition.get("carbs") or nutrition.get("carbs_per_100g", 0)
+                        protein = nutrition.get("protein") or nutrition.get(
+                            "protein_per_100g", 0
+                        )
+                        carbs = nutrition.get("carbs") or nutrition.get(
+                            "carbs_per_100g", 0
+                        )
                         fat = nutrition.get("fat") or nutrition.get("fat_per_100g", 0)
-                        calories = nutrition.get("calories") or nutrition.get("calories_per_100g", 0)
+                        calories = nutrition.get("calories") or nutrition.get(
+                            "calories_per_100g", 0
+                        )
 
                         ing["protein_per_100g"] = float(protein) if protein else 0.0
                         ing["carbs_per_100g"] = float(carbs) if carbs else 0.0
@@ -684,26 +749,36 @@ def fetch_nutrition_for_ingredients(
                         ing["calories_per_100g"] = float(calories) if calories else 0.0
 
                         # Only cache if we got real values (avoid caching 0s from failed API calls)
-                        if ing["protein_per_100g"] > 0 or ing["carbs_per_100g"] > 0 or ing["fat_per_100g"] > 0:
-                            nutrition_cache.set(ref_code, {
-                                "protein_per_100g": ing["protein_per_100g"],
-                                "carbs_per_100g": ing["carbs_per_100g"],
-                                "fat_per_100g": ing["fat_per_100g"],
-                                "calories_per_100g": ing["calories_per_100g"],
-                            })
-                            # Also update search cache with nutrition data
-                            # This allows future runs to skip the API call entirely
-                            query = _extract_ingredient_query(ingredient_name)
-                            if query:
-                                search_cache.set(query, {
-                                    "passio_food_id": ing.get("passio_food_id"),
-                                    "passio_ref_code": ref_code,
-                                    "passio_food_name": ing.get("passio_food_name"),
+                        if (
+                            ing["protein_per_100g"] > 0
+                            or ing["carbs_per_100g"] > 0
+                            or ing["fat_per_100g"] > 0
+                        ):
+                            nutrition_cache.set(
+                                ref_code,
+                                {
                                     "protein_per_100g": ing["protein_per_100g"],
                                     "carbs_per_100g": ing["carbs_per_100g"],
                                     "fat_per_100g": ing["fat_per_100g"],
                                     "calories_per_100g": ing["calories_per_100g"],
-                                })
+                                },
+                            )
+                            # Also update search cache with nutrition data
+                            # This allows future runs to skip the API call entirely
+                            query = _extract_ingredient_query(ingredient_name)
+                            if query:
+                                search_cache.set(
+                                    query,
+                                    {
+                                        "passio_food_id": ing.get("passio_food_id"),
+                                        "passio_ref_code": ref_code,
+                                        "passio_food_name": ing.get("passio_food_name"),
+                                        "protein_per_100g": ing["protein_per_100g"],
+                                        "carbs_per_100g": ing["carbs_per_100g"],
+                                        "fat_per_100g": ing["fat_per_100g"],
+                                        "calories_per_100g": ing["calories_per_100g"],
+                                    },
+                                )
                         fetch_count += 1
 
                     # Success - reset circuit breaker
@@ -714,7 +789,10 @@ def fetch_nutrition_for_ingredients(
                     circuit_breaker.record_failure()
 
                     if attempt >= max_retries or not is_retriable_error(e):
-                        print(f"   ⚠️ Failed to fetch nutrition for {ingredient_name} after {attempt + 1} attempts: {e}", file=sys.stderr)
+                        print(
+                            f"   ⚠️ Failed to fetch nutrition for {ingredient_name} after {attempt + 1} attempts: {e}",
+                            file=sys.stderr,
+                        )
                         # Use fallback estimation when API fails
                         fallback = estimate_nutrition_from_name(ingredient_name)
                         ing["protein_per_100g"] = fallback["protein_per_100g"]
@@ -722,16 +800,30 @@ def fetch_nutrition_for_ingredients(
                         ing["fat_per_100g"] = fallback["fat_per_100g"]
                         ing["calories_per_100g"] = fallback["calories_per_100g"]
                         ing["nutrition_estimated"] = True
-                        ing["estimate_source"] = fallback.get("estimate_source", "default")
+                        ing["estimate_source"] = fallback.get(
+                            "estimate_source", "default"
+                        )
                         estimate_fallback_count += 1
-                        print(f"   📊 Using fallback estimate for '{ingredient_name}' (source: {ing['estimate_source']})", file=sys.stderr)
+                        print(
+                            f"   📊 Using fallback estimate for '{ingredient_name}' (source: {ing['estimate_source']})",
+                            file=sys.stderr,
+                        )
                         break
 
                     delay = exponential_backoff_delay(attempt)
-                    print(f"   ⏳ Nutrition fetch retry {attempt + 1}/{max_retries} for '{ingredient_name}' after {delay:.1f}s", file=sys.stderr)
+                    print(
+                        f"   ⏳ Nutrition fetch retry {attempt + 1}/{max_retries} for '{ingredient_name}' after {delay:.1f}s",
+                        file=sys.stderr,
+                    )
                     time.sleep(delay)
 
-    if fetch_count > 0 or cache_hit_count > 0 or search_cache_fallback_count > 0 or estimate_fallback_count > 0 or trusted_hit_count > 0:
+    if (
+        fetch_count > 0
+        or cache_hit_count > 0
+        or search_cache_fallback_count > 0
+        or estimate_fallback_count > 0
+        or trusted_hit_count > 0
+    ):
         print(
             f"   🥗 Nutrition fetch: {trusted_hit_count} trusted, {fetch_count} API calls, {cache_hit_count} cache hits, "
             f"{search_cache_fallback_count} search cache fallbacks, {estimate_fallback_count} estimated",

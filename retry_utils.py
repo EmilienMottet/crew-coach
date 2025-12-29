@@ -22,11 +22,21 @@ DEFAULT_JITTER_FACTOR = 0.1
 
 # Errors that should trigger retry
 RETRIABLE_STATUS_CODES = {429, 500, 502, 503, 504}
-RETRIABLE_KEYWORDS = ("rate limit", "500", "502", "503", "504", "timeout", "connection", "error while searching")
+RETRIABLE_KEYWORDS = (
+    "rate limit",
+    "500",
+    "502",
+    "503",
+    "504",
+    "timeout",
+    "connection",
+    "error while searching",
+)
 
 
 class CircuitBreakerOpen(Exception):
     """Raised when circuit breaker is open and requests are blocked."""
+
     pass
 
 
@@ -138,7 +148,7 @@ def exponential_backoff_delay(
     Returns:
         Delay in seconds to wait before next attempt
     """
-    delay = min(base_delay * (exponential_base ** attempt), max_delay)
+    delay = min(base_delay * (exponential_base**attempt), max_delay)
     jitter = delay * jitter_factor * random.uniform(-1, 1)
     return max(0, delay + jitter)
 
@@ -181,7 +191,9 @@ def get_passio_circuit_breaker() -> CircuitBreaker:
         _passio_circuit_breaker = CircuitBreaker(
             name="passio_api",
             failure_threshold=int(os.getenv("PASSIO_CIRCUIT_FAILURE_THRESHOLD", "5")),
-            recovery_timeout=float(os.getenv("PASSIO_CIRCUIT_RECOVERY_TIMEOUT", "60.0")),
+            recovery_timeout=float(
+                os.getenv("PASSIO_CIRCUIT_RECOVERY_TIMEOUT", "60.0")
+            ),
         )
     return _passio_circuit_breaker
 

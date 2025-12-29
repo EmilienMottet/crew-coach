@@ -1,4 +1,5 @@
 """Task for privacy and compliance checking."""
+
 from __future__ import annotations
 
 import json
@@ -19,25 +20,25 @@ def create_privacy_task(
 ) -> Task:
     """
     Create a task for checking privacy and working hours compliance.
-    
+
     Args:
         agent: The agent responsible for this task
         activity_data: Raw activity data from Strava webhook
         generated_content: The generated title and description to check
-        
+
     Returns:
         Configured Task instance
     """
     object_data = activity_data.get("object_data", {})
     start_date_local = object_data.get("start_date_local", "")
-    
+
     # Parse the start time to check working hours in Europe/Paris timezone
     try:
         # Format: "2025-10-27T11:54:41Z"
         # Note: start_date_local is ALREADY in local time despite the 'Z' suffix
         # We should NOT convert from UTC - just parse and localize directly
-        paris_tz = pytz.timezone('Europe/Paris')
-        naive_datetime = datetime.fromisoformat(start_date_local.replace('Z', ''))
+        paris_tz = pytz.timezone("Europe/Paris")
+        naive_datetime = datetime.fromisoformat(start_date_local.replace("Z", ""))
         start_datetime_paris = paris_tz.localize(naive_datetime)
 
         start_time_str = start_datetime_paris.strftime("%H:%M")
@@ -45,25 +46,25 @@ def create_privacy_task(
     except:
         start_time_str = "unknown"
         day_of_week = "unknown"
-    
+
     work_start_morning = os.getenv("WORK_START_MORNING", "08:30")
     work_end_morning = os.getenv("WORK_END_MORNING", "12:00")
     work_start_afternoon = os.getenv("WORK_START_AFTERNOON", "14:00")
     work_end_afternoon = os.getenv("WORK_END_AFTERNOON", "17:00")
-    
+
     # Extract basic activity metrics for fallback title generation
     distance = object_data.get("distance", 0) / 1000  # Convert to km
     activity_type = object_data.get("type", "Run")
-    
+
     # Determine time of day for fallback title
     time_of_day = "Run"  # Default
     try:
         # start_date_local is already in local time, just localize it
-        paris_tz = pytz.timezone('Europe/Paris')
-        naive_datetime = datetime.fromisoformat(start_date_local.replace('Z', ''))
+        paris_tz = pytz.timezone("Europe/Paris")
+        naive_datetime = datetime.fromisoformat(start_date_local.replace("Z", ""))
         start_datetime_paris = paris_tz.localize(naive_datetime)
         hour = start_datetime_paris.hour
-        
+
         # Categorize by time of day (Europe/Paris timezone)
         if 5 <= hour < 12:
             time_of_day = "Morning Run"
@@ -78,7 +79,7 @@ def create_privacy_task(
     except:
         # If parsing fails, use default
         pass
-    
+
     # Generate a simple fallback title based on activity type, time, and distance
     if activity_type == "Run":
         if distance >= 20:
@@ -87,7 +88,7 @@ def create_privacy_task(
             fallback_title = f"🏃 {time_of_day} - {distance:.1f}K"
     else:
         fallback_title = f"{activity_type} - {distance:.1f}K"
-    
+
     if isinstance(generated_content, str):
         content_payload = generated_content
     else:
@@ -141,7 +142,7 @@ def create_privacy_task(
     - Use `null` for unchanged title/description in `recommended_changes`
     - Keep explanations short, precise, and professional
     """
-    
+
     return Task(
         description=description,
         agent=agent,

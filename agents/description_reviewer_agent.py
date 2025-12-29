@@ -3,6 +3,7 @@
 Part of the Supervisor/Executor/Reviewer pattern for DESCRIPTION.
 This agent synthesizes raw data into engaging title and description.
 """
+
 from crewai import Agent
 from typing import Any
 

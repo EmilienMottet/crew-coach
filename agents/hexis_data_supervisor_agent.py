@@ -3,6 +3,7 @@
 Part of the Supervisor/Executor/Reviewer pattern for HEXIS_ANALYSIS.
 This agent plans what data to retrieve but does NOT make tool calls.
 """
+
 from crewai import Agent
 from typing import Any
 

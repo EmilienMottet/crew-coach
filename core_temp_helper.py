@@ -27,7 +27,7 @@ def extract_core_metrics_from_streams(streams_response: str) -> Optional[Dict]:
         return None
 
     # Extract core temperature values
-    core_pattern = r'Stream:.*?\(core_temperature\).*?First 5 values: \[(.*?)\].*?Last 5 values: \[(.*?)\]'
+    core_pattern = r"Stream:.*?\(core_temperature\).*?First 5 values: \[(.*?)\].*?Last 5 values: \[(.*?)\]"
     core_match = re.search(core_pattern, streams_response, re.DOTALL)
 
     if not core_match:
@@ -36,9 +36,9 @@ def extract_core_metrics_from_streams(streams_response: str) -> Optional[Dict]:
     # Parse first and last values
     def parse_temp_values(val_str):
         temps = []
-        for v in val_str.split(','):
+        for v in val_str.split(","):
             v = v.strip()
-            if v and v != 'None':
+            if v and v != "None":
                 try:
                     temps.append(float(v))
                 except ValueError:
@@ -60,7 +60,7 @@ def extract_core_metrics_from_streams(streams_response: str) -> Optional[Dict]:
     skin_start = None
     skin_end = None
 
-    skin_pattern = r'Stream:.*?\(skin_temperature\).*?First 5 values: \[(.*?)\].*?Last 5 values: \[(.*?)\]'
+    skin_pattern = r"Stream:.*?\(skin_temperature\).*?First 5 values: \[(.*?)\].*?Last 5 values: \[(.*?)\]"
     skin_match = re.search(skin_pattern, streams_response, re.DOTALL)
 
     if skin_match:
@@ -71,16 +71,18 @@ def extract_core_metrics_from_streams(streams_response: str) -> Optional[Dict]:
             skin_end = last_skin[-1]
 
     return {
-        'core_temp_start': start_temp,
-        'core_temp_end': end_temp,
-        'core_temp_max': max_temp,
-        'core_temp_rise': temp_rise,
-        'skin_temp_start': skin_start,
-        'skin_temp_end': skin_end,
+        "core_temp_start": start_temp,
+        "core_temp_end": end_temp,
+        "core_temp_max": max_temp,
+        "core_temp_rise": temp_rise,
+        "skin_temp_start": skin_start,
+        "skin_temp_end": skin_end,
     }
 
 
-def generate_core_description_snippet(core_metrics: Dict, ambient_temp: Optional[float] = None) -> Optional[str]:
+def generate_core_description_snippet(
+    core_metrics: Dict, ambient_temp: Optional[float] = None
+) -> Optional[str]:
     """
     Generate a description snippet about CORE temperature data.
 
@@ -94,8 +96,8 @@ def generate_core_description_snippet(core_metrics: Dict, ambient_temp: Optional
     if not core_metrics:
         return None
 
-    max_temp = core_metrics['core_temp_max']
-    temp_rise = core_metrics['core_temp_rise']
+    max_temp = core_metrics["core_temp_max"]
+    temp_rise = core_metrics["core_temp_rise"]
 
     # Decision logic for what to include
     if max_temp >= 39.5:
@@ -126,7 +128,9 @@ def generate_core_description_snippet(core_metrics: Dict, ambient_temp: Optional
             return None
 
 
-def should_include_core_in_description(core_metrics: Dict, ambient_temp: Optional[float] = None) -> bool:
+def should_include_core_in_description(
+    core_metrics: Dict, ambient_temp: Optional[float] = None
+) -> bool:
     """
     Decide if CORE data is notable enough to include in description.
 
@@ -140,8 +144,8 @@ def should_include_core_in_description(core_metrics: Dict, ambient_temp: Optiona
     if not core_metrics:
         return False
 
-    max_temp = core_metrics['core_temp_max']
-    temp_rise = core_metrics['core_temp_rise']
+    max_temp = core_metrics["core_temp_max"]
+    temp_rise = core_metrics["core_temp_rise"]
 
     # Always include if temperature is high or rise is significant
     if max_temp >= 39.0 or temp_rise >= 1.5:
@@ -156,7 +160,9 @@ def should_include_core_in_description(core_metrics: Dict, ambient_temp: Optiona
     return False
 
 
-def format_core_metrics_for_llm(core_metrics: Optional[Dict], ambient_temp: Optional[float] = None) -> str:
+def format_core_metrics_for_llm(
+    core_metrics: Optional[Dict], ambient_temp: Optional[float] = None
+) -> str:
     """
     Format CORE metrics as a string for LLM context.
 
@@ -170,10 +176,10 @@ def format_core_metrics_for_llm(core_metrics: Optional[Dict], ambient_temp: Opti
     if not core_metrics:
         return "CORE Body Temperature: No data available for this activity."
 
-    max_temp = core_metrics['core_temp_max']
-    temp_rise = core_metrics['core_temp_rise']
-    start_temp = core_metrics['core_temp_start']
-    end_temp = core_metrics['core_temp_end']
+    max_temp = core_metrics["core_temp_max"]
+    temp_rise = core_metrics["core_temp_rise"]
+    start_temp = core_metrics["core_temp_start"]
+    end_temp = core_metrics["core_temp_end"]
 
     # Build context string
     lines = [
@@ -197,7 +203,7 @@ def format_core_metrics_for_llm(core_metrics: Optional[Dict], ambient_temp: Opti
     # Add recommendation
     snippet = generate_core_description_snippet(core_metrics, ambient_temp)
     if snippet:
-        lines.append(f"\n  💡 Suggested mention: \"{snippet}\"")
+        lines.append(f'\n  💡 Suggested mention: "{snippet}"')
 
     return "\n".join(lines)
 
@@ -217,7 +223,13 @@ if __name__ == "__main__":
     print("Extracted metrics:", metrics)
 
     if metrics:
-        print("\nDescription snippet:", generate_core_description_snippet(metrics, ambient_temp=6))
-        print("\nShould include?", should_include_core_in_description(metrics, ambient_temp=6))
+        print(
+            "\nDescription snippet:",
+            generate_core_description_snippet(metrics, ambient_temp=6),
+        )
+        print(
+            "\nShould include?",
+            should_include_core_in_description(metrics, ambient_temp=6),
+        )
         print("\nFormatted for LLM:")
         print(format_core_metrics_for_llm(metrics, ambient_temp=6))

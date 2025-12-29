@@ -1,4 +1,5 @@
 """Task for generating a single day's meal plan."""
+
 from __future__ import annotations
 
 import json
@@ -30,7 +31,9 @@ def create_meal_generation_task(
         # Format macro accuracy issues
         macro_issues = ""
         if macro_accuracy:
-            macro_lines = [f"  - {day}: {status}" for day, status in macro_accuracy.items()]
+            macro_lines = [
+                f"  - {day}: {status}" for day, status in macro_accuracy.items()
+            ]
             macro_issues = "\n".join(macro_lines)
 
         feedback_section = f"""

@@ -18,7 +18,7 @@ from mcp_auth_wrapper import MetaMCPAdapter
 def extract_stream_values(stream_response: str, stream_name: str) -> list:
     """Extract numeric values from stream response string."""
     # Look for the stream section
-    pattern = rf'Stream:.*?\({stream_name}\).*?First 5 values: \[(.*?)\].*?Last 5 values: \[(.*?)\]'
+    pattern = rf"Stream:.*?\({stream_name}\).*?First 5 values: \[(.*?)\].*?Last 5 values: \[(.*?)\]"
     match = re.search(pattern, stream_response, re.DOTALL)
 
     if not match:
@@ -30,9 +30,9 @@ def extract_stream_values(stream_response: str, stream_name: str) -> list:
     # Parse the values
     def parse_values(val_str):
         vals = []
-        for v in val_str.split(','):
+        for v in val_str.split(","):
             v = v.strip()
-            if v and v != 'None':
+            if v and v != "None":
                 try:
                     vals.append(float(v))
                 except ValueError:
@@ -43,15 +43,17 @@ def extract_stream_values(stream_response: str, stream_name: str) -> list:
     last = parse_values(last_vals)
 
     # Get data points count
-    points_match = re.search(rf'Stream:.*?\({stream_name}\).*?Data Points: (\d+)', stream_response, re.DOTALL)
+    points_match = re.search(
+        rf"Stream:.*?\({stream_name}\).*?Data Points: (\d+)", stream_response, re.DOTALL
+    )
     total_points = int(points_match.group(1)) if points_match else 0
 
     return {
-        'first_values': first,
-        'last_values': last,
-        'total_points': total_points,
-        'start': first[0] if first else None,
-        'end': last[-1] if last else None
+        "first_values": first,
+        "last_values": last,
+        "total_points": total_points,
+        "start": first[0] if first else None,
+        "end": last[-1] if last else None,
     }
 
 
@@ -90,10 +92,13 @@ def analyze_core_data(activity_id: str):
 
         core_response = streams_tool._run(
             activity_id=activity_id,
-            stream_types="core_temperature,skin_temperature,heartrate,watts"
+            stream_types="core_temperature,skin_temperature,heartrate,watts",
         )
 
-        if not isinstance(core_response, str) or "core_temperature" not in core_response:
+        if (
+            not isinstance(core_response, str)
+            or "core_temperature" not in core_response
+        ):
             print("⚠️  No CORE data available for this activity", file=sys.stderr)
             adapter.stop()
             return None
@@ -104,39 +109,45 @@ def analyze_core_data(activity_id: str):
 
         adapter.stop()
 
-        print("="*80, file=sys.stderr)
+        print("=" * 80, file=sys.stderr)
         print("📊 CORE TEMPERATURE ANALYSIS", file=sys.stderr)
-        print("="*80 + "\n", file=sys.stderr)
+        print("=" * 80 + "\n", file=sys.stderr)
 
-        if core_temp['start'] is None:
+        if core_temp["start"] is None:
             print("⚠️  No valid CORE data", file=sys.stderr)
             return None
 
         # Calculate statistics
-        start_temp = core_temp['start']
-        end_temp = core_temp['end']
+        start_temp = core_temp["start"]
+        end_temp = core_temp["end"]
         temp_rise = end_temp - start_temp
 
         # Estimate max (using last values as proxy)
-        max_temp = max(core_temp['last_values'])
+        max_temp = max(core_temp["last_values"])
 
         print(f"Core Temperature:", file=sys.stderr)
         print(f"  Start: {start_temp:.1f}°C", file=sys.stderr)
         print(f"  End: {end_temp:.1f}°C", file=sys.stderr)
         print(f"  Max (estimated): {max_temp:.1f}°C", file=sys.stderr)
         print(f"  Rise: +{temp_rise:.1f}°C", file=sys.stderr)
-        print(f"  Duration: {core_temp['total_points']} seconds ({core_temp['total_points']//60} min)\n", file=sys.stderr)
+        print(
+            f"  Duration: {core_temp['total_points']} seconds ({core_temp['total_points']//60} min)\n",
+            file=sys.stderr,
+        )
 
-        if skin_temp['start']:
+        if skin_temp["start"]:
             print(f"Skin Temperature:", file=sys.stderr)
             print(f"  Start: {skin_temp['start']:.1f}°C", file=sys.stderr)
             print(f"  End: {skin_temp['end']:.1f}°C", file=sys.stderr)
-            print(f"  Change: {skin_temp['end'] - skin_temp['start']:.1f}°C\n", file=sys.stderr)
+            print(
+                f"  Change: {skin_temp['end'] - skin_temp['start']:.1f}°C\n",
+                file=sys.stderr,
+            )
 
         # Determine most representative metric
-        print("="*80, file=sys.stderr)
+        print("=" * 80, file=sys.stderr)
         print("🎯 MOST REPRESENTATIVE METRIC FOR DESCRIPTION", file=sys.stderr)
-        print("="*80 + "\n", file=sys.stderr)
+        print("=" * 80 + "\n", file=sys.stderr)
 
         # Decision logic
         if max_temp >= 39.5:
@@ -149,7 +160,10 @@ def analyze_core_data(activity_id: str):
             metric = f"Core temp max {max_temp:.1f}°C"
             importance = "HIGH"
             print(f"   ⚠️  {metric}", file=sys.stderr)
-            print(f"      Raison: Température élevée, stress thermique important", file=sys.stderr)
+            print(
+                f"      Raison: Température élevée, stress thermique important",
+                file=sys.stderr,
+            )
 
         elif temp_rise >= 1.5:
             metric = f"Élévation core temp +{temp_rise:.1f}°C (max {max_temp:.1f}°C)"
@@ -176,16 +190,16 @@ def analyze_core_data(activity_id: str):
             "core_temp_end": end_temp,
             "core_temp_max": max_temp,
             "core_temp_rise": temp_rise,
-            "skin_temp_start": skin_temp['start'],
-            "skin_temp_end": skin_temp['end'],
-            "duration_seconds": core_temp['total_points'],
+            "skin_temp_start": skin_temp["start"],
+            "skin_temp_end": skin_temp["end"],
+            "duration_seconds": core_temp["total_points"],
             "recommended_metric": metric,
-            "importance": importance
+            "importance": importance,
         }
 
-        print("\n" + "="*80, file=sys.stderr)
+        print("\n" + "=" * 80, file=sys.stderr)
         print("📋 SUMMARY FOR INTEGRATION", file=sys.stderr)
-        print("="*80 + "\n", file=sys.stderr)
+        print("=" * 80 + "\n", file=sys.stderr)
 
         print(json.dumps(summary, indent=2, ensure_ascii=False), file=sys.stderr)
 
@@ -194,6 +208,7 @@ def analyze_core_data(activity_id: str):
     except Exception as e:
         print(f"❌ Error: {e}", file=sys.stderr)
         import traceback
+
         traceback.print_exc(file=sys.stderr)
         return None
 

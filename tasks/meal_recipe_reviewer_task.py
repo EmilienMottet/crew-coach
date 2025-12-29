@@ -1,4 +1,5 @@
 """Task for the Meal Recipe Reviewer - macro calculation and final assembly."""
+
 from __future__ import annotations
 
 import json

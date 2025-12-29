@@ -3,6 +3,7 @@
 Part of the Supervisor/Executor/Reviewer pattern for HEXIS_ANALYSIS.
 This agent synthesizes raw data into the final analysis.
 """
+
 from crewai import Agent
 from typing import Any
 

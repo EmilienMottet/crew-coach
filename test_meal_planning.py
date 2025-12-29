@@ -1,4 +1,5 @@
 """Test script for the meal planning crew."""
+
 import json
 import os
 import sys
@@ -38,7 +39,9 @@ def test_meal_planning():
         days_to_generate = 7
 
     if days_to_generate < 1:
-        print(f"⚠️  Requested days ({days_to_generate}) is less than 1 - defaulting to 1 day\n")
+        print(
+            f"⚠️  Requested days ({days_to_generate}) is less than 1 - defaulting to 1 day\n"
+        )
         days_to_generate = 1
     elif days_to_generate > 7:
         print(f"⚠️  Requested days ({days_to_generate}) exceeds 7 - capping to 7 days\n")
@@ -55,7 +58,7 @@ def test_meal_planning():
         # Initialize crew
         print("⏳ Initializing crew...\n")
         crew = MealPlanningCrew()
-        
+
         # DEBUG: Check API key
         llm = crew.meal_generation_llm
         key = getattr(llm, "api_key", "N/A")
@@ -66,7 +69,9 @@ def test_meal_planning():
 
         # Generate meal plan
         print("⏳ Generating meal plan (this may take 2-10 minutes)...\n")
-        result = crew.generate_meal_plan(week_start_date, days_to_generate=days_to_generate)
+        result = crew.generate_meal_plan(
+            week_start_date, days_to_generate=days_to_generate
+        )
 
         # Check for errors
         if "error" in result:
@@ -82,14 +87,18 @@ def test_meal_planning():
         # Hexis Analysis Summary
         hexis = result.get("hexis_analysis", {})
         print(f"📊 HEXIS ANALYSIS:")
-        print(f"   Training Load: {_preview_text(hexis.get('training_load_summary'))[:80]}...")
+        print(
+            f"   Training Load: {_preview_text(hexis.get('training_load_summary'))[:80]}..."
+        )
         print(f"   Recovery: {_preview_text(hexis.get('recovery_status'))[:80]}...")
         print()
 
         # Nutrition Plan Summary
         nutrition = result.get("nutrition_plan", {})
         print(f"📅 NUTRITION PLAN:")
-        print(f"   Week: {nutrition.get('week_start_date')} to {nutrition.get('week_end_date')}")
+        print(
+            f"   Week: {nutrition.get('week_start_date')} to {nutrition.get('week_end_date')}"
+        )
         print(f"   Summary: {_preview_text(nutrition.get('weekly_summary'))[:80]}...")
         print()
 
@@ -130,7 +139,9 @@ def test_meal_planning():
                 print(f"📝 SAMPLE MEAL ({first_day['day_name']} Breakfast):")
                 print(f"   Name: {first_meal.get('meal_name', 'N/A')}")
                 print(f"   Calories: {first_meal.get('calories', 0)} kcal")
-                print(f"   Macros: {first_meal.get('protein_g', 0)}P / {first_meal.get('carbs_g', 0)}C / {first_meal.get('fat_g', 0)}F")
+                print(
+                    f"   Macros: {first_meal.get('protein_g', 0)}P / {first_meal.get('carbs_g', 0)}C / {first_meal.get('fat_g', 0)}F"
+                )
                 print(f"   Prep time: {first_meal.get('preparation_time_min', 0)} min")
                 print()
 
@@ -144,6 +155,7 @@ def test_meal_planning():
         print(f"\n❌ ERROR during test:")
         print(f"{str(e)}\n")
         import traceback
+
         traceback.print_exc()
         return False
 

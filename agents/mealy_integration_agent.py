@@ -1,4 +1,5 @@
 """Agent responsible for integrating meal plans into Hexis."""
+
 from crewai import Agent
 from typing import Any, Optional, Sequence
 
@@ -6,7 +7,7 @@ from typing import Any, Optional, Sequence
 def create_hexis_integration_agent(
     llm: Any,
     tools: Optional[Sequence[Any]] = None,
-    mcps: Optional[Sequence[str]] = None
+    mcps: Optional[Sequence[str]] = None,
 ) -> Agent:
     """
     Create an agent that integrates validated meal plans into Hexis.
@@ -186,7 +187,7 @@ def create_hexis_integration_agent(
 def create_mealy_integration_agent(
     llm: Any,
     tools: Optional[Sequence[Any]] = None,
-    mcps: Optional[Sequence[str]] = None
+    mcps: Optional[Sequence[str]] = None,
 ) -> Agent:
     """Deprecated: Use create_hexis_integration_agent instead."""
     return create_hexis_integration_agent(llm, tools, mcps)

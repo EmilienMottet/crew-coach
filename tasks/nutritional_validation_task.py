@@ -1,4 +1,5 @@
 """Task for validating the nutritional quality of generated meal plans."""
+
 from __future__ import annotations
 
 import json
@@ -34,9 +35,19 @@ def create_nutritional_validation_task(
 
     limited_nutrition_plan = deepcopy(weekly_nutrition_plan)
     if limited_nutrition_plan.get("daily_targets"):
-        limited_nutrition_plan["daily_targets"] = limited_nutrition_plan["daily_targets"][:requested_days]
-        last_target = limited_nutrition_plan["daily_targets"][-1] if limited_nutrition_plan["daily_targets"] else None
-        last_date = (last_target.get("date") if isinstance(last_target, dict) else None) if last_target else None
+        limited_nutrition_plan["daily_targets"] = limited_nutrition_plan[
+            "daily_targets"
+        ][:requested_days]
+        last_target = (
+            limited_nutrition_plan["daily_targets"][-1]
+            if limited_nutrition_plan["daily_targets"]
+            else None
+        )
+        last_date = (
+            (last_target.get("date") if isinstance(last_target, dict) else None)
+            if last_target
+            else None
+        )
         if last_date:
             limited_nutrition_plan["week_end_date"] = last_date
 
@@ -49,7 +60,11 @@ def create_nutritional_validation_task(
     fruit_target = min(5, max(2, requested_days * 2))
     grain_target = min(4, max(2, requested_days))
     healthy_fats_target = min(5, max(2, requested_days))
-    planned_day_list = ", ".join(planned_day_names[:requested_days]) if planned_day_names else "None provided"
+    planned_day_list = (
+        ", ".join(planned_day_names[:requested_days])
+        if planned_day_names
+        else "None provided"
+    )
 
     description = f"""
     Validate the generated weekly meal plan to ensure nutritional adequacy, accuracy,

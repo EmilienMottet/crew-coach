@@ -1,4 +1,5 @@
 """Agents for the Strava Description Crew and Meal Planning Crew."""
+
 from .description_agent import create_description_agent
 from .music_agent import create_music_agent
 from .privacy_agent import create_privacy_agent
@@ -15,7 +16,9 @@ from .mealy_integration_agent import create_mealy_integration_agent
 
 # Supervisor/Executor/Reviewer pattern for MEAL_GENERATION
 from .meal_planning_supervisor_agent import create_meal_planning_supervisor_agent
-from .ingredient_validation_executor_agent import create_ingredient_validation_executor_agent
+from .ingredient_validation_executor_agent import (
+    create_ingredient_validation_executor_agent,
+)
 from .meal_recipe_reviewer_agent import create_meal_recipe_reviewer_agent
 
 # Supervisor/Executor/Reviewer pattern for HEXIS_ANALYSIS

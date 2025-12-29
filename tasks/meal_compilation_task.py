@@ -1,4 +1,5 @@
 """Task for consolidating daily plans into a weekly meal plan."""
+
 from __future__ import annotations
 
 import json
@@ -52,7 +53,6 @@ QUALITY RULES:
 
 Return only JSON, no markdown fences. The result must validate against WeeklyMealPlan.
 """
-
 
     return Task(
         description=description,

@@ -53,6 +53,7 @@ def _passio_rate_limit():
         time.sleep(delay)
     _passio_last_call_time = time.time()
 
+
 # =============================================================================
 # Trusted Ingredients Database (Fallback for known-bad Passio entries)
 # =============================================================================
@@ -60,7 +61,12 @@ def _passio_rate_limit():
 TRUSTED_INGREDIENTS: Dict[str, Dict[str, float]] = {
     # Protein powders (common source of Passio errors)
     "whey protein": {"protein": 80.0, "carbs": 4.0, "fat": 2.0, "calories": 370.0},
-    "whey protein powder": {"protein": 80.0, "carbs": 4.0, "fat": 2.0, "calories": 370.0},
+    "whey protein powder": {
+        "protein": 80.0,
+        "carbs": 4.0,
+        "fat": 2.0,
+        "calories": 370.0,
+    },
     "whey isolate": {"protein": 90.0, "carbs": 2.0, "fat": 1.0, "calories": 380.0},
     "casein protein": {"protein": 80.0, "carbs": 3.0, "fat": 1.0, "calories": 350.0},
     "protein powder": {"protein": 75.0, "carbs": 8.0, "fat": 3.0, "calories": 360.0},
@@ -147,62 +153,174 @@ TRUSTED_INGREDIENTS: Dict[str, Dict[str, float]] = {
 # =============================================================================
 # Maximum expected carbs per 100g by category - values above these are likely errors
 CATEGORY_CARB_LIMITS: Dict[str, float] = {
-    "vegetable": 15.0,         # Vegetables rarely exceed 15g carbs/100g (except starchy ones)
-    "leafy_green": 8.0,        # Leafy greens are very low carb
-    "fruit": 25.0,             # Fresh fruits can have more natural sugars
-    "protein": 5.0,            # Pure proteins have minimal carbs
-    "dairy": 16.0,             # Most dairy is low carb (slightly increased for tolerance)
-    "fat": 2.0,                # Pure fats have no carbs
+    "vegetable": 15.0,  # Vegetables rarely exceed 15g carbs/100g (except starchy ones)
+    "leafy_green": 8.0,  # Leafy greens are very low carb
+    "fruit": 25.0,  # Fresh fruits can have more natural sugars
+    "protein": 5.0,  # Pure proteins have minimal carbs
+    "dairy": 16.0,  # Most dairy is low carb (slightly increased for tolerance)
+    "fat": 2.0,  # Pure fats have no carbs
     # NEW: Categories for processed/plant-based foods that were causing false positives
-    "processed_fruit": 80.0,   # Jams, compotes, fruit preserves (high sugar content is normal)
-    "plant_based_dairy": 20.0, # Soy/oat/almond yogurt (slightly higher carbs than cow dairy)
-    "condiment": 50.0,         # Sauces, spreads, condiments (varied carb content)
+    "processed_fruit": 80.0,  # Jams, compotes, fruit preserves (high sugar content is normal)
+    "plant_based_dairy": 20.0,  # Soy/oat/almond yogurt (slightly higher carbs than cow dairy)
+    "condiment": 50.0,  # Sauces, spreads, condiments (varied carb content)
 }
 
 # Keyword-based category detection
 FOOD_CATEGORY_KEYWORDS: Dict[str, List[str]] = {
     "vegetable": [
-        "zucchini", "courgette", "bell pepper", "pepper", "broccoli", "cauliflower",
-        "spinach", "kale", "cabbage", "carrot", "celery", "cucumber", "eggplant",
-        "aubergine", "asparagus", "green bean", "mushroom", "onion", "tomato",
-        "lettuce", "arugula", "chard", "beet", "radish", "turnip", "leek",
-        "peas", "artichoke", "fennel", "brussels sprout",
+        "zucchini",
+        "courgette",
+        "bell pepper",
+        "pepper",
+        "broccoli",
+        "cauliflower",
+        "spinach",
+        "kale",
+        "cabbage",
+        "carrot",
+        "celery",
+        "cucumber",
+        "eggplant",
+        "aubergine",
+        "asparagus",
+        "green bean",
+        "mushroom",
+        "onion",
+        "tomato",
+        "lettuce",
+        "arugula",
+        "chard",
+        "beet",
+        "radish",
+        "turnip",
+        "leek",
+        "peas",
+        "artichoke",
+        "fennel",
+        "brussels sprout",
     ],
     "leafy_green": [
-        "spinach", "kale", "lettuce", "arugula", "chard", "collard", "watercress",
-        "rocket", "endive", "radicchio",
+        "spinach",
+        "kale",
+        "lettuce",
+        "arugula",
+        "chard",
+        "collard",
+        "watercress",
+        "rocket",
+        "endive",
+        "radicchio",
     ],
     "fruit": [
-        "apple", "banana", "orange", "grape", "berry", "strawberry", "blueberry",
-        "raspberry", "blackberry", "mango", "pineapple", "watermelon", "melon",
-        "peach", "pear", "plum", "cherry", "kiwi", "papaya", "fig",
+        "apple",
+        "banana",
+        "orange",
+        "grape",
+        "berry",
+        "strawberry",
+        "blueberry",
+        "raspberry",
+        "blackberry",
+        "mango",
+        "pineapple",
+        "watermelon",
+        "melon",
+        "peach",
+        "pear",
+        "plum",
+        "cherry",
+        "kiwi",
+        "papaya",
+        "fig",
     ],
     "protein": [
-        "chicken", "beef", "pork", "fish", "salmon", "tuna", "shrimp", "egg",
-        "turkey", "lamb", "duck", "tofu", "tempeh", "seitan", "cod", "tilapia",
-        "mackerel", "sardine", "anchovy", "crab", "lobster", "scallop",
+        "chicken",
+        "beef",
+        "pork",
+        "fish",
+        "salmon",
+        "tuna",
+        "shrimp",
+        "egg",
+        "turkey",
+        "lamb",
+        "duck",
+        "tofu",
+        "tempeh",
+        "seitan",
+        "cod",
+        "tilapia",
+        "mackerel",
+        "sardine",
+        "anchovy",
+        "crab",
+        "lobster",
+        "scallop",
     ],
     "dairy": [
-        "milk", "yogurt", "cheese", "cream", "butter", "ghee", "kefir",
-        "cottage cheese", "ricotta", "mascarpone",
+        "milk",
+        "yogurt",
+        "cheese",
+        "cream",
+        "butter",
+        "ghee",
+        "kefir",
+        "cottage cheese",
+        "ricotta",
+        "mascarpone",
     ],
     "fat": [
-        "olive oil", "coconut oil", "avocado oil", "vegetable oil", "canola oil",
-        "sunflower oil", "sesame oil", "ghee", "lard",
+        "olive oil",
+        "coconut oil",
+        "avocado oil",
+        "vegetable oil",
+        "canola oil",
+        "sunflower oil",
+        "sesame oil",
+        "ghee",
+        "lard",
     ],
     # NEW: Categories for processed/plant-based foods
     "processed_fruit": [
-        "jam", "jelly", "compote", "preserve", "marmalade", "confiture",
-        "fruit spread", "fruit butter", "coulis",
+        "jam",
+        "jelly",
+        "compote",
+        "preserve",
+        "marmalade",
+        "confiture",
+        "fruit spread",
+        "fruit butter",
+        "coulis",
     ],
     "plant_based_dairy": [
-        "soy yogurt", "soya yogurt", "oat yogurt", "almond yogurt", "coconut yogurt",
-        "plant yogurt", "vegan yogurt", "dairy-free yogurt", "non-dairy yogurt",
-        "soy milk", "oat milk", "almond milk", "coconut milk", "rice milk",
+        "soy yogurt",
+        "soya yogurt",
+        "oat yogurt",
+        "almond yogurt",
+        "coconut yogurt",
+        "plant yogurt",
+        "vegan yogurt",
+        "dairy-free yogurt",
+        "non-dairy yogurt",
+        "soy milk",
+        "oat milk",
+        "almond milk",
+        "coconut milk",
+        "rice milk",
     ],
     "condiment": [
-        "ketchup", "mustard", "mayonnaise", "sauce", "dressing", "relish",
-        "chutney", "salsa", "pesto", "hummus", "tahini", "sriracha",
+        "ketchup",
+        "mustard",
+        "mayonnaise",
+        "sauce",
+        "dressing",
+        "relish",
+        "chutney",
+        "salsa",
+        "pesto",
+        "hummus",
+        "tahini",
+        "sriracha",
     ],
 }
 
@@ -266,23 +384,40 @@ def is_nutrition_sane(food: Dict[str, Any], query: str = "") -> bool:
     - Protein powder with > 30g carbs/100g
     - Total macros don't roughly match calories
     """
-    protein = food.get("protein_per_100g") or food.get("nutrients", {}).get("protein", 0) or 0
+    protein = (
+        food.get("protein_per_100g") or food.get("nutrients", {}).get("protein", 0) or 0
+    )
     carbs = food.get("carbs_per_100g") or food.get("nutrients", {}).get("carbs", 0) or 0
     fat = food.get("fat_per_100g") or food.get("nutrients", {}).get("fat", 0) or 0
-    calories = food.get("calories_per_100g") or food.get("nutrients", {}).get("calories", 0) or 0
+    calories = (
+        food.get("calories_per_100g")
+        or food.get("nutrients", {}).get("calories", 0)
+        or 0
+    )
 
-    food_name = (food.get("displayName") or food.get("shortName") or food.get("passio_food_name") or "").lower()
+    food_name = (
+        food.get("displayName")
+        or food.get("shortName")
+        or food.get("passio_food_name")
+        or ""
+    ).lower()
     query_lower = query.lower()
 
     # Rule 0: All values are 0 or missing = no real nutrition data
     # This is a critical check to prevent caching entries without actual data
     if protein == 0 and carbs == 0 and fat == 0 and calories == 0:
-        print(f"   ⚠️  SANITY FAIL: {food_name or query} has all-zero nutrition (no data)", file=sys.stderr)
+        print(
+            f"   ⚠️  SANITY FAIL: {food_name or query} has all-zero nutrition (no data)",
+            file=sys.stderr,
+        )
         return False
 
     # Rule 1: Carbs > 100g/100g is impossible (except pure sugar/starch)
     if carbs > 100 and "sugar" not in food_name and "starch" not in food_name:
-        print(f"   ⚠️  SANITY FAIL: {food_name} has {carbs}g carbs/100g (impossible)", file=sys.stderr)
+        print(
+            f"   ⚠️  SANITY FAIL: {food_name} has {carbs}g carbs/100g (impossible)",
+            file=sys.stderr,
+        )
         return False
 
     # Rule 1.5: Category-specific carb limits (e.g., vegetables shouldn't have 76g carbs)
@@ -290,14 +425,22 @@ def is_nutrition_sane(food: Dict[str, Any], query: str = "") -> bool:
     if category and category in CATEGORY_CARB_LIMITS:
         max_carbs = CATEGORY_CARB_LIMITS[category]
         if carbs > max_carbs:
-            print(f"   ⚠️  SANITY FAIL: {food_name} ({category}) has {carbs}g carbs/100g (max for {category}: {max_carbs}g)", file=sys.stderr)
+            print(
+                f"   ⚠️  SANITY FAIL: {food_name} ({category}) has {carbs}g carbs/100g (max for {category}: {max_carbs}g)",
+                file=sys.stderr,
+            )
             return False
 
     # Rule 2: Protein powder/whey with > 30g carbs is wrong
-    is_protein_powder = any(kw in food_name or kw in query_lower
-                            for kw in ["whey", "protein powder", "casein", "isolate"])
+    is_protein_powder = any(
+        kw in food_name or kw in query_lower
+        for kw in ["whey", "protein powder", "casein", "isolate"]
+    )
     if is_protein_powder and carbs > 30:
-        print(f"   ⚠️  SANITY FAIL: {food_name} (protein powder) has {carbs}g carbs/100g (should be <30g)", file=sys.stderr)
+        print(
+            f"   ⚠️  SANITY FAIL: {food_name} (protein powder) has {carbs}g carbs/100g (should be <30g)",
+            file=sys.stderr,
+        )
         return False
 
     # Rule 3: Calories should roughly match macro calculation (±30%)
@@ -307,7 +450,10 @@ def is_nutrition_sane(food: Dict[str, Any], query: str = "") -> bool:
         if calculated > 0:
             ratio = calories / calculated
             if ratio < 0.5 or ratio > 2.0:
-                print(f"   ⚠️  SANITY FAIL: {food_name} calorie mismatch (stated: {calories}, calculated: {calculated:.0f})", file=sys.stderr)
+                print(
+                    f"   ⚠️  SANITY FAIL: {food_name} calorie mismatch (stated: {calories}, calculated: {calculated:.0f})",
+                    file=sys.stderr,
+                )
                 return False
 
     return True
@@ -327,12 +473,20 @@ def is_search_result_entry(food: Dict[str, Any]) -> bool:
     has_nutrients = "nutrients" in food and food["nutrients"]
     # Also check flat nutrition fields (from cache or enriched results)
     has_flat_nutrition = any(
-        food.get(f) for f in ["protein_per_100g", "carbs_per_100g", "fat_per_100g", "calories_per_100g"]
+        food.get(f)
+        for f in [
+            "protein_per_100g",
+            "carbs_per_100g",
+            "fat_per_100g",
+            "calories_per_100g",
+        ]
     )
     return has_ref_code and not has_nutrients and not has_flat_nutrition
 
 
-def validate_against_trusted(food: Dict[str, Any], query: str = "") -> Tuple[bool, Optional[str]]:
+def validate_against_trusted(
+    food: Dict[str, Any], query: str = ""
+) -> Tuple[bool, Optional[str]]:
     """Validate nutrition against TRUSTED_INGREDIENTS if a match exists.
 
     This catches cases where the Passio API returns incorrect data (e.g., Greek yogurt
@@ -366,10 +520,16 @@ def validate_against_trusted(food: Dict[str, Any], query: str = "") -> Tuple[boo
         return (True, None)  # No trusted reference, can't validate
 
     # Extract nutrition from food dict (handle different key formats)
-    protein = food.get("protein_per_100g") or food.get("nutrients", {}).get("protein", 0) or 0
+    protein = (
+        food.get("protein_per_100g") or food.get("nutrients", {}).get("protein", 0) or 0
+    )
     carbs = food.get("carbs_per_100g") or food.get("nutrients", {}).get("carbs", 0) or 0
     fat = food.get("fat_per_100g") or food.get("nutrients", {}).get("fat", 0) or 0
-    calories = food.get("calories_per_100g") or food.get("nutrients", {}).get("calories", 0) or 0
+    calories = (
+        food.get("calories_per_100g")
+        or food.get("nutrients", {}).get("calories", 0)
+        or 0
+    )
 
     # Tolerance: 50% deviation from trusted values (generous to allow for brand variations)
     TOLERANCE = 0.5
@@ -382,11 +542,20 @@ def validate_against_trusted(food: Dict[str, Any], query: str = "") -> Tuple[boo
         if trusted_val > 0:
             deviation = abs(api_val - trusted_val) / trusted_val
             if deviation > TOLERANCE:
-                issues.append(f"{macro}: API={api_val:.1f}, trusted={trusted_val:.1f} ({deviation*100:.0f}% off)")
+                issues.append(
+                    f"{macro}: API={api_val:.1f}, trusted={trusted_val:.1f} ({deviation*100:.0f}% off)"
+                )
 
     if issues:
-        food_name = food.get("displayName") or food.get("shortName") or food.get("passio_food_name") or query
-        error_msg = f"TRUSTED MISMATCH for '{matched_key}' ({food_name}): {'; '.join(issues)}"
+        food_name = (
+            food.get("displayName")
+            or food.get("shortName")
+            or food.get("passio_food_name")
+            or query
+        )
+        error_msg = (
+            f"TRUSTED MISMATCH for '{matched_key}' ({food_name}): {'; '.join(issues)}"
+        )
         return (False, error_msg)
 
     return (True, None)
@@ -407,7 +576,10 @@ def get_trusted_nutrition(query: str) -> Optional[Dict[str, Any]]:
     # Try partial match
     for ingredient, nutrients in TRUSTED_INGREDIENTS.items():
         if ingredient in query_lower or query_lower in ingredient:
-            print(f"   🔒 Using TRUSTED data for '{query}' → matched '{ingredient}'", file=sys.stderr)
+            print(
+                f"   🔒 Using TRUSTED data for '{query}' → matched '{ingredient}'",
+                file=sys.stderr,
+            )
             return _build_trusted_food_item(query, nutrients)
 
     return None
@@ -431,7 +603,9 @@ def _build_trusted_food_item(name: str, nutrients: Dict[str, float]) -> Dict[str
     }
 
 
-def prefer_verified_entries(foods: List[Dict[str, Any]], query: str = "") -> List[Dict[str, Any]]:
+def prefer_verified_entries(
+    foods: List[Dict[str, Any]], query: str = ""
+) -> List[Dict[str, Any]]:
     """Reorder foods list to prefer verified entries over OpenFood (crowdsourced).
 
     OpenFood entries (id starting with 'openfood') are user-submitted and
@@ -471,13 +645,22 @@ def prefer_verified_entries(foods: List[Dict[str, Any]], query: str = "") -> Lis
     # Only log if we filtered detail results (not search results)
     detail_filtered = len(foods) - len(result) - search_results_count
     if detail_filtered > 0:
-        print(f"   🛡️  Filtered out {detail_filtered} entries with invalid nutrition data", file=sys.stderr)
+        print(
+            f"   🛡️  Filtered out {detail_filtered} entries with invalid nutrition data",
+            file=sys.stderr,
+        )
 
     if search_results_count > 0:
-        print(f"   📋 Kept {len(result)} search result(s) (nutrition fetched separately)", file=sys.stderr)
+        print(
+            f"   📋 Kept {len(result)} search result(s) (nutrition fetched separately)",
+            file=sys.stderr,
+        )
 
     if verified and openfood:
-        print(f"   ✅ Preferring {len(verified)} verified entries over {len(openfood)} OpenFood entries", file=sys.stderr)
+        print(
+            f"   ✅ Preferring {len(verified)} verified entries over {len(openfood)} OpenFood entries",
+            file=sys.stderr,
+        )
 
     return result
 
@@ -533,13 +716,15 @@ def capture_hexis_result(
         error_message: Error message if failed
     """
     global _hexis_tool_results
-    _hexis_tool_results.append({
-        "tool_name": tool_name,
-        "parameters": parameters,
-        "success": success,
-        "result": result,
-        "error_message": error_message,
-    })
+    _hexis_tool_results.append(
+        {
+            "tool_name": tool_name,
+            "parameters": parameters,
+            "success": success,
+            "result": result,
+            "error_message": error_message,
+        }
+    )
 
 
 def get_tool_call_count(tool_name: Optional[str] = None) -> int:
@@ -595,7 +780,7 @@ def validate_tool_input(tool_input: Any) -> Dict[str, Any]:
         print(
             f"⚠️  Warning: Tool received a list instead of dict. "
             f"Extracting valid parameter dicts...",
-            file=sys.stderr
+            file=sys.stderr,
         )
 
         # Collect all dicts that look like parameters (not responses)
@@ -617,11 +802,16 @@ def validate_tool_input(tool_input: Any) -> Dict[str, Any]:
             )
         elif len(valid_items) == 1:
             # Single item - return as dict
-            print(f"✅ Extracted single parameter dict: {valid_items[0]}", file=sys.stderr)
+            print(
+                f"✅ Extracted single parameter dict: {valid_items[0]}", file=sys.stderr
+            )
             return valid_items[0]
         else:
             # Multiple items - return batch marker for sequential processing
-            print(f"✅ Extracted {len(valid_items)} parameter dicts for batch processing", file=sys.stderr)
+            print(
+                f"✅ Extracted {len(valid_items)} parameter dicts for batch processing",
+                file=sys.stderr,
+            )
             return {"__batch_items__": valid_items}
 
     # If it's a string, try to parse as JSON
@@ -661,7 +851,7 @@ class PermissiveToolWrapper(BaseTool):
         - The list contains multiple parameter sets
         - The list contains mocked responses
         """
-        tool_name = getattr(self.original_tool, 'name', self.name)
+        tool_name = getattr(self.original_tool, "name", self.name)
 
         # If we received multiple kwargs, try to extract the real parameters
         # Sometimes CrewAI passes the entire input as a single kwarg
@@ -671,9 +861,14 @@ class PermissiveToolWrapper(BaseTool):
             if isinstance(value, (dict, list)):
                 try:
                     validated = validate_tool_input(value)
-                    print(f"✅ Successfully validated input for {tool_name}", file=sys.stderr)
+                    print(
+                        f"✅ Successfully validated input for {tool_name}",
+                        file=sys.stderr,
+                    )
                 except Exception as e:
-                    print(f"⚠️  Validation warning for {tool_name}: {e}", file=sys.stderr)
+                    print(
+                        f"⚠️  Validation warning for {tool_name}: {e}", file=sys.stderr
+                    )
                     print(f"   Attempting to use original input...", file=sys.stderr)
                     validated = kwargs
             else:
@@ -683,11 +878,16 @@ class PermissiveToolWrapper(BaseTool):
             try:
                 validated = validate_tool_input(kwargs)
             except Exception as e:
-                print(f"⚠️  Could not validate kwargs for {tool_name}: {e}", file=sys.stderr)
+                print(
+                    f"⚠️  Could not validate kwargs for {tool_name}: {e}",
+                    file=sys.stderr,
+                )
                 validated = kwargs
 
         # Call the original tool with validated input
-        original_run = getattr(self.original_tool, '_run', None) or getattr(self.original_tool, 'run', None)
+        original_run = getattr(self.original_tool, "_run", None) or getattr(
+            self.original_tool, "run", None
+        )
         if original_run:
             if isinstance(validated, dict):
                 return original_run(**validated)
@@ -698,7 +898,7 @@ class PermissiveToolWrapper(BaseTool):
     async def _arun(self, **kwargs: Any) -> Any:
         """
         Asynchronously run the tool.
-        
+
         Since the underlying validation and original tool might be sync,
         we offload the execution to a thread to avoid blocking the loop.
         """
@@ -711,11 +911,24 @@ class PermissiveToolWrapper(BaseTool):
 
 # Essential fields to keep from Passio search results
 PASSIO_ESSENTIAL_FIELDS = {
-    "id", "resultId", "refCode", "displayName", "shortName", "longName",
-    "type", "dataOrigin", "scoredName",
+    "id",
+    "resultId",
+    "refCode",
+    "displayName",
+    "shortName",
+    "longName",
+    "type",
+    "dataOrigin",
+    "scoredName",
     # Nutrition fields (from get_passio_food_details)
-    "protein_per_100g", "carbs_per_100g", "fat_per_100g", "calories_per_100g",
-    "protein", "carbs", "fat", "calories",
+    "protein_per_100g",
+    "carbs_per_100g",
+    "fat_per_100g",
+    "calories_per_100g",
+    "protein",
+    "carbs",
+    "fat",
+    "calories",
     "nutrients",
 }
 
@@ -816,7 +1029,8 @@ def extract_passio_data_for_cache(result: Any, query: str) -> Optional[Dict[str,
     cache_data = {
         "passio_food_id": first_food.get("id") or first_food.get("resultId"),
         "passio_ref_code": first_food.get("refCode"),
-        "passio_food_name": first_food.get("displayName") or first_food.get("shortName"),
+        "passio_food_name": first_food.get("displayName")
+        or first_food.get("shortName"),
     }
 
     # Extract nutrition if available (from enriched results or get_passio_food_details)
@@ -841,7 +1055,10 @@ def extract_passio_data_for_cache(result: Any, query: str) -> Optional[Dict[str,
         # Cache negative result to avoid repeated API calls
         search_cache = get_passio_search_cache()
         search_cache.set_negative(query, "no_nutrition_data")
-        print(f"   ⚠️  Cached NEGATIVE for '{query}' - no nutrition data in response", file=sys.stderr)
+        print(
+            f"   ⚠️  Cached NEGATIVE for '{query}' - no nutrition data in response",
+            file=sys.stderr,
+        )
         return None
 
     return cache_data
@@ -900,16 +1117,16 @@ def wrap_mcp_tool(tool: Any) -> Any:
         Wrapped tool with validation
     """
     # Store original run method
-    original_run = getattr(tool, '_run', None) or getattr(tool, 'run', None)
+    original_run = getattr(tool, "_run", None) or getattr(tool, "run", None)
 
     if not original_run:
         # Tool doesn't have a run method, return as-is
         return tool
 
-    tool_name = getattr(tool, 'name', 'unknown')
+    tool_name = getattr(tool, "name", "unknown")
 
     # Store original schema for reference (but do NOT replace it!)
-    original_schema = getattr(tool, 'args_schema', None)
+    original_schema = getattr(tool, "args_schema", None)
     tool._original_args_schema = original_schema
     # NOTE: We no longer set tool.args_schema = PermissiveSchema
     # This was causing the actual arguments to be lost when CrewAI
@@ -918,7 +1135,7 @@ def wrap_mcp_tool(tool: Any) -> Any:
 
     def validated_run(*args, **kwargs) -> Any:
         """Run the tool with input validation."""
-        tool_name = tool.name if hasattr(tool, 'name') else 'unknown'
+        tool_name = tool.name if hasattr(tool, "name") else "unknown"
 
         # Increment tool call counter
         global _tool_call_counter
@@ -927,19 +1144,25 @@ def wrap_mcp_tool(tool: Any) -> Any:
         # Log that the tool is being called
         print(f"\n🔧 MCP Tool Call: {tool_name}", file=sys.stderr)
         print(f"   Args: {args[:1] if args else 'none'}", file=sys.stderr)
-        print(f"   Kwargs keys: {list(kwargs.keys()) if kwargs else 'none'}", file=sys.stderr)
+        print(
+            f"   Kwargs keys: {list(kwargs.keys()) if kwargs else 'none'}",
+            file=sys.stderr,
+        )
 
         # Remove security_context if present (CrewAI internal, not for the tool)
-        kwargs.pop('security_context', None)
+        kwargs.pop("security_context", None)
 
         # Determine the input to validate
         raw_input = None
 
         # Case 1: Legacy permissive schema input (tool_input key)
         # This was from the old approach - kept for backwards compatibility
-        if 'tool_input' in kwargs and kwargs['tool_input']:
-            raw_input = kwargs.pop('tool_input')
-            print(f"   Legacy tool_input detected: {type(raw_input).__name__}", file=sys.stderr)
+        if "tool_input" in kwargs and kwargs["tool_input"]:
+            raw_input = kwargs.pop("tool_input")
+            print(
+                f"   Legacy tool_input detected: {type(raw_input).__name__}",
+                file=sys.stderr,
+            )
         # Case 2: Direct kwargs (the normal case now that we preserve original schema)
         elif kwargs:
             raw_input = kwargs
@@ -958,23 +1181,38 @@ def wrap_mcp_tool(tool: Any) -> Any:
                 # =============================================================
                 # Passio Search Optimization: Cache + Filtering
                 # =============================================================
-                is_passio_search = "passio" in tool_name.lower() and "search" in tool_name.lower()
+                is_passio_search = (
+                    "passio" in tool_name.lower() and "search" in tool_name.lower()
+                )
 
                 # Inject default limit for Passio search tools to avoid context overflow
                 # The Passio API can return 100+ results (150K+ chars) without a limit
                 if is_passio_search:
-                    if isinstance(validated_input, dict) and "limit" not in validated_input:
+                    if (
+                        isinstance(validated_input, dict)
+                        and "limit" not in validated_input
+                    ):
                         default_limit = int(os.getenv("PASSIO_DEFAULT_LIMIT", "5"))
                         validated_input["limit"] = default_limit
-                        print(f"   📉 Added default limit={default_limit} to Passio search", file=sys.stderr)
+                        print(
+                            f"   📉 Added default limit={default_limit} to Passio search",
+                            file=sys.stderr,
+                        )
 
-                    query = validated_input.get("query", "") if isinstance(validated_input, dict) else ""
+                    query = (
+                        validated_input.get("query", "")
+                        if isinstance(validated_input, dict)
+                        else ""
+                    )
                     if query:
                         # Priority 1: Check TRUSTED ingredients database (verified data)
                         trusted_food = get_trusted_nutrition(query)
                         if trusted_food:
                             result = json.dumps({"foods": [trusted_food]})
-                            print(f"   🔒 TRUSTED HIT for '{query}' - using verified nutritional data", file=sys.stderr)
+                            print(
+                                f"   🔒 TRUSTED HIT for '{query}' - using verified nutritional data",
+                                file=sys.stderr,
+                            )
                             return result
 
                         # Priority 2: Check cache for Passio search queries
@@ -984,38 +1222,72 @@ def wrap_mcp_tool(tool: Any) -> Any:
                             # Check if this is a negative cache entry
                             if cached_result.get("negative"):
                                 reason = cached_result.get("reason", "no_data")
-                                print(f"   ⛔ NEGATIVE CACHE HIT for '{query}' - {reason}, skipping API call", file=sys.stderr)
+                                print(
+                                    f"   ⛔ NEGATIVE CACHE HIT for '{query}' - {reason}, skipping API call",
+                                    file=sys.stderr,
+                                )
                                 # Return empty result to avoid repeated API calls
-                                return json.dumps({"foods": [], "negative_cache": True, "reason": reason})
+                                return json.dumps(
+                                    {
+                                        "foods": [],
+                                        "negative_cache": True,
+                                        "reason": reason,
+                                    }
+                                )
                             # Validate cached data passes sanity check
                             if is_nutrition_sane(cached_result, query):
-                                print(f"   🎯 CACHE HIT for '{query}' - skipping API call", file=sys.stderr)
+                                print(
+                                    f"   🎯 CACHE HIT for '{query}' - skipping API call",
+                                    file=sys.stderr,
+                                )
                                 result = build_cached_passio_response(cached_result)
                                 result_summary = str(result)[:200]
-                                print(f"   ✅ Cached result: {result_summary}...\n", file=sys.stderr)
+                                print(
+                                    f"   ✅ Cached result: {result_summary}...\n",
+                                    file=sys.stderr,
+                                )
                                 return result
                             else:
-                                print(f"   ⚠️  CACHE INVALIDATED for '{query}' - failed sanity check", file=sys.stderr)
+                                print(
+                                    f"   ⚠️  CACHE INVALIDATED for '{query}' - failed sanity check",
+                                    file=sys.stderr,
+                                )
                                 search_cache.delete(query)
 
                 # Check for batch marker - process multiple items sequentially
-                if isinstance(validated_input, dict) and "__batch_items__" in validated_input:
+                if (
+                    isinstance(validated_input, dict)
+                    and "__batch_items__" in validated_input
+                ):
                     batch_items = validated_input["__batch_items__"]
-                    print(f"   🔄 Batch processing {len(batch_items)} items...", file=sys.stderr)
+                    print(
+                        f"   🔄 Batch processing {len(batch_items)} items...",
+                        file=sys.stderr,
+                    )
                     results = []
                     for i, item in enumerate(batch_items, 1):
-                        print(f"   📝 Processing item {i}/{len(batch_items)}: {list(item.keys())}", file=sys.stderr)
+                        print(
+                            f"   📝 Processing item {i}/{len(batch_items)}: {list(item.keys())}",
+                            file=sys.stderr,
+                        )
                         item_result = original_run(**item)
                         results.append(item_result)
                     result = results
-                    print(f"   ✅ Batch complete: {len(results)} results", file=sys.stderr)
+                    print(
+                        f"   ✅ Batch complete: {len(results)} results", file=sys.stderr
+                    )
                 else:
-                    print(f"   ✅ Validated input: {list(validated_input.keys()) if isinstance(validated_input, dict) else validated_input}", file=sys.stderr)
+                    print(
+                        f"   ✅ Validated input: {list(validated_input.keys()) if isinstance(validated_input, dict) else validated_input}",
+                        file=sys.stderr,
+                    )
 
                     # =============================================================
                     # Passio API Retry with Exponential Backoff
                     # =============================================================
-                    is_passio_tool = "passio" in tool_name.lower() or "hexis" in tool_name.lower()
+                    is_passio_tool = (
+                        "passio" in tool_name.lower() or "hexis" in tool_name.lower()
+                    )
 
                     if is_passio_tool:
                         # Use exponential backoff for Passio/Hexis API calls
@@ -1028,20 +1300,34 @@ def wrap_mcp_tool(tool: Any) -> Any:
                         for attempt in range(max_retries + 1):
                             # Check circuit breaker
                             if not circuit_breaker.can_execute():
-                                print(f"   ⚡ Circuit breaker open, skipping Passio API call", file=sys.stderr)
-                                result = json.dumps({"error": "Circuit breaker open - Passio API temporarily unavailable"})
+                                print(
+                                    f"   ⚡ Circuit breaker open, skipping Passio API call",
+                                    file=sys.stderr,
+                                )
+                                result = json.dumps(
+                                    {
+                                        "error": "Circuit breaker open - Passio API temporarily unavailable"
+                                    }
+                                )
                                 break
 
                             try:
                                 if isinstance(validated_input, dict):
                                     result = original_run(**validated_input)
                                 else:
-                                    result = original_run(validated_input, *args, **kwargs)
+                                    result = original_run(
+                                        validated_input, *args, **kwargs
+                                    )
 
                                 # Check if result contains an error
                                 result_str = str(result) if result else ""
-                                if "error" in result_str.lower() and ("500" in result_str or "error while searching" in result_str.lower()):
-                                    raise RuntimeError(f"Passio API error: {result_str[:200]}")
+                                if "error" in result_str.lower() and (
+                                    "500" in result_str
+                                    or "error while searching" in result_str.lower()
+                                ):
+                                    raise RuntimeError(
+                                        f"Passio API error: {result_str[:200]}"
+                                    )
 
                                 # Success - reset circuit breaker
                                 circuit_breaker.record_success()
@@ -1051,7 +1337,10 @@ def wrap_mcp_tool(tool: Any) -> Any:
                                 circuit_breaker.record_failure()
 
                                 if attempt >= max_retries or not is_retriable_error(e):
-                                    print(f"   ❌ Passio API failed after {attempt + 1} attempts: {e}", file=sys.stderr)
+                                    print(
+                                        f"   ❌ Passio API failed after {attempt + 1} attempts: {e}",
+                                        file=sys.stderr,
+                                    )
                                     result = json.dumps({"error": str(e)})
                                     break
 
@@ -1073,7 +1362,10 @@ def wrap_mcp_tool(tool: Any) -> Any:
                     # =============================================================
                     # Capture Hexis weekly plan results in Python for reliable access
                     # This avoids relying on LLM to copy large raw data in its output
-                    is_hexis_weekly_plan = "hexis" in tool_name.lower() and "weekly_plan" in tool_name.lower()
+                    is_hexis_weekly_plan = (
+                        "hexis" in tool_name.lower()
+                        and "weekly_plan" in tool_name.lower()
+                    )
                     if is_hexis_weekly_plan and result:
                         try:
                             # Parse result if it's a string
@@ -1082,30 +1374,51 @@ def wrap_mcp_tool(tool: Any) -> Any:
                                 result_data = json.loads(result)
 
                             # Capture the result for later Python access
-                            params = validated_input if isinstance(validated_input, dict) else {}
+                            params = (
+                                validated_input
+                                if isinstance(validated_input, dict)
+                                else {}
+                            )
                             capture_hexis_result(
                                 tool_name=tool_name,
                                 parameters=params,
                                 result=result_data,
                                 success=True,
                             )
-                            print(f"   📦 Captured Hexis result for Python access", file=sys.stderr)
+                            print(
+                                f"   📦 Captured Hexis result for Python access",
+                                file=sys.stderr,
+                            )
                         except Exception as e:
-                            print(f"   ⚠️ Failed to capture Hexis result: {e}", file=sys.stderr)
+                            print(
+                                f"   ⚠️ Failed to capture Hexis result: {e}",
+                                file=sys.stderr,
+                            )
 
                     # =============================================================
                     # Passio Post-Processing: Filter + Cache
                     # =============================================================
                     if is_passio_search and result:
                         # Get query for filtering and caching
-                        query = validated_input.get("query", "") if isinstance(validated_input, dict) else ""
+                        query = (
+                            validated_input.get("query", "")
+                            if isinstance(validated_input, dict)
+                            else ""
+                        )
 
                         # Filter the response (includes sanity checks and OpenFood deprioritization)
                         original_len = len(str(result))
                         result = filter_passio_response(result, query)
                         filtered_len = len(str(result))
-                        reduction = ((original_len - filtered_len) / original_len * 100) if original_len > 0 else 0
-                        print(f"   📉 Filtered Passio response: {original_len} → {filtered_len} chars ({reduction:.0f}% reduction)", file=sys.stderr)
+                        reduction = (
+                            ((original_len - filtered_len) / original_len * 100)
+                            if original_len > 0
+                            else 0
+                        )
+                        print(
+                            f"   📉 Filtered Passio response: {original_len} → {filtered_len} chars ({reduction:.0f}% reduction)",
+                            file=sys.stderr,
+                        )
 
                         # Cache the first result for future queries (only if it passed sanity checks)
                         if query:
@@ -1114,54 +1427,120 @@ def wrap_mcp_tool(tool: Any) -> Any:
                                 # PRIORITY: Check TRUSTED and override if deviation > 50%
                                 trusted_food = get_trusted_nutrition(query)
                                 if trusted_food:
-                                    passio_carbs = cache_data.get("carbs_per_100g", 0) or 0
-                                    trusted_carbs = trusted_food.get("carbs_per_100g", 0)
-                                    passio_protein = cache_data.get("protein_per_100g", 0) or 0
-                                    trusted_protein = trusted_food.get("protein_per_100g", 0)
+                                    passio_carbs = (
+                                        cache_data.get("carbs_per_100g", 0) or 0
+                                    )
+                                    trusted_carbs = trusted_food.get(
+                                        "carbs_per_100g", 0
+                                    )
+                                    passio_protein = (
+                                        cache_data.get("protein_per_100g", 0) or 0
+                                    )
+                                    trusted_protein = trusted_food.get(
+                                        "protein_per_100g", 0
+                                    )
 
                                     # Check for >50% deviation in carbs or protein
-                                    carb_deviation = abs(passio_carbs - trusted_carbs) / max(trusted_carbs, 1) if trusted_carbs > 0 else 0
-                                    protein_deviation = abs(passio_protein - trusted_protein) / max(trusted_protein, 1) if trusted_protein > 0 else 0
+                                    carb_deviation = (
+                                        abs(passio_carbs - trusted_carbs)
+                                        / max(trusted_carbs, 1)
+                                        if trusted_carbs > 0
+                                        else 0
+                                    )
+                                    protein_deviation = (
+                                        abs(passio_protein - trusted_protein)
+                                        / max(trusted_protein, 1)
+                                        if trusted_protein > 0
+                                        else 0
+                                    )
 
                                     if carb_deviation > 0.5 or protein_deviation > 0.5:
-                                        print(f"   🔒 OVERRIDING Passio with TRUSTED for '{query}':", file=sys.stderr)
-                                        print(f"      Passio: P={passio_protein}g C={passio_carbs}g", file=sys.stderr)
-                                        print(f"      Trusted: P={trusted_protein}g C={trusted_carbs}g", file=sys.stderr)
+                                        print(
+                                            f"   🔒 OVERRIDING Passio with TRUSTED for '{query}':",
+                                            file=sys.stderr,
+                                        )
+                                        print(
+                                            f"      Passio: P={passio_protein}g C={passio_carbs}g",
+                                            file=sys.stderr,
+                                        )
+                                        print(
+                                            f"      Trusted: P={trusted_protein}g C={trusted_carbs}g",
+                                            file=sys.stderr,
+                                        )
                                         # Merge trusted nutrition with Passio metadata
-                                        cache_data["protein_per_100g"] = trusted_food.get("protein_per_100g", 0)
-                                        cache_data["carbs_per_100g"] = trusted_food.get("carbs_per_100g", 0)
-                                        cache_data["fat_per_100g"] = trusted_food.get("fat_per_100g", 0)
-                                        cache_data["calories_per_100g"] = trusted_food.get("calories_per_100g", 0)
+                                        cache_data["protein_per_100g"] = (
+                                            trusted_food.get("protein_per_100g", 0)
+                                        )
+                                        cache_data["carbs_per_100g"] = trusted_food.get(
+                                            "carbs_per_100g", 0
+                                        )
+                                        cache_data["fat_per_100g"] = trusted_food.get(
+                                            "fat_per_100g", 0
+                                        )
+                                        cache_data["calories_per_100g"] = (
+                                            trusted_food.get("calories_per_100g", 0)
+                                        )
                                         cache_data["data_source"] = "TRUSTED_OVERRIDE"
 
                                 # Validate against trusted ingredients (catches Passio API errors)
-                                trusted_valid, trusted_error = validate_against_trusted(cache_data, query)
+                                trusted_valid, trusted_error = validate_against_trusted(
+                                    cache_data, query
+                                )
                                 if not trusted_valid:
-                                    print(f"   ⚠️  NOT CACHING '{query}' - {trusted_error}", file=sys.stderr)
+                                    print(
+                                        f"   ⚠️  NOT CACHING '{query}' - {trusted_error}",
+                                        file=sys.stderr,
+                                    )
                                     # Replace with trusted data if available and not already overridden
-                                    if trusted_food and cache_data.get("data_source") != "TRUSTED_OVERRIDE":
-                                        cache_data["protein_per_100g"] = trusted_food.get("protein_per_100g", 0)
-                                        cache_data["carbs_per_100g"] = trusted_food.get("carbs_per_100g", 0)
-                                        cache_data["fat_per_100g"] = trusted_food.get("fat_per_100g", 0)
-                                        cache_data["calories_per_100g"] = trusted_food.get("calories_per_100g", 0)
+                                    if (
+                                        trusted_food
+                                        and cache_data.get("data_source")
+                                        != "TRUSTED_OVERRIDE"
+                                    ):
+                                        cache_data["protein_per_100g"] = (
+                                            trusted_food.get("protein_per_100g", 0)
+                                        )
+                                        cache_data["carbs_per_100g"] = trusted_food.get(
+                                            "carbs_per_100g", 0
+                                        )
+                                        cache_data["fat_per_100g"] = trusted_food.get(
+                                            "fat_per_100g", 0
+                                        )
+                                        cache_data["calories_per_100g"] = (
+                                            trusted_food.get("calories_per_100g", 0)
+                                        )
                                         cache_data["data_source"] = "TRUSTED_OVERRIDE"
-                                        print(f"   🔒 Using TRUSTED data for '{query}'", file=sys.stderr)
+                                        print(
+                                            f"   🔒 Using TRUSTED data for '{query}'",
+                                            file=sys.stderr,
+                                        )
 
                                 # Only cache if it passes sanity check
                                 if is_nutrition_sane(cache_data, query):
                                     search_cache = get_passio_search_cache()
                                     search_cache.set(query, cache_data)
-                                    source_note = " (TRUSTED override)" if cache_data.get("data_source") == "TRUSTED_OVERRIDE" else ""
-                                    print(f"   💾 Cached result for '{query}': {cache_data.get('passio_food_name')}{source_note}", file=sys.stderr)
+                                    source_note = (
+                                        " (TRUSTED override)"
+                                        if cache_data.get("data_source")
+                                        == "TRUSTED_OVERRIDE"
+                                        else ""
+                                    )
+                                    print(
+                                        f"   💾 Cached result for '{query}': {cache_data.get('passio_food_name')}{source_note}",
+                                        file=sys.stderr,
+                                    )
                                 else:
-                                    print(f"   ⚠️  NOT CACHING '{query}' - failed sanity check", file=sys.stderr)
+                                    print(
+                                        f"   ⚠️  NOT CACHING '{query}' - failed sanity check",
+                                        file=sys.stderr,
+                                    )
 
             except Exception as e:
                 print(
                     f"❌ Tool input validation failed: {e}\n"
                     f"   Tool: {tool_name}\n"
                     f"   Raw input: {raw_input}",
-                    file=sys.stderr
+                    file=sys.stderr,
                 )
                 raise
         else:
@@ -1172,13 +1551,18 @@ def wrap_mcp_tool(tool: Any) -> Any:
         # Log the result summary
         result_str = str(result)
         result_len = len(result_str)
-        
+
         # Truncate if too large (100KB limit to avoid Nginx 413 errors)
         max_len = 100000
         if result_len > max_len:
-            print(f"⚠️  Warning: Tool output too large ({result_len} chars), truncating to {max_len}...", file=sys.stderr)
-            truncated_msg = f"... [TRUNCATED due to size: {result_len} > {max_len} chars]"
-            
+            print(
+                f"⚠️  Warning: Tool output too large ({result_len} chars), truncating to {max_len}...",
+                file=sys.stderr,
+            )
+            truncated_msg = (
+                f"... [TRUNCATED due to size: {result_len} > {max_len} chars]"
+            )
+
             if isinstance(result, str):
                 result = result[:max_len] + truncated_msg
             elif isinstance(result, dict) or isinstance(result, list):
@@ -1186,28 +1570,33 @@ def wrap_mcp_tool(tool: Any) -> Any:
                 # So we convert to string, truncate, and return that
                 # This might break tools expecting strict types, but it's better than a crash
                 result = str(result)[:max_len] + truncated_msg
-                
+
             result_str = str(result)
 
         result_summary = result_str[:200] if result else "None"
-        print(f"   ✅ Result: {result_summary}{'...' if len(result_str) > 200 else ''}\n", file=sys.stderr)
+        print(
+            f"   ✅ Result: {result_summary}{'...' if len(result_str) > 200 else ''}\n",
+            file=sys.stderr,
+        )
 
         return result
 
     # Replace run method with validated version
-    if hasattr(tool, '_run'):
+    if hasattr(tool, "_run"):
         tool._run = validated_run
-    elif hasattr(tool, 'run'):
+    elif hasattr(tool, "run"):
         tool.run = validated_run
 
     # Add async run method if not present, wrapping the sync validated run
-    if not hasattr(tool, '_arun'):
+    if not hasattr(tool, "_arun"):
+
         async def validated_arun(*args, **kwargs) -> Any:
             return await asyncio.to_thread(validated_run, *args, **kwargs)
+
         tool._arun = validated_arun
 
     # Also wrap the __call__ method if it exists (CrewAI may call this directly)
-    if hasattr(tool, '__call__') and callable(tool):
+    if hasattr(tool, "__call__") and callable(tool):
         original_call = tool.__call__
 
         def validated_call(*args, **kwargs) -> Any:
@@ -1222,7 +1611,7 @@ def wrap_mcp_tool(tool: Any) -> Any:
                         f"❌ Tool input validation failed in __call__: {e}\n"
                         f"   Tool: {tool.name if hasattr(tool, 'name') else 'unknown'}\n"
                         f"   Raw input: {args[0]}",
-                        file=sys.stderr
+                        file=sys.stderr,
                     )
                     # Try to proceed with original call anyway
                     pass

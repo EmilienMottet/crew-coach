@@ -1,4 +1,5 @@
 """Pydantic models for structured task outputs."""
+
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Union
@@ -91,9 +92,7 @@ class HexisMealTarget(BaseModel):
         ..., description="Type of meal: Breakfast, Lunch, PM Snack, Dinner"
     )
     time: str = Field(..., description="Meal time in HH:MM:SS.000Z format")
-    carb_code: str = Field(
-        ..., description="Carb level guidance: LOW, MEDIUM, or HIGH"
-    )
+    carb_code: str = Field(..., description="Carb level guidance: LOW, MEDIUM, or HIGH")
     calories: int = Field(..., description="Target calories for this meal")
     protein_g: float = Field(..., description="Target protein in grams")
     carbs_g: float = Field(..., description="Target carbohydrates in grams")
@@ -117,10 +116,12 @@ class HexisWeeklyAnalysis(BaseModel):
     week_start_date: str = Field(..., description="ISO format start date (YYYY-MM-DD)")
     week_end_date: str = Field(..., description="ISO format end date (YYYY-MM-DD)")
     training_load_summary: str | Dict = Field(
-        ..., description="Summary of weekly training load (TSS, hours, intensity) - can be string or object"
+        ...,
+        description="Summary of weekly training load (TSS, hours, intensity) - can be string or object",
     )
     recovery_status: str | Dict = Field(
-        ..., description="Current recovery status and recommendations - can be string or object"
+        ...,
+        description="Current recovery status and recommendations - can be string or object",
     )
     daily_energy_needs: Dict = Field(
         ...,
@@ -150,10 +151,12 @@ class DailyNutritionTarget(BaseModel):
     calories: int = Field(..., description="Total calorie target")
     macros: MacroTargets = Field(..., description="Macro targets for the day")
     training_context: str = Field(
-        ..., description="Training context for the day (e.g., 'Hard interval session', 'Rest day')"
+        ...,
+        description="Training context for the day (e.g., 'Hard interval session', 'Rest day')",
     )
     meal_timing_notes: str = Field(
-        ..., description="Guidance on meal timing (e.g., 'High-carb breakfast pre-workout')"
+        ...,
+        description="Guidance on meal timing (e.g., 'High-carb breakfast pre-workout')",
     )
     # Per-meal targets from Hexis (with carbCode for food choice guidance)
     meal_targets: Optional[List[HexisMealTarget]] = Field(
@@ -180,7 +183,9 @@ class WeeklyNutritionPlan(BaseModel):
 class ValidatedIngredient(BaseModel):
     """An ingredient validated against Passio food database."""
 
-    name: str = Field(..., description="Ingredient name as displayed (e.g., '120g chicken breast')")
+    name: str = Field(
+        ..., description="Ingredient name as displayed (e.g., '120g chicken breast')"
+    )
     passio_food_id: Optional[str] = Field(
         default=None, description="Passio Food ID from hexis_search_passio_foods"
     )
@@ -189,14 +194,14 @@ class ValidatedIngredient(BaseModel):
     )
     passio_ref_code: Optional[str] = Field(
         default=None,
-        description="Base64-encoded refCode from hexis_search_passio_foods (REQUIRED for Hexis API)"
+        description="Base64-encoded refCode from hexis_search_passio_foods (REQUIRED for Hexis API)",
     )
     quantity_g: Optional[float] = Field(
         default=None, description="Quantity in grams for macro calculation"
     )
     adjusted_quantity_g: Optional[float] = Field(
         default=None,
-        description="Python-adjusted quantity to match macro targets (overrides quantity_g if set)"
+        description="Python-adjusted quantity to match macro targets (overrides quantity_g if set)",
     )
     validation_status: Optional[str] = Field(
         default="found", description="Status: 'found', 'substituted', or 'not_found'"
@@ -232,10 +237,13 @@ class ValidatedIngredient(BaseModel):
 class HexisToolCall(BaseModel):
     """A planned Hexis tool call from the Supervisor."""
 
-    tool_name: str = Field(..., description="Name of the Hexis tool to call (e.g., 'hexis_get_weekly_plan')")
+    tool_name: str = Field(
+        ...,
+        description="Name of the Hexis tool to call (e.g., 'hexis_get_weekly_plan')",
+    )
     parameters: Dict[str, Any] = Field(
         default_factory=dict,
-        description="Parameters for the tool call (e.g., {'start_date': '2025-01-20', 'end_date': '2025-01-26'})"
+        description="Parameters for the tool call (e.g., {'start_date': '2025-01-20', 'end_date': '2025-01-26'})",
     )
     purpose: str = Field(..., description="Why this data is needed for the analysis")
     priority: int = Field(default=1, description="Execution priority (1=highest)")
@@ -252,16 +260,14 @@ class HexisDataRetrievalPlan(BaseModel):
     week_start_date: str = Field(..., description="ISO format start date (YYYY-MM-DD)")
     week_end_date: str = Field(..., description="ISO format end date (YYYY-MM-DD)")
     tool_calls: List[HexisToolCall] = Field(
-        ...,
-        description="Ordered list of Hexis tool calls to execute"
+        ..., description="Ordered list of Hexis tool calls to execute"
     )
     analysis_focus: List[str] = Field(
         ...,
-        description="Key areas to focus on in the analysis (e.g., 'training_load', 'recovery', 'nutrition')"
+        description="Key areas to focus on in the analysis (e.g., 'training_load', 'recovery', 'nutrition')",
     )
     special_considerations: Optional[str] = Field(
-        default=None,
-        description="Any special considerations for data retrieval"
+        default=None, description="Any special considerations for data retrieval"
     )
 
 
@@ -271,12 +277,10 @@ class HexisToolResult(BaseModel):
     tool_name: str = Field(..., description="Name of the tool that was executed")
     success: bool = Field(..., description="Whether the tool call succeeded")
     result: Optional[Dict[str, Any]] = Field(
-        default=None,
-        description="Raw result from the tool (if successful)"
+        default=None, description="Raw result from the tool (if successful)"
     )
     error_message: Optional[str] = Field(
-        default=None,
-        description="Error message (if failed)"
+        default=None, description="Error message (if failed)"
     )
 
 
@@ -291,18 +295,15 @@ class RawHexisData(BaseModel):
     week_start_date: str = Field(..., description="ISO format start date")
     week_end_date: str = Field(..., description="ISO format end date")
     tool_results: List[HexisToolResult] = Field(
-        ...,
-        description="Results from all tool calls"
+        ..., description="Results from all tool calls"
     )
     total_calls: int = Field(..., description="Total number of tool calls made")
     successful_calls: int = Field(..., description="Number of successful calls")
     weekly_plan_data: Optional[Dict[str, Any]] = Field(
-        default=None,
-        description="Extracted weekly plan data (the main data payload)"
+        default=None, description="Extracted weekly plan data (the main data payload)"
     )
     retrieval_notes: Optional[str] = Field(
-        default=None,
-        description="Notes from the Executor about the data retrieval"
+        default=None, description="Notes from the Executor about the data retrieval"
     )
 
 
@@ -314,17 +315,26 @@ class RawHexisData(BaseModel):
 class MealTemplate(BaseModel):
     """Template for a single meal from the Supervisor (before ingredient validation)."""
 
-    meal_type: str = Field(..., description="Type of meal (Breakfast, Lunch, Dinner, Afternoon Snack)")
-    meal_name: str = Field(..., description="Descriptive name of the meal")
-    description: str = Field(..., description="Detailed description with cooking technique and flavors")
-    ingredients_to_validate: List[str] = Field(
-        ..., description="List of ingredients with quantities to validate (e.g., '120g chicken breast')"
+    meal_type: str = Field(
+        ..., description="Type of meal (Breakfast, Lunch, Dinner, Afternoon Snack)"
     )
-    estimated_calories: float = Field(..., description="Estimated calories for the meal")
+    meal_name: str = Field(..., description="Descriptive name of the meal")
+    description: str = Field(
+        ..., description="Detailed description with cooking technique and flavors"
+    )
+    ingredients_to_validate: List[str] = Field(
+        ...,
+        description="List of ingredients with quantities to validate (e.g., '120g chicken breast')",
+    )
+    estimated_calories: float = Field(
+        ..., description="Estimated calories for the meal"
+    )
     estimated_protein: float = Field(..., description="Estimated protein in grams")
     estimated_carbs: float = Field(..., description="Estimated carbohydrates in grams")
     estimated_fat: float = Field(..., description="Estimated fat in grams")
-    preparation_time_min: int = Field(..., description="Estimated preparation time in minutes")
+    preparation_time_min: int = Field(
+        ..., description="Estimated preparation time in minutes"
+    )
     recipe_notes: str = Field(..., description="Short, actionable cooking steps")
 
 
@@ -340,14 +350,20 @@ class MealPlanTemplate(BaseModel):
     target_protein: float = Field(..., description="Target protein in grams")
     target_carbs: float = Field(..., description="Target carbs in grams")
     target_fat: float = Field(..., description="Target fat in grams")
-    training_context: str = Field(..., description="Training context for timing optimization")
+    training_context: str = Field(
+        ..., description="Training context for timing optimization"
+    )
 
 
 class ValidatedMealIngredients(BaseModel):
     """Validated ingredients for a single meal from the Executor."""
 
-    meal_type: str = Field(..., description="Type of meal (matches MealTemplate.meal_type)")
-    meal_name: str = Field(..., description="Name of the meal (matches MealTemplate.meal_name)")
+    meal_type: str = Field(
+        ..., description="Type of meal (matches MealTemplate.meal_type)"
+    )
+    meal_name: str = Field(
+        ..., description="Name of the meal (matches MealTemplate.meal_name)"
+    )
     validated_ingredients: List[ValidatedIngredient] = Field(
         ..., description="List of validated ingredients with Passio IDs"
     )
@@ -369,9 +385,15 @@ class ValidatedIngredientsList(BaseModel):
     validated_meals: List[ValidatedMealIngredients] = Field(
         ..., description="Validated ingredients for each meal"
     )
-    total_validations: int = Field(..., description="Total number of ingredients validated")
-    successful_validations: int = Field(..., description="Number of successful validations")
-    substitutions_made: int = Field(default=0, description="Number of ingredient substitutions")
+    total_validations: int = Field(
+        ..., description="Total number of ingredients validated"
+    )
+    successful_validations: int = Field(
+        ..., description="Number of successful validations"
+    )
+    substitutions_made: int = Field(
+        default=0, description="Number of ingredient substitutions"
+    )
 
 
 class MealItem(BaseModel):
@@ -394,7 +416,7 @@ class MealItem(BaseModel):
     ingredients: List[str] = Field(..., description="List of ingredients")
     validated_ingredients: Optional[List[ValidatedIngredient]] = Field(
         default=None,
-        description="Ingredients validated via hexis_search_passio_foods with Passio IDs for Hexis integration"
+        description="Ingredients validated via hexis_search_passio_foods with Passio IDs for Hexis integration",
     )
     recipe_notes: Optional[str] = Field(
         default=None, description="Optional cooking instructions or tips"
@@ -403,10 +425,11 @@ class MealItem(BaseModel):
         default=None, description="Hexis Food ID if sourced from Hexis database"
     )
     data_origin: Optional[str] = Field(
-        default=None, description="Data origin (e.g., 'HEXIS_DATABASE') if sourced from Hexis"
+        default=None,
+        description="Data origin (e.g., 'HEXIS_DATABASE') if sourced from Hexis",
     )
 
-    @field_validator('calories', mode='before')
+    @field_validator("calories", mode="before")
     @classmethod
     def round_calories(cls, v):
         """Round float calories to nearest integer."""
@@ -414,7 +437,7 @@ class MealItem(BaseModel):
             return None
         return round(float(v))
 
-    @field_validator('recipe_notes', mode='before')
+    @field_validator("recipe_notes", mode="before")
     @classmethod
     def normalize_recipe_notes(cls, v):
         """Convert recipe_notes from list to string if needed."""
@@ -560,12 +583,16 @@ class LyricsVerificationResult(BaseModel):
 class ActivityToolCall(BaseModel):
     """A planned tool call for activity data retrieval."""
 
-    tool_name: str = Field(..., description="Name of the tool to call (e.g., 'IntervalsIcu__get_activities')")
-    parameters: Dict[str, Any] = Field(
-        default_factory=dict,
-        description="Parameters for the tool call"
+    tool_name: str = Field(
+        ...,
+        description="Name of the tool to call (e.g., 'IntervalsIcu__get_activities')",
     )
-    purpose: str = Field(..., description="Why this data is needed for description generation")
+    parameters: Dict[str, Any] = Field(
+        default_factory=dict, description="Parameters for the tool call"
+    )
+    purpose: str = Field(
+        ..., description="Why this data is needed for description generation"
+    )
     priority: int = Field(default=1, description="Execution priority (1=highest)")
 
 
@@ -578,19 +605,20 @@ class ActivityDataRetrievalPlan(BaseModel):
     model_config = {"extra": "allow"}
 
     activity_id: str = Field(..., description="Strava activity ID")
-    activity_date: str = Field(..., description="Activity date in ISO format (YYYY-MM-DD)")
+    activity_date: str = Field(
+        ..., description="Activity date in ISO format (YYYY-MM-DD)"
+    )
     activity_type: str = Field(..., description="Type of activity (Run, Ride, etc.)")
     tool_calls: List[ActivityToolCall] = Field(
-        ...,
-        description="Ordered list of tool calls to execute"
+        ..., description="Ordered list of tool calls to execute"
     )
     data_focus: List[str] = Field(
         ...,
-        description="Key data points to focus on (e.g., 'pace', 'heart_rate', 'power', 'core_temperature')"
+        description="Key data points to focus on (e.g., 'pace', 'heart_rate', 'power', 'core_temperature')",
     )
     description_style: str = Field(
         default="engaging",
-        description="Style guidance for the final description (e.g., 'technical', 'motivational', 'engaging')"
+        description="Style guidance for the final description (e.g., 'technical', 'motivational', 'engaging')",
     )
 
 
@@ -600,12 +628,10 @@ class ActivityToolResult(BaseModel):
     tool_name: str = Field(..., description="Name of the tool that was executed")
     success: bool = Field(..., description="Whether the tool call succeeded")
     result: Optional[Dict[str, Any]] = Field(
-        default=None,
-        description="Raw result from the tool (if successful)"
+        default=None, description="Raw result from the tool (if successful)"
     )
     error_message: Optional[str] = Field(
-        default=None,
-        description="Error message (if failed)"
+        default=None, description="Error message (if failed)"
     )
 
 
@@ -621,24 +647,20 @@ class RawActivityData(BaseModel):
     activity_date: str = Field(..., description="Activity date")
     activity_type: str = Field(..., description="Type of activity")
     tool_results: List[ActivityToolResult] = Field(
-        ...,
-        description="Results from all tool calls"
+        ..., description="Results from all tool calls"
     )
     total_calls: int = Field(..., description="Total number of tool calls made")
     successful_calls: int = Field(..., description="Number of successful calls")
     intervals_activity_id: Optional[str] = Field(
-        default=None,
-        description="Intervals.icu activity ID (if found)"
+        default=None, description="Intervals.icu activity ID (if found)"
     )
     activity_details: Optional[Dict[str, Any]] = Field(
-        default=None,
-        description="Full activity details from Intervals.icu"
+        default=None, description="Full activity details from Intervals.icu"
     )
     activity_streams: Optional[Dict[str, Any]] = Field(
         default=None,
-        description="Activity streams data (heart_rate, power, core_temperature, etc.)"
+        description="Activity streams data (heart_rate, power, core_temperature, etc.)",
     )
     retrieval_notes: Optional[str] = Field(
-        default=None,
-        description="Notes from the Executor about data retrieval"
+        default=None, description="Notes from the Executor about data retrieval"
     )

@@ -1,4 +1,5 @@
 """Executor agent for ingredient validation - tool calls only, no reasoning."""
+
 from crewai import Agent
 from typing import Any, Optional, Sequence
 

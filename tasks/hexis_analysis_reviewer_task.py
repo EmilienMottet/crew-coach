@@ -2,6 +2,7 @@
 
 Part of the Supervisor/Executor/Reviewer pattern for HEXIS_ANALYSIS.
 """
+
 from __future__ import annotations
 
 import json
@@ -191,13 +192,15 @@ def _extract_meal_relevant_data(raw_data: Dict[str, Any]) -> Dict[str, Any]:
         workouts = day.get("workouts", [])
         if workouts:
             for w in workouts:
-                compact["training_summary"].append({
-                    "date": day.get("dayString"),
-                    "title": w.get("title", ""),
-                    "activity": w.get("activity", ""),
-                    "duration_minutes": w.get("duration", 0),
-                    "tss": w.get("tss", 0),
-                })
+                compact["training_summary"].append(
+                    {
+                        "date": day.get("dayString"),
+                        "title": w.get("title", ""),
+                        "activity": w.get("activity", ""),
+                        "duration_minutes": w.get("duration", 0),
+                        "tss": w.get("tss", 0),
+                    }
+                )
 
         # Extract meals (only MAIN and SNACK, skip INTRA_FUELLING)
         for meal in day.get("meals", []):
@@ -215,7 +218,7 @@ def _extract_meal_relevant_data(raw_data: Dict[str, Any]) -> Dict[str, Any]:
                         "protein": macros.get("protein", 0),
                         "carb": macros.get("carb", 0),
                         "fat": macros.get("fat", 0),
-                    }
+                    },
                 }
                 day_compact["meals"].append(meal_compact)
 

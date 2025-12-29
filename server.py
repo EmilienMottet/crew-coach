@@ -1,4 +1,5 @@
 """HTTP server exposing the Strava description crew and meal planning crew as REST APIs."""
+
 from __future__ import annotations
 
 import asyncio
@@ -18,7 +19,7 @@ from crew_mealy import MealPlanningCrew
 
 app = FastAPI(
     title="Strava Activity & Meal Planning Crew",
-    description="Multi-agent CrewAI system for Strava activities and weekly meal planning"
+    description="Multi-agent CrewAI system for Strava activities and weekly meal planning",
 )
 
 # Reuse crew instances to avoid reloading models for every request.
@@ -28,33 +29,35 @@ meal_planning_crew_instance = MealPlanningCrew()
 
 class MealPlanRequest(BaseModel):
     """Request model for meal planning endpoint."""
+
     week_start_date: Optional[str] = Field(
         default=None,
-        description="Start date of the week (YYYY-MM-DD). Defaults to next Monday if not provided."
+        description="Start date of the week (YYYY-MM-DD). Defaults to next Monday if not provided.",
     )
     days: Optional[int] = Field(
         default=None,
         ge=1,
         le=7,
-        description="Number of consecutive days to generate (1-7). Defaults to 7 when omitted."
+        description="Number of consecutive days to generate (1-7). Defaults to 7 when omitted.",
     )
 
 
 class MealPlanAsyncRequest(BaseModel):
     """Request model for async meal planning endpoint with callback."""
+
     week_start_date: Optional[str] = Field(
         default=None,
-        description="Start date of the week (YYYY-MM-DD). Defaults to next Monday if not provided."
+        description="Start date of the week (YYYY-MM-DD). Defaults to next Monday if not provided.",
     )
     days: Optional[int] = Field(
         default=None,
         ge=1,
         le=7,
-        description="Number of consecutive days to generate (1-7). Defaults to 7 when omitted."
+        description="Number of consecutive days to generate (1-7). Defaults to 7 when omitted.",
     )
     callback_url: str = Field(
         ...,
-        description="URL to POST the result when meal planning completes (n8n $execution.resumeUrl)"
+        description="URL to POST the result when meal planning completes (n8n $execution.resumeUrl)",
     )
 
 
@@ -160,7 +163,7 @@ async def _run_meal_plan_and_callback(
             lambda: meal_planning_crew_instance.generate_meal_plan(
                 week_start_date,
                 days_to_generate=days_to_generate,
-            )
+            ),
         )
 
         _meal_plan_jobs[job_id]["status"] = "completed"
@@ -174,6 +177,7 @@ async def _run_meal_plan_and_callback(
     except Exception as exc:
         print(f"\n❌ [Job {job_id}] Error: {exc}\n", file=sys.stderr)
         import traceback
+
         traceback.print_exc(file=sys.stderr)
 
         result = {
@@ -232,7 +236,7 @@ async def generate_meal_plan_async(
     except ValueError as exc:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid date format. Expected YYYY-MM-DD, got: {week_start_date}"
+            detail=f"Invalid date format. Expected YYYY-MM-DD, got: {week_start_date}",
         ) from exc
 
     days_to_generate = request_body.days or 7
@@ -275,7 +279,7 @@ async def generate_meal_plan_async(
             "week_start_date": week_start_date,
             "days": days_to_generate,
             "message": "Meal plan generation started. Result will be sent to callback URL.",
-        }
+        },
     )
 
 
@@ -294,13 +298,15 @@ async def get_meal_plan_status(job_id: str) -> JSONResponse:
         raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
 
     job = _meal_plan_jobs[job_id]
-    return JSONResponse(content={
-        "job_id": job_id,
-        "status": job["status"],
-        "started_at": job["started_at"],
-        "week_start_date": job.get("week_start_date"),
-        "has_result": job["result"] is not None,
-    })
+    return JSONResponse(
+        content={
+            "job_id": job_id,
+            "status": job["status"],
+            "started_at": job["started_at"],
+            "week_start_date": job.get("week_start_date"),
+            "has_result": job["result"] is not None,
+        }
+    )
 
 
 @app.post("/meal-plan")
@@ -325,7 +331,7 @@ async def generate_meal_plan(request_body: MealPlanRequest) -> JSONResponse:
     except ValueError as exc:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid date format. Expected YYYY-MM-DD, got: {week_start_date}"
+            detail=f"Invalid date format. Expected YYYY-MM-DD, got: {week_start_date}",
         ) from exc
 
     days_to_generate = request_body.days or 7
@@ -343,6 +349,7 @@ async def generate_meal_plan(request_body: MealPlanRequest) -> JSONResponse:
     except Exception as exc:  # noqa: BLE001
         print(f"\n❌ Error while generating meal plan: {exc}\n", file=sys.stderr)
         import traceback
+
         traceback.print_exc(file=sys.stderr)
 
         error_result = {

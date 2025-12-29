@@ -61,7 +61,9 @@ def load_catalog_tool_names(prefixes: Sequence[str]) -> List[str]:
     return matches
 
 
-def build_mcp_references(raw_urls: str, tool_names: Iterable[str], api_key: str = None) -> List[str]:
+def build_mcp_references(
+    raw_urls: str, tool_names: Iterable[str], api_key: str = None
+) -> List[str]:
     """Compose MCP references for each server.
 
     Note: Tool discovery happens automatically when connecting to the MCP server.

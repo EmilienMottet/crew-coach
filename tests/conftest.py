@@ -1,4 +1,5 @@
 """Shared test fixtures for Strava Description Crew tests."""
+
 import os
 import pytest
 from datetime import datetime, timezone
@@ -27,7 +28,7 @@ def test_env_vars():
         "OPENAI_API_KEY",
         "MCP_API_KEY",
         "STRAVA_MCP_SERVER_URL",
-        "INTERVALS_MCP_SERVER_URL"
+        "INTERVALS_MCP_SERVER_URL",
     ]
     missing = [v for v in required_vars if not os.getenv(v)]
     if missing:
@@ -58,9 +59,9 @@ def sample_activity_work_hours():
             "moving_time": 2400,
             "start_date_local": "2025-11-26T11:00:00Z",  # 11:00 CET = work hours
             "average_heartrate": 145,
-            "average_watts": None
+            "average_watts": None,
         },
-        "spotify_recently_played": {"items": []}
+        "spotify_recently_played": {"items": []},
     }
 
 
@@ -78,30 +79,41 @@ def sample_activity_outside_work():
             "moving_time": 5400,
             "start_date_local": "2025-11-26T18:30:00Z",  # 18:30 CET = outside work
             "average_heartrate": 150,
-            "average_watts": 280
+            "average_watts": 280,
         },
-        "spotify_recently_played": {"items": []}
+        "spotify_recently_played": {"items": []},
     }
 
 
 def assert_french_text(text: str, field_name: str):
     """Validate that text is in French (heuristic-based)."""
     # French indicators
-    french_keywords = ["sortie", "entraînement", "séance", "allure", "vitesse", "vélo", "course"]
+    french_keywords = [
+        "sortie",
+        "entraînement",
+        "séance",
+        "allure",
+        "vitesse",
+        "vélo",
+        "course",
+    ]
     french_chars = ["é", "è", "ê", "à", "ù", "ç", "œ"]
 
     text_lower = text.lower()
     has_keyword = any(kw in text_lower for kw in french_keywords)
     has_accent = any(char in text for char in french_chars)
 
-    assert has_keyword or has_accent, \
-        f"{field_name} should be in French but got: {text[:100]}"
+    assert (
+        has_keyword or has_accent
+    ), f"{field_name} should be in French but got: {text[:100]}"
 
 
 def assert_character_limits(title: str, description: str):
     """Validate Strava character limits."""
     assert len(title) <= 50, f"Title exceeds 50 chars: {len(title)} chars"
-    assert len(description) <= 500, f"Description exceeds 500 chars: {len(description)} chars"
+    assert (
+        len(description) <= 500
+    ), f"Description exceeds 500 chars: {len(description)} chars"
 
 
 def assert_has_emoji(text: str):
@@ -111,10 +123,9 @@ def assert_has_emoji(text: str):
         (0x1F600, 0x1F64F),  # Emoticons
         (0x1F300, 0x1F5FF),  # Misc symbols
         (0x1F680, 0x1F6FF),  # Transport
-        (0x2600, 0x26FF),    # Misc symbols
+        (0x2600, 0x26FF),  # Misc symbols
     ]
     has_emoji = any(
-        any(start <= ord(char) <= end for start, end in emoji_ranges)
-        for char in text
+        any(start <= ord(char) <= end for start, end in emoji_ranges) for char in text
     )
     assert has_emoji, f"Expected emoji in text: {text[:50]}"

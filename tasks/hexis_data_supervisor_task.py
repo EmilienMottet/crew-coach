@@ -2,6 +2,7 @@
 
 Part of the Supervisor/Executor/Reviewer pattern for HEXIS_ANALYSIS.
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta
@@ -36,17 +37,19 @@ def create_hexis_data_supervisor_task(
     priority = 1
     while current_start <= end_dt:
         batch_end = min(current_start + timedelta(days=BATCH_SIZE - 1), end_dt)
-        batches.append({
-            "start_date": current_start.strftime("%Y-%m-%d"),
-            "end_date": batch_end.strftime("%Y-%m-%d"),
-            "priority": priority,
-        })
+        batches.append(
+            {
+                "start_date": current_start.strftime("%Y-%m-%d"),
+                "end_date": batch_end.strftime("%Y-%m-%d"),
+                "priority": priority,
+            }
+        )
         priority += 1
         current_start = batch_end + timedelta(days=1)
 
     # Build tool_calls JSON for prompt
     tool_calls_json = ",\n    ".join(
-        f'''{{
+        f"""{{
       "tool_name": "hexis__hexis_get_weekly_plan",
       "parameters": {{
         "start_date": "{b['start_date']}",
@@ -54,7 +57,7 @@ def create_hexis_data_supervisor_task(
       }},
       "purpose": "Retrieve data for {b['start_date']} to {b['end_date']}",
       "priority": {b['priority']}
-    }}'''
+    }}"""
         for b in batches
     )
 

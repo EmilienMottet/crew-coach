@@ -3,6 +3,7 @@
 Part of the Supervisor/Executor/Reviewer pattern for DESCRIPTION.
 This agent plans what data to retrieve without making tool calls.
 """
+
 from crewai import Agent
 from typing import Any
 

@@ -1,4 +1,5 @@
 """Agent responsible for validating nutritional balance and quality."""
+
 from crewai import Agent
 from typing import Any
 

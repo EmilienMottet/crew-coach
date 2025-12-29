@@ -1,4 +1,5 @@
 """Agent responsible for generating creative and balanced meals."""
+
 from crewai import Agent
 from typing import Any, Optional, Sequence
 
@@ -6,7 +7,7 @@ from typing import Any, Optional, Sequence
 def create_meal_generation_agent(
     llm: Any,
     tools: Optional[Sequence[Any]] = None,
-    mcps: Optional[Sequence[str]] = None
+    mcps: Optional[Sequence[str]] = None,
 ) -> Agent:
     """
     Create an agent that generates delicious, balanced meals matching nutritional targets.

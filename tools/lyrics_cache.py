@@ -2,9 +2,10 @@ import json
 import os
 from typing import Dict, Optional, Any
 
+
 class LyricsCache:
     """Simple JSON-based cache for lyrics analysis results."""
-    
+
     def __init__(self, cache_file: str = "lyrics_cache.json"):
         self.cache_file = cache_file
         self.cache: Dict[str, Any] = self._load_cache()
@@ -12,7 +13,7 @@ class LyricsCache:
     def _load_cache(self) -> Dict[str, Any]:
         if os.path.exists(self.cache_file):
             try:
-                with open(self.cache_file, 'r', encoding='utf-8') as f:
+                with open(self.cache_file, "r", encoding="utf-8") as f:
                     return json.load(f)
             except (json.JSONDecodeError, IOError):
                 return {}
@@ -20,7 +21,7 @@ class LyricsCache:
 
     def _save_cache(self):
         try:
-            with open(self.cache_file, 'w', encoding='utf-8') as f:
+            with open(self.cache_file, "w", encoding="utf-8") as f:
                 json.dump(self.cache, f, indent=2, ensure_ascii=False)
         except IOError:
             pass

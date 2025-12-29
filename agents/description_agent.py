@@ -1,4 +1,5 @@
 """Agent responsible for creating activity titles and descriptions."""
+
 from crewai import Agent
 from typing import Any, Optional, Sequence
 
@@ -6,20 +7,20 @@ from typing import Any, Optional, Sequence
 def create_description_agent(
     llm: Any,
     tools: Optional[Sequence[Any]] = None,
-    mcps: Optional[Sequence[str]] = None
+    mcps: Optional[Sequence[str]] = None,
 ) -> Agent:
     """
     Create an agent that generates engaging titles and descriptions for activities.
-    
+
     This agent analyzes training data from Intervals.icu to create:
     - Concise, informative titles (max 50 characters)
     - Detailed descriptions highlighting workout structure and key metrics
     - Appropriate emoji usage for visual appeal
-    
+
     Args:
         llm: The language model to use
         tools: List of tools available to the agent
-        
+
     Returns:
         Configured Agent instance
     """

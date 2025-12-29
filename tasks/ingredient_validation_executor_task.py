@@ -1,4 +1,5 @@
 """Task for the Ingredient Validation Executor - tool calls for Passio search."""
+
 from __future__ import annotations
 
 import json

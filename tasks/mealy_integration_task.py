@@ -1,4 +1,5 @@
 """Task for integrating meal plans into Hexis."""
+
 from __future__ import annotations
 
 import json
@@ -37,14 +38,16 @@ def create_hexis_integration_task(
     if nutrition_plan and "daily_targets" in nutrition_plan:
         targets_list = []
         for t in nutrition_plan.get("daily_targets", []):
-            targets_list.append({
-                "date": t.get("date", "?"),
-                "day_name": t.get("day_name", "?"),
-                "calories": t.get("calories", 0),
-                "protein_g": t.get("protein_g", 0),
-                "carbs_g": t.get("carbs_g", 0),
-                "fat_g": t.get("fat_g", 0),
-            })
+            targets_list.append(
+                {
+                    "date": t.get("date", "?"),
+                    "day_name": t.get("day_name", "?"),
+                    "calories": t.get("calories", 0),
+                    "protein_g": t.get("protein_g", 0),
+                    "carbs_g": t.get("carbs_g", 0),
+                    "fat_g": t.get("fat_g", 0),
+                }
+            )
         daily_targets_json = json.dumps(targets_list, indent=2)
         daily_targets_section = f"""
         ⚠️ CIBLES JOURNALIÈRES DE RÉFÉRENCE (NE PAS DÉDUIRE D'AUTRES SOURCES):

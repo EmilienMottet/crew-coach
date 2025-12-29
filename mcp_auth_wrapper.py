@@ -53,7 +53,13 @@ class MetaMCPAdapter:
         adapter.stop()
     """
 
-    def __init__(self, mcp_url: str, api_key: str, connect_timeout: int = 30, tool_timeout: int = 60):
+    def __init__(
+        self,
+        mcp_url: str,
+        api_key: str,
+        connect_timeout: int = 30,
+        tool_timeout: int = 60,
+    ):
         """
         Initialize the MetaMCP adapter.
 
@@ -79,6 +85,7 @@ class MetaMCPAdapter:
         self.session: ClientSession | None = None
         self.mcp_tools: List[Any] = []
         self.ready = threading.Event()
+        self._stop_event: Optional[asyncio.Event] = None
         self.crewai_adapter = CrewAIAdapter()
 
     def _create_auth_client(self, **kwargs) -> APIKeyHTTPClient:
@@ -90,6 +97,9 @@ class MetaMCPAdapter:
         self.loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self.loop)
 
+        # Create stop event in the loop's context
+        self._stop_event = asyncio.Event()
+
         async def setup():
             async with AsyncExitStack() as stack:
                 # Connect to MCP server with custom HTTP client using streamable HTTP
@@ -98,7 +108,7 @@ class MetaMCPAdapter:
                         url=f"{self.mcp_url}?api_key={self.api_key}",
                         httpx_client_factory=self._create_auth_client,
                         timeout=float(self.connect_timeout),
-                        terminate_on_close=True
+                        terminate_on_close=True,
                     )
                 )
 
@@ -113,12 +123,29 @@ class MetaMCPAdapter:
                 self.mcp_tools = result.tools
 
                 self.ready.set()  # Signal initialization complete
-                await asyncio.Event().wait()  # Keep alive until stopped
+
+                # Wait until stop event is set
+                if self._stop_event:
+                    await self._stop_event.wait()
 
         try:
             self.loop.run_until_complete(setup())
         except asyncio.CancelledError:
             pass
+        finally:
+            try:
+                # Cancel all remaining tasks
+                pending = asyncio.all_tasks(self.loop)
+                for task in pending:
+                    task.cancel()
+
+                # Run loop to let tasks clean up
+                if pending:
+                    self.loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+
+                self.loop.close()
+            except Exception:
+                pass
 
     def start(self):
         """Start the MCP adapter and connect to the server."""
@@ -127,18 +154,30 @@ class MetaMCPAdapter:
 
         # Wait for initialization with timeout
         if not self.ready.wait(timeout=self.connect_timeout):
-            raise TimeoutError(f"Couldn't connect to MCP server after {self.connect_timeout} seconds")
+            self.stop()
+            raise TimeoutError(
+                f"Couldn't connect to MCP server after {self.connect_timeout} seconds"
+            )
 
     def stop(self):
         """Stop the MCP adapter and cleanup resources."""
         if self.loop and self.loop.is_running():
-            self.loop.call_soon_threadsafe(lambda: asyncio.create_task(self._shutdown()))
+            self.loop.call_soon_threadsafe(
+                lambda: asyncio.create_task(self._shutdown())
+            )
 
     async def _shutdown(self):
         """Async shutdown helper."""
+        if self._stop_event:
+            self._stop_event.set()
+
+        # Allow brief time for setup() to exit its wait
+        await asyncio.sleep(0.01)
+
         if self.loop:
             for task in asyncio.all_tasks(self.loop):
-                task.cancel()
+                if task is not asyncio.current_task():
+                    task.cancel()
 
     @property
     def tools(self) -> List[BaseTool]:
@@ -164,8 +203,7 @@ class MetaMCPAdapter:
 
                         # Run the async tool call in the event loop
                         future = asyncio.run_coroutine_threadsafe(
-                            self.session.call_tool(tool_name, arguments),
-                            self.loop
+                            self.session.call_tool(tool_name, arguments), self.loop
                         )
                         try:
                             return future.result(timeout=tool_timeout)
@@ -174,15 +212,22 @@ class MetaMCPAdapter:
                                 f"MCP tool '{tool_name}' timed out after {tool_timeout}s. "
                                 f"The API server may be unresponsive."
                             )
+
                     return tool_func
 
                 # Use CrewAIAdapter to convert the MCP tool with proper schema
-                tool = self.crewai_adapter.adapt(make_tool_func(mcp_tool.name, self.tool_timeout), mcp_tool)
+                tool = self.crewai_adapter.adapt(
+                    make_tool_func(mcp_tool.name, self.tool_timeout), mcp_tool
+                )
                 crewai_tools.append(tool)
             except Exception as e:
                 # If schema conversion fails (circular refs, etc.), fall back to simple tool
                 import sys
-                print(f"Warning: Could not convert tool {mcp_tool.name} with schema, using simple wrapper: {e}", file=sys.stderr)
+
+                print(
+                    f"Warning: Could not convert tool {mcp_tool.name} with schema, using simple wrapper: {e}",
+                    file=sys.stderr,
+                )
                 tool = self._create_simple_tool(mcp_tool)
                 crewai_tools.append(tool)
 
@@ -203,8 +248,7 @@ class MetaMCPAdapter:
 
             # Run the async tool call in the event loop
             future = asyncio.run_coroutine_threadsafe(
-                self.session.call_tool(mcp_tool.name, kwargs or None),
-                self.loop
+                self.session.call_tool(mcp_tool.name, kwargs or None), self.loop
             )
             try:
                 result = future.result(timeout=tool_timeout)
@@ -215,7 +259,7 @@ class MetaMCPAdapter:
                 )
 
             # Extract content from result
-            if hasattr(result, 'content') and result.content:
+            if hasattr(result, "content") and result.content:
                 return str(result.content[0].text if result.content else "")
             return str(result)
 
@@ -232,23 +276,32 @@ class MetaMCPAdapter:
                 req_marker = " (required)" if prop_name in required else ""
                 prop_type = prop_schema.get("type", "unknown")
                 prop_desc = prop_schema.get("description", "")
-                params_desc.append(f"  - {prop_name} ({prop_type}){req_marker}: {prop_desc}")
+                params_desc.append(
+                    f"  - {prop_name} ({prop_type}){req_marker}: {prop_desc}"
+                )
             schema_desc = "\n\nParameters:\n" + "\n".join(params_desc)
 
-        tool_func.__doc__ = (mcp_tool.description or f"MCP tool: {mcp_tool.name}") + schema_desc
+        tool_func.__doc__ = (
+            mcp_tool.description or f"MCP tool: {mcp_tool.name}"
+        ) + schema_desc
 
         simple_tool = tool(tool_func)
 
         # Build a Pydantic args schema when available so LLMs can see required fields
         if mcp_tool.inputSchema and "properties" in mcp_tool.inputSchema:
-            properties: Dict[str, Dict[str, Any]] = mcp_tool.inputSchema.get("properties", {})
+            properties: Dict[str, Dict[str, Any]] = mcp_tool.inputSchema.get(
+                "properties", {}
+            )
             required_fields = set(mcp_tool.inputSchema.get("required", []))
             field_definitions: Dict[str, tuple[Any, Any]] = {}
 
             def _map_json_type(json_schema: Dict[str, Any]) -> Any:
                 json_type = json_schema.get("type")
                 if isinstance(json_type, list):
-                    json_type = next((t for t in json_type if t != "null"), json_type[0] if json_type else None)
+                    json_type = next(
+                        (t for t in json_type if t != "null"),
+                        json_type[0] if json_type else None,
+                    )
 
                 type_mapping = {
                     "string": str,

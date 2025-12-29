@@ -1,4 +1,5 @@
 """Agent responsible for structuring the weekly nutrition plan."""
+
 from crewai import Agent
 from typing import Any, Optional, Sequence
 

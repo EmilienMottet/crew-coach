@@ -1,4 +1,5 @@
 """Cache for Passio food nutritional data and search results to minimize API calls."""
+
 import json
 from pathlib import Path
 from typing import Optional, Dict, Any, List
@@ -35,7 +36,8 @@ class PassioSearchCache:
                     now = datetime.now().timestamp()
                     ttl_seconds = CACHE_TTL_DAYS * 86400
                     self._cache = {
-                        k: v for k, v in data.items()
+                        k: v
+                        for k, v in data.items()
                         if now - v.get("cached_at", 0) < ttl_seconds
                     }
             except (json.JSONDecodeError, IOError):
@@ -175,7 +177,8 @@ class PassioNutritionCache:
                     now = datetime.now().timestamp()
                     ttl_seconds = CACHE_TTL_DAYS * 86400
                     self._cache = {
-                        k: v for k, v in data.items()
+                        k: v
+                        for k, v in data.items()
                         if now - v.get("cached_at", 0) < ttl_seconds
                     }
             except (json.JSONDecodeError, IOError):

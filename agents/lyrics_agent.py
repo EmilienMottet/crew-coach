@@ -1,4 +1,5 @@
 """Agent responsible for verifying lyrics and selecting quotes."""
+
 from __future__ import annotations
 
 from typing import Any, Optional, Sequence
@@ -41,11 +42,12 @@ def create_lyrics_agent(
 
     # Debug info
     import sys
+
     print(
         f"🔍 Lyrics agent created:\n"
         f"   Role: Lyrics Verification and Quote Selector\n"
         f"   Tools: {[t.name for t in tools] if tools else 'None'}\n",
-        file=sys.stderr
+        file=sys.stderr,
     )
 
     return agent

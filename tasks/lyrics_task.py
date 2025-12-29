@@ -1,4 +1,5 @@
 """Task for verifying lyrics and selecting quotes."""
+
 from __future__ import annotations
 
 import json
@@ -10,6 +11,7 @@ from observability import setup_structured_logger
 # Initialize structured logger for lyrics workflow
 logger = setup_structured_logger("crew.lyrics_task")
 
+
 def create_lyrics_task(
     agent,
     candidate_tracks: List[str],
@@ -17,14 +19,14 @@ def create_lyrics_task(
     activity_data: Dict[str, Any],
 ) -> Task:
     """Create a task that verifies lyrics and updates the description."""
-    
+
     object_data = activity_data.get("object_data", {})
     sport_type = object_data.get("type", "Activity")
-    
+
     # Extract sensation/RPE data
     icu_feel = object_data.get("feel")
     icu_rpe = object_data.get("icu_rpe")
-    
+
     sensation_info = ""
     if icu_feel is not None:
         sensation_info = f"SENSATION (Intervals.icu): {icu_feel}"
@@ -34,25 +36,29 @@ def create_lyrics_task(
     # ENHANCED LOGGING: Log lyrics verification context
     logger.info(
         "Lyrics verification task initialized",
-        extra={"extra_fields": {
-            "candidate_tracks_count": len(candidate_tracks),
-            "candidate_tracks": candidate_tracks,
-            "sport_type": sport_type,
-            "has_sensation_data": icu_feel is not None or icu_rpe is not None,
-            "sensation_feel": icu_feel,
-            "sensation_rpe": icu_rpe,
-        }}
+        extra={
+            "extra_fields": {
+                "candidate_tracks_count": len(candidate_tracks),
+                "candidate_tracks": candidate_tracks,
+                "sport_type": sport_type,
+                "has_sensation_data": icu_feel is not None or icu_rpe is not None,
+                "sensation_feel": icu_feel,
+                "sensation_rpe": icu_rpe,
+            }
+        },
     )
 
     # ENHANCED LOGGING: Log track-by-track verification plan
     for idx, track in enumerate(candidate_tracks, 1):
         logger.debug(
             f"Candidate track {idx}",
-            extra={"extra_fields": {
-                "track_position": idx,
-                "track_name": track,
-                "verification_pending": True,
-            }}
+            extra={
+                "extra_fields": {
+                    "track_position": idx,
+                    "track_name": track,
+                    "verification_pending": True,
+                }
+            },
         )
 
     description = f"""

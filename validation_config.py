@@ -31,16 +31,16 @@ class MacroThresholds:
     # Percentage tolerances (expressed as decimals)
     # Using < comparison (not <=) so 18% passes an 18% threshold
     calories_pct: float = 0.12  # +/- 12% for calories
-    protein_pct: float = 0.18   # +/- 18% for protein
-    carbs_pct: float = 0.20     # +/- 20% for carbs
-    fat_pct: float = 0.20       # +/- 20% for fat
+    protein_pct: float = 0.18  # +/- 18% for protein
+    carbs_pct: float = 0.20  # +/- 20% for carbs
+    fat_pct: float = 0.20  # +/- 20% for fat
 
     # Absolute tolerances (in grams/kcal)
     # Used as fallback when percentage would be too strict
-    calories_abs: float = 300   # +/- 300 kcal absolute
-    protein_abs: float = 15     # +/- 15g absolute
-    carbs_abs: float = 25       # +/- 25g absolute
-    fat_abs: float = 12         # +/- 12g absolute
+    calories_abs: float = 300  # +/- 300 kcal absolute
+    protein_abs: float = 15  # +/- 15g absolute
+    carbs_abs: float = 25  # +/- 25g absolute
+    fat_abs: float = 12  # +/- 12g absolute
 
 
 # Default thresholds instance - import this in other modules
@@ -49,21 +49,23 @@ DEFAULT_THRESHOLDS = MacroThresholds()
 # Relaxed thresholds (+50%) for 4th attempt when strict validation fails
 # This provides a fallback to avoid complete plan failures
 RELAXED_THRESHOLDS = MacroThresholds(
-    calories_pct=0.18,   # ±18% (vs ±12%)
-    protein_pct=0.27,    # ±27% (vs ±18%)
-    carbs_pct=0.30,      # ±30% (vs ±20%)
-    fat_pct=0.30,        # ±30% (vs ±20%)
-    calories_abs=450,    # ±450 (vs ±300)
-    protein_abs=22,      # ±22g (vs ±15g)
-    carbs_abs=38,        # ±38g (vs ±25g)
-    fat_abs=18,          # ±18g (vs ±12g)
+    calories_pct=0.18,  # ±18% (vs ±12%)
+    protein_pct=0.27,  # ±27% (vs ±18%)
+    carbs_pct=0.30,  # ±30% (vs ±20%)
+    fat_pct=0.30,  # ±30% (vs ±20%)
+    calories_abs=450,  # ±450 (vs ±300)
+    protein_abs=22,  # ±22g (vs ±15g)
+    carbs_abs=38,  # ±38g (vs ±25g)
+    fat_abs=18,  # ±18g (vs ±12g)
 )
 
 # Variety thresholds
 MIN_UNIQUE_MEALS_RATIO = 0.85  # 85% unique meals acceptable (e.g., 24/28 is OK)
 
 
-def get_adaptive_thresholds(target_calories: int, use_relaxed: bool = False) -> MacroThresholds:
+def get_adaptive_thresholds(
+    target_calories: int, use_relaxed: bool = False
+) -> MacroThresholds:
     """Get thresholds adapted to the target calorie level.
 
     High-energy days (>3000 kcal) get looser thresholds because:
@@ -84,14 +86,14 @@ def get_adaptive_thresholds(target_calories: int, use_relaxed: bool = False) -> 
     if target_calories > 3000:
         # High-energy day: use intermediate thresholds
         return MacroThresholds(
-            calories_pct=0.15,   # ±15% (vs ±12%)
-            protein_pct=0.20,    # ±20% (vs ±18%)
-            carbs_pct=0.25,      # ±25% (vs ±20%)
-            fat_pct=0.25,        # ±25% (vs ±20%)
-            calories_abs=400,    # ±400 (vs ±300)
-            protein_abs=20,      # ±20g (vs ±15g)
-            carbs_abs=35,        # ±35g (vs ±25g)
-            fat_abs=15,          # ±15g (vs ±12g)
+            calories_pct=0.15,  # ±15% (vs ±12%)
+            protein_pct=0.20,  # ±20% (vs ±18%)
+            carbs_pct=0.25,  # ±25% (vs ±20%)
+            fat_pct=0.25,  # ±25% (vs ±20%)
+            calories_abs=400,  # ±400 (vs ±300)
+            protein_abs=20,  # ±20g (vs ±15g)
+            carbs_abs=35,  # ±35g (vs ±25g)
+            fat_abs=15,  # ±15g (vs ±12g)
         )
 
     return DEFAULT_THRESHOLDS
@@ -152,7 +154,13 @@ def check_compliance(
 
     # Define checks: (actual_key, target_key, pct_tolerance, abs_tolerance, unit)
     checks = [
-        ("calories", "calories", thresholds.calories_pct, thresholds.calories_abs, "kcal"),
+        (
+            "calories",
+            "calories",
+            thresholds.calories_pct,
+            thresholds.calories_abs,
+            "kcal",
+        ),
         ("protein_g", "protein_g", thresholds.protein_pct, thresholds.protein_abs, "g"),
         ("carbs_g", "carbs_g", thresholds.carbs_pct, thresholds.carbs_abs, "g"),
         ("fat_g", "fat_g", thresholds.fat_pct, thresholds.fat_abs, "g"),
@@ -225,7 +233,9 @@ def check_variety(
     acceptable = ratio >= min_ratio
 
     if acceptable:
-        message = f"Good variety: {unique_meals}/{expected_meals} unique meals ({ratio:.0%})"
+        message = (
+            f"Good variety: {unique_meals}/{expected_meals} unique meals ({ratio:.0%})"
+        )
     else:
         message = f"Low variety: {unique_meals}/{expected_meals} unique meals ({ratio:.0%}), need {min_ratio:.0%}"
 
@@ -279,10 +289,26 @@ DEFAULT_DIETARY_RESTRICTIONS: List[DietaryRestriction] = [
     DietaryRestriction(
         name="cheese",
         forbidden_keywords=(
-            "cheese", "fromage", "parmesan", "cheddar", "mozzarella",
-            "gruyere", "gruyère", "brie", "camembert", "feta", "gouda",
-            "emmental", "comté", "comte", "roquefort", "gorgonzola",
-            "pecorino", "ricotta", "halloumi", "paneer",
+            "cheese",
+            "fromage",
+            "parmesan",
+            "cheddar",
+            "mozzarella",
+            "gruyere",
+            "gruyère",
+            "brie",
+            "camembert",
+            "feta",
+            "gouda",
+            "emmental",
+            "comté",
+            "comte",
+            "roquefort",
+            "gorgonzola",
+            "pecorino",
+            "ricotta",
+            "halloumi",
+            "paneer",
         ),
         exceptions=("mascarpone",),  # Mascarpone is allowed
         severity="critical",
@@ -290,8 +316,12 @@ DEFAULT_DIETARY_RESTRICTIONS: List[DietaryRestriction] = [
     DietaryRestriction(
         name="smoked_salmon",
         forbidden_keywords=(
-            "smoked salmon", "saumon fume", "saumon fumé",
-            "lox", "gravlax", "nova",
+            "smoked salmon",
+            "saumon fume",
+            "saumon fumé",
+            "lox",
+            "gravlax",
+            "nova",
         ),
         exceptions=(),
         severity="critical",
@@ -299,8 +329,14 @@ DEFAULT_DIETARY_RESTRICTIONS: List[DietaryRestriction] = [
     DietaryRestriction(
         name="carbonated_drinks",
         forbidden_keywords=(
-            "soda", "cola", "sprite", "fanta", "pepsi",
-            "carbonated", "sparkling soda", "fizzy drink",
+            "soda",
+            "cola",
+            "sprite",
+            "fanta",
+            "pepsi",
+            "carbonated",
+            "sparkling soda",
+            "fizzy drink",
         ),
         exceptions=("sparkling water", "eau gazeuse", "perrier", "san pellegrino"),
         severity="warning",  # Non-blocking
@@ -338,8 +374,7 @@ def check_dietary_restrictions(
         for restriction in restrictions:
             # Check if any exception applies first
             is_exception = any(
-                exc.lower() in ingredient_lower
-                for exc in restriction.exceptions
+                exc.lower() in ingredient_lower for exc in restriction.exceptions
             )
             if is_exception:
                 continue

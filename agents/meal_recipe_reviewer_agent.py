@@ -1,4 +1,5 @@
 """Reviewer agent for meal validation - pure reasoning, no tools."""
+
 from crewai import Agent
 from typing import Any
 

@@ -1,4 +1,5 @@
 """Agent responsible for translating activity titles and descriptions."""
+
 from crewai import Agent
 from typing import Any
 import os
@@ -7,22 +8,22 @@ import os
 def create_translation_agent(llm: Any) -> Agent:
     """
     Create an agent that translates activity titles and descriptions.
-    
+
     This agent handles:
     - Translation from French to English or vice versa
     - Preservation of emojis and formatting
     - Maintaining the tone and style of the original content
     - Adapting running/sports terminology appropriately
-    
+
     Args:
         llm: The language model to use
-        
+
     Returns:
         Configured Agent instance
     """
     # Get target language from environment (default: English)
     target_language = os.getenv("TRANSLATION_TARGET_LANGUAGE", "English")
-    
+
     return Agent(
         role="Sports Content Translator",
         goal=f"Translate activity titles and descriptions to {target_language} while preserving meaning, tone, and sports terminology. Return the translated data as a valid JSON object, NOT a schema definition.",
@@ -72,5 +73,5 @@ def create_translation_agent(llm: Any) -> Agent:
         verbose=True,
         allow_delegation=False,
         llm=llm,
-        tools=[]  # Translation agent doesn't need external tools
+        tools=[],  # Translation agent doesn't need external tools
     )

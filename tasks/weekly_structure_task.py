@@ -1,4 +1,5 @@
 """Task for creating the weekly nutrition structure."""
+
 from __future__ import annotations
 
 import json

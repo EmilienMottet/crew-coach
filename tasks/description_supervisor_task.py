@@ -2,6 +2,7 @@
 
 Part of the Supervisor/Executor/Reviewer pattern for DESCRIPTION.
 """
+
 from __future__ import annotations
 
 import json
@@ -10,7 +11,9 @@ from typing import Any, Dict
 from crewai import Task
 
 
-def create_description_supervisor_task(agent: Any, activity_data: Dict[str, Any]) -> Task:
+def create_description_supervisor_task(
+    agent: Any, activity_data: Dict[str, Any]
+) -> Task:
     """
     Create a task for the Supervisor to plan activity data retrieval.
 
@@ -29,7 +32,9 @@ def create_description_supervisor_task(agent: Any, activity_data: Dict[str, Any]
     start_date = object_data.get("start_date_local", "")
 
     # Extract date for Intervals.icu lookup
-    start_date_str = start_date.split('T')[0] if start_date and 'T' in start_date else start_date
+    start_date_str = (
+        start_date.split("T")[0] if start_date and "T" in start_date else start_date
+    )
 
     description = f"""Plan the data retrieval strategy for creating an activity description.
 

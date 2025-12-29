@@ -1,4 +1,5 @@
 """Integration tests for the complete 4-agent pipeline."""
+
 import pytest
 
 
@@ -9,7 +10,9 @@ class TestFullPipeline:
     """Test the complete Description → Music → Privacy → Translation workflow."""
 
     @pytest.mark.timeout(180)
-    def test_complete_workflow_outside_work_hours(self, crew_instance, sample_activity_outside_work):
+    def test_complete_workflow_outside_work_hours(
+        self, crew_instance, sample_activity_outside_work
+    ):
         """Full workflow for public activity."""
         result = crew_instance.process_activity(sample_activity_outside_work)
 
@@ -23,33 +26,39 @@ class TestFullPipeline:
 
         # Validate French translation
         from tests.conftest import assert_french_text, assert_character_limits
+
         assert_french_text(result["title"], "Title")
         assert_french_text(result["description"], "Description")
         assert_character_limits(result["title"], result["description"])
 
         # Validate privacy decision
-        assert result["should_be_private"] is False, \
-            "Evening activity should be public"
+        assert result["should_be_private"] is False, "Evening activity should be public"
 
     @pytest.mark.timeout(180)
-    def test_complete_workflow_work_hours(self, crew_instance, sample_activity_work_hours):
+    def test_complete_workflow_work_hours(
+        self, crew_instance, sample_activity_work_hours
+    ):
         """Full workflow for private activity (work hours)."""
         result = crew_instance.process_activity(sample_activity_work_hours)
 
         # Should be marked private
-        assert result["should_be_private"] is True, \
-            "Work hours activity should be private"
-        assert result["privacy_check"]["during_work_hours"] is True, \
-            "Privacy check should detect work hours"
+        assert (
+            result["should_be_private"] is True
+        ), "Work hours activity should be private"
+        assert (
+            result["privacy_check"]["during_work_hours"] is True
+        ), "Privacy check should detect work hours"
 
         # Still should have French content
         from tests.conftest import assert_french_text
+
         assert_french_text(result["title"], "Title")
 
     @pytest.mark.timeout(180)
     def test_music_integration_with_spotify_data(self, crew_instance):
         """Music agent should process Spotify data when available."""
         from tests.fixtures.activities import ACTIVITIES
+
         activity = ACTIVITIES["evening_ride"]
 
         result = crew_instance.process_activity(activity)
@@ -74,15 +83,19 @@ class TestFullPipeline:
 
         # Validate both are in French
         from tests.conftest import assert_french_text
+
         assert_french_text(run_result["title"], "Run title")
         assert_french_text(ride_result["title"], "Ride title")
 
         # Titles should differ (different activity types)
-        assert run_result["title"] != ride_result["title"], \
-            "Different activity types should have different titles"
+        assert (
+            run_result["title"] != ride_result["title"]
+        ), "Different activity types should have different titles"
 
     @pytest.mark.timeout(180)
-    def test_output_json_serializability(self, crew_instance, sample_activity_outside_work):
+    def test_output_json_serializability(
+        self, crew_instance, sample_activity_outside_work
+    ):
         """Final output should be JSON-serializable."""
         import json
 

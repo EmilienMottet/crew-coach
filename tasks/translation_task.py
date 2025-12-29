@@ -1,4 +1,5 @@
 """Task for translating activity titles and descriptions."""
+
 from __future__ import annotations
 
 import os
@@ -11,17 +12,17 @@ from schemas import TranslationPayload
 def create_translation_task(agent, content_to_translate: str) -> Task:
     """
     Create a task for translating activity title and description.
-    
+
     Args:
         agent: The agent responsible for this task
         content_to_translate: The JSON string containing title and description to translate
-        
+
     Returns:
         Configured Task instance
     """
     # Get target language from environment (default: English)
     target_language = os.getenv("TRANSLATION_TARGET_LANGUAGE", "English")
-    
+
     # Determine source language hint
     source_language = os.getenv("TRANSLATION_SOURCE_LANGUAGE", "French")
 
@@ -77,7 +78,7 @@ def create_translation_task(agent, content_to_translate: str) -> Task:
     - Title must be ≤50 characters
     - Description must be ≤500 characters
     """
-    
+
     return Task(
         description=description,
         agent=agent,

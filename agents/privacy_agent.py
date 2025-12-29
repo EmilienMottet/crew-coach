@@ -1,4 +1,5 @@
 """Agent responsible for privacy and compliance checking."""
+
 from crewai import Agent
 from typing import Any
 import os
@@ -7,15 +8,15 @@ import os
 def create_privacy_agent(llm: Any) -> Agent:
     """
     Create an agent that checks for privacy issues and working hours compliance.
-    
+
     This agent ensures:
     - No sensitive personal information in titles/descriptions
     - Activities during work hours are flagged for privacy
     - Compliance with data protection best practices
-    
+
     Args:
         llm: The language model to use
-        
+
     Returns:
         Configured Agent instance
     """
@@ -24,7 +25,7 @@ def create_privacy_agent(llm: Any) -> Agent:
     work_end_morning = os.getenv("WORK_END_MORNING", "12:00")
     work_start_afternoon = os.getenv("WORK_START_AFTERNOON", "14:00")
     work_end_afternoon = os.getenv("WORK_END_AFTERNOON", "17:00")
-    
+
     return Agent(
         role="Privacy and Compliance Officer",
         goal="Ensure activity titles and descriptions comply with privacy guidelines and working hours policy, and handle generation failures gracefully",
@@ -76,5 +77,5 @@ def create_privacy_agent(llm: Any) -> Agent:
         verbose=True,
         allow_delegation=False,
         llm=llm,
-        tools=[]  # Privacy agent doesn't need external tools
+        tools=[],  # Privacy agent doesn't need external tools
     )

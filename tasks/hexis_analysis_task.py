@@ -1,4 +1,5 @@
 """Task for analyzing Hexis training data for nutritional planning."""
+
 from __future__ import annotations
 
 import json
@@ -35,8 +36,7 @@ def validate_hexis_analysis_output(task_output):
     missing = [field for field in required_fields if field not in payload]
     if missing:
         return False, (
-            "The JSON output is missing required keys: "
-            + ", ".join(sorted(missing))
+            "The JSON output is missing required keys: " + ", ".join(sorted(missing))
         )
 
     return True, task_output.raw
@@ -122,7 +122,9 @@ Return ONLY the JSON object, no explanations.
         agent=agent,
         expected_output="""Complete JSON object with all required fields populated from Hexis data analysis.
 Format: {{"week_start_date": "{week_start_date}", "week_end_date": "{week_end_date}", "training_load_summary": {{}}, ...}}
-NO markdown fences, NO explanatory text, ONLY the JSON object.""".format(week_start_date=week_start_date, week_end_date=week_end_date),
+NO markdown fences, NO explanatory text, ONLY the JSON object.""".format(
+            week_start_date=week_start_date, week_end_date=week_end_date
+        ),
         # DISABLED: guardrail causes infinite loop when validation fails and agent retries tool call
         # guardrail=validate_hexis_analysis_output,
         # DISABLED: output_json causes auth issues with instructor

@@ -1,4 +1,5 @@
 """Main Crew definition for Strava activity description generation."""
+
 from __future__ import annotations
 
 # Ensure authentication patches and environment loading happen first
@@ -68,7 +69,7 @@ class StravaDescriptionCrew:
         # Configure environment variables for LiteLLM/OpenAI
         base_url = os.getenv("OPENAI_API_BASE", "https://ccproxy.emottet.com/v1")
         base_url = os.getenv("OPENAI_API_BASE", "https://ccproxy.emottet.com/v1")
-        
+
         # Use category names directly to enable automatic cascade fallback
         # If a specific model is set via env var, use it instead of the category
         # This enables: complex → intermediate → simple → fallback cascade on errors
@@ -87,13 +88,13 @@ class StravaDescriptionCrew:
 
         # Configure authentication - use Bearer token API key
         api_key = os.getenv("OPENAI_API_KEY")
-        
+
         if not api_key:
             raise ValueError(
                 "OPENAI_API_KEY environment variable is required. "
                 "Please set it with your API key (e.g., 'cWCsrv7H-SKZl0Z9-2JOk7pmzsdO7yQ2abmmR1D0vBs')"
             )
-        
+
         # Set environment variables that LiteLLM expects
         os.environ["OPENAI_API_BASE"] = base_url
         os.environ["OPENAI_API_KEY"] = api_key
@@ -163,32 +164,50 @@ class StravaDescriptionCrew:
             # Note: Music data now comes from n8n (spotify_recently_played field)
             "Meteo": os.getenv("METEO_MCP_SERVER_URL", ""),
             "Toolbox": os.getenv("TOOLBOX_MCP_SERVER_URL", ""),
-            "Music": os.getenv("MUSIC_MCP_SERVER_URL", "https://mcp.emottet.com/metamcp/Music"),
+            "Music": os.getenv(
+                "MUSIC_MCP_SERVER_URL", "https://mcp.emottet.com/metamcp/Music"
+            ),
         }
 
         # Filter out empty URLs
         active_servers = {name: url for name, url in mcp_servers.items() if url}
 
         if active_servers and mcp_api_key:
-            print(f"\n🔗 Connecting to {len(active_servers)} MCP servers via MetaMCPAdapter...\n", file=sys.stderr)
+            print(
+                f"\n🔗 Connecting to {len(active_servers)} MCP servers via MetaMCPAdapter...\n",
+                file=sys.stderr,
+            )
 
             for server_name, server_url in active_servers.items():
                 try:
                     print(f"   Connecting to {server_name}...", file=sys.stderr)
-                    adapter = MetaMCPAdapter(server_url, mcp_api_key, connect_timeout=30)
+                    adapter = MetaMCPAdapter(
+                        server_url, mcp_api_key, connect_timeout=30
+                    )
                     adapter.start()
                     self.mcp_adapters.append(adapter)
                     self.mcp_tools.extend(adapter.tools)
-                    print(f"   ✅ {server_name}: {len(adapter.tools)} tools discovered", file=sys.stderr)
+                    print(
+                        f"   ✅ {server_name}: {len(adapter.tools)} tools discovered",
+                        file=sys.stderr,
+                    )
                 except Exception as e:
                     error_msg = f"   ❌ {server_name}: Connection failed - {e}"
                     if require_mcp:
                         print(error_msg, file=sys.stderr)
-                        raise ValueError(f"MCP connection failed for {server_name}: {e}")
+                        raise ValueError(
+                            f"MCP connection failed for {server_name}: {e}"
+                        )
                     else:
-                        print(f"{error_msg} (continuing without this server)", file=sys.stderr)
+                        print(
+                            f"{error_msg} (continuing without this server)",
+                            file=sys.stderr,
+                        )
 
-            print(f"\n✅ MCP connection complete! Total tools discovered: {len(self.mcp_tools)}\n", file=sys.stderr)
+            print(
+                f"\n✅ MCP connection complete! Total tools discovered: {len(self.mcp_tools)}\n",
+                file=sys.stderr,
+            )
 
             # Wrap MCP tools with input validation to fix malformed inputs from LLM
             print("🛡️  Wrapping MCP tools with input validation...\n", file=sys.stderr)
@@ -206,40 +225,58 @@ class StravaDescriptionCrew:
             print(error_msg, file=sys.stderr)
             raise ValueError("MCP configuration is required but not provided")
         else:
-            print("\n⚠️  Warning: No MCP configuration. Agents will operate without live data.\n", file=sys.stderr)
+            print(
+                "\n⚠️  Warning: No MCP configuration. Agents will operate without live data.\n",
+                file=sys.stderr,
+            )
 
         # Filter tools by type for different agents
         # Note: Spotify tools are no longer needed - music data comes from n8n
         strava_tools = [t for t in self.mcp_tools if "strava" in t.name.lower()]
         intervals_tools = [t for t in self.mcp_tools if "intervals" in t.name.lower()]
-        weather_tools = [t for t in self.mcp_tools if "weather" in t.name.lower() or "openweathermap" in t.name.lower()]
-        toolbox_tools = [t for t in self.mcp_tools if any(keyword in t.name.lower() for keyword in ["fetch", "time", "task"])]
+        weather_tools = [
+            t
+            for t in self.mcp_tools
+            if "weather" in t.name.lower() or "openweathermap" in t.name.lower()
+        ]
+        toolbox_tools = [
+            t
+            for t in self.mcp_tools
+            if any(keyword in t.name.lower() for keyword in ["fetch", "time", "task"])
+        ]
 
         if strava_tools:
             print(f"🏃 Found {len(strava_tools)} Strava tools\n", file=sys.stderr)
         if intervals_tools:
-            print(f"📊 Found {len(intervals_tools)} Intervals.icu tools\n", file=sys.stderr)
+            print(
+                f"📊 Found {len(intervals_tools)} Intervals.icu tools\n",
+                file=sys.stderr,
+            )
         if weather_tools:
             print(f"🌤️  Found {len(weather_tools)} Weather tools\n", file=sys.stderr)
         if toolbox_tools:
             print(f"🛠️  Found {len(toolbox_tools)} Toolbox tools\n", file=sys.stderr)
-        
+
         music_tools = [t for t in self.mcp_tools if "lyrics" in t.name.lower()]
         if music_tools:
             print(f"🎵 Found {len(music_tools)} Music tools\n", file=sys.stderr)
-        
+
         print(f"🎵 Music: Using n8n Spotify data (no MCP tools)\n", file=sys.stderr)
 
         # Create agents with MCP tools (using tools parameter, not mcps)
         # Description Agent: needs Strava, Intervals.icu, Weather, and Toolbox
-        description_tools = strava_tools + intervals_tools + weather_tools + toolbox_tools
+        description_tools = (
+            strava_tools + intervals_tools + weather_tools + toolbox_tools
+        )
         self.description_agent = create_description_agent(
-            self.description_llm,
-            tools=description_tools if description_tools else None
+            self.description_llm, tools=description_tools if description_tools else None
         )
 
         # Music Agent: analyzes Spotify data from n8n (no MCP tools needed)
-        print(f"🎵 Creating Music Agent (using n8n Spotify data, no MCP tools)\n", file=sys.stderr)
+        print(
+            f"🎵 Creating Music Agent (using n8n Spotify data, no MCP tools)\n",
+            file=sys.stderr,
+        )
         self.music_agent = create_music_agent(self.music_llm)
         print(f"   Data source: n8n (spotify_recently_played field)\n", file=sys.stderr)
 
@@ -260,8 +297,7 @@ class StravaDescriptionCrew:
             has_tools=True,  # Agent uses MCP tools
         )
         self.lyrics_agent = create_lyrics_agent(
-            self.lyrics_llm,
-            tools=music_tools if music_tools else None
+            self.lyrics_llm, tools=music_tools if music_tools else None
         )
 
         # ═══════════════════════════════════════════════════════════════════════════════
@@ -311,7 +347,7 @@ class StravaDescriptionCrew:
         # Executor needs Strava + Intervals.icu + Weather + Toolbox tools
         self.data_retrieval_executor_agent = create_data_retrieval_executor_agent(
             self.data_retrieval_executor_llm,
-            tools=description_tools if description_tools else None
+            tools=description_tools if description_tools else None,
         )
 
         self.description_reviewer_agent = create_description_reviewer_agent(
@@ -410,7 +446,9 @@ class StravaDescriptionCrew:
 
         return payloads
 
-    def _collect_payload_candidates(self, crew_output: CrewOutput) -> List[Dict[str, Any]]:
+    def _collect_payload_candidates(
+        self, crew_output: CrewOutput
+    ) -> List[Dict[str, Any]]:
         """Collect payload candidates across crew and individual task outputs."""
         candidates: List[Dict[str, Any]] = []
 
@@ -428,7 +466,13 @@ class StravaDescriptionCrew:
     @staticmethod
     def _is_pydantic_schema(data: Dict[str, Any]) -> bool:
         """Detect if JSON looks like a Pydantic schema definition instead of data."""
-        schema_indicators = ["properties", "required", "type", "additionalProperties", "$schema"]
+        schema_indicators = [
+            "properties",
+            "required",
+            "type",
+            "additionalProperties",
+            "$schema",
+        ]
         return any(key in data for key in schema_indicators)
 
     @staticmethod
@@ -450,7 +494,13 @@ class StravaDescriptionCrew:
         but forgot to include the title. We need to detect this and reject it.
         """
         # Schema metadata fields that should NOT be in data responses
-        schema_metadata_fields = {"properties", "required", "additionalProperties", "$schema", "definitions"}
+        schema_metadata_fields = {
+            "properties",
+            "required",
+            "additionalProperties",
+            "$schema",
+            "definitions",
+        }
 
         # If we find schema metadata, this is NOT a valid data response
         if any(field in data for field in schema_metadata_fields):
@@ -475,7 +525,10 @@ class StravaDescriptionCrew:
         for candidate in self._collect_payload_candidates(crew_output):
             # Check if this looks like a Pydantic schema instead of data
             if self._is_pydantic_schema(candidate):
-                print("\n⚠️  Detected Pydantic schema instead of data, attempting to extract...\n", file=sys.stderr)
+                print(
+                    "\n⚠️  Detected Pydantic schema instead of data, attempting to extract...\n",
+                    file=sys.stderr,
+                )
                 extracted_data = self._extract_data_from_schema(candidate)
                 if extracted_data:
                     candidate = extracted_data
@@ -504,11 +557,11 @@ class StravaDescriptionCrew:
                     pass
 
         return None
-    
+
     @staticmethod
     def _extract_json_from_text(text: str) -> Optional[Dict[str, Any]]:
         """Extract JSON object from text that may contain thoughts or explanations.
-        
+
         Looks for JSON objects in the text, trying multiple strategies:
         1. Look for JSON in code fences (```json ... ```)
         2. Look for standalone JSON objects { ... }
@@ -516,9 +569,9 @@ class StravaDescriptionCrew:
         4. Check if JSON values contain nested JSON strings and parse them
         """
         import re
-        
+
         # Strategy 1: JSON in markdown code fences
-        code_fence_pattern = r'```(?:json)?\s*(\{.*?\})\s*```'
+        code_fence_pattern = r"```(?:json)?\s*(\{.*?\})\s*```"
         matches = re.findall(code_fence_pattern, text, re.DOTALL)
         for match in matches:
             try:
@@ -528,12 +581,12 @@ class StravaDescriptionCrew:
                     return StravaDescriptionCrew._unnest_json_strings(parsed)
             except json.JSONDecodeError:
                 continue
-        
+
         # Strategy 2: Find JSON objects in text (look for { ... })
         # Find all potential JSON objects
-        brace_pattern = r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}'
+        brace_pattern = r"\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}"
         matches = re.findall(brace_pattern, text, re.DOTALL)
-        
+
         # Try each match, preferring longer ones (more complete)
         for match in sorted(matches, key=len, reverse=True):
             try:
@@ -543,7 +596,7 @@ class StravaDescriptionCrew:
                     return StravaDescriptionCrew._unnest_json_strings(parsed)
             except json.JSONDecodeError:
                 continue
-        
+
         # Strategy 3: Try parsing entire text
         try:
             parsed = json.loads(text)
@@ -552,9 +605,9 @@ class StravaDescriptionCrew:
                 return StravaDescriptionCrew._unnest_json_strings(parsed)
         except json.JSONDecodeError:
             pass
-        
+
         return None
-    
+
     @staticmethod
     def _unnest_json_strings(data: Dict[str, Any]) -> Dict[str, Any]:
         """Recursively parse JSON strings found in dictionary values.
@@ -586,8 +639,11 @@ class StravaDescriptionCrew:
             elif isinstance(value, list):
                 # Process list items
                 result[key] = [
-                    StravaDescriptionCrew._unnest_json_strings(item) if isinstance(item, dict)
-                    else item
+                    (
+                        StravaDescriptionCrew._unnest_json_strings(item)
+                        if isinstance(item, dict)
+                        else item
+                    )
                     for item in value
                 ]
             else:
@@ -614,14 +670,14 @@ class StravaDescriptionCrew:
         # Remove common LLM reasoning patterns at the start
         # Pattern: "Thought: ... actual content" or "I now have... {content}"
         reasoning_patterns = [
-            r'^Thought:\s*.*?(?=\n\n|\{|$)',  # "Thought: ..." until double newline or JSON
-            r'^I now have all.*?(?=\n\n|\{|$)',  # "I now have all..." pattern
-            r'^Let me.*?(?=\n\n|\{|$)',  # "Let me provide..." pattern
-            r'^Final Answer:\s*',  # "Final Answer:" prefix
+            r"^Thought:\s*.*?(?=\n\n|\{|$)",  # "Thought: ..." until double newline or JSON
+            r"^I now have all.*?(?=\n\n|\{|$)",  # "I now have all..." pattern
+            r"^Let me.*?(?=\n\n|\{|$)",  # "Let me provide..." pattern
+            r"^Final Answer:\s*",  # "Final Answer:" prefix
         ]
 
         for pattern in reasoning_patterns:
-            cleaned = re.sub(pattern, '', cleaned, flags=re.IGNORECASE | re.DOTALL)
+            cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE | re.DOTALL)
 
         # Strip again after removal
         cleaned = cleaned.strip()
@@ -657,7 +713,7 @@ class StravaDescriptionCrew:
     def _default_generated_content(self, raw_summary: str) -> Dict[str, Any]:
         """Return a safe fallback when generation fails with basic activity info."""
         # Access current activity_data for better fallback
-        activity_data = getattr(self, 'current_activity_data', {})
+        activity_data = getattr(self, "current_activity_data", {})
         object_data = activity_data.get("object_data", {})
 
         activity_type = object_data.get("type", "Unknown")
@@ -687,7 +743,7 @@ class StravaDescriptionCrew:
         # Extract any useful info from raw_summary but limit it
         if raw_summary and len(raw_summary.strip()) > 10:
             # Take first meaningful sentence if available
-            first_sentence = raw_summary.split('.')[0].split('\n')[0].strip()
+            first_sentence = raw_summary.split(".")[0].split("\n")[0].strip()
             if len(first_sentence) > 20 and len(first_sentence) < 200:
                 # Combine with basic metrics
                 description = first_sentence + "\n\nGenerated by AI"
@@ -734,8 +790,11 @@ class StravaDescriptionCrew:
 
             # Flatten the structure
             normalized = {
-                "object_type": activity_data.get("object_type", object_data.get("object_type", "activity")),
-                "object_id": activity_data.get("object_id") or object_data.get("object_id"),
+                "object_type": activity_data.get(
+                    "object_type", object_data.get("object_type", "activity")
+                ),
+                "object_id": activity_data.get("object_id")
+                or object_data.get("object_id"),
                 "object_data": inner_object_data,
             }
 
@@ -743,7 +802,9 @@ class StravaDescriptionCrew:
             if spotify_data:
                 normalized["spotify_recently_played"] = spotify_data
             elif "spotify_recently_played" in activity_data:
-                normalized["spotify_recently_played"] = activity_data["spotify_recently_played"]
+                normalized["spotify_recently_played"] = activity_data[
+                    "spotify_recently_played"
+                ]
 
             return normalized
 
@@ -799,7 +860,7 @@ class StravaDescriptionCrew:
             final_description = fallback_description
 
         return final_title, final_description
-    
+
     def process_activity(self, activity_data: Dict[str, Any]) -> Dict[str, Any]:
         """Process a Strava activity webhook to generate localized content."""
 
@@ -965,7 +1026,7 @@ class StravaDescriptionCrew:
         # Intervals.icu fields: 'feel' and 'icu_rpe'
         icu_feel = object_data.get("feel")
         icu_rpe = object_data.get("icu_rpe")
-        
+
         print(f"📅 Activity timing:", file=sys.stderr)
         print(f"   Start: {start_date_local}", file=sys.stderr)
         print(f"   Duration: {moving_time}s", file=sys.stderr)
@@ -976,8 +1037,12 @@ class StravaDescriptionCrew:
 
         # Check if n8n provided Spotify data
         spotify_data = activity_data.get("spotify_recently_played", {})
-        spotify_items_count = len(spotify_data.get("items", [])) if isinstance(spotify_data, dict) else 0
-        print(f"   Spotify data from n8n: {spotify_items_count} track(s)", file=sys.stderr)
+        spotify_items_count = (
+            len(spotify_data.get("items", [])) if isinstance(spotify_data, dict) else 0
+        )
+        print(
+            f"   Spotify data from n8n: {spotify_items_count} track(s)", file=sys.stderr
+        )
         print("", file=sys.stderr)
 
         music_tracks: List[str] = []
@@ -991,7 +1056,10 @@ class StravaDescriptionCrew:
 
             print("📋 Music task created with following context:", file=sys.stderr)
             print(f"   Activity ID: {object_data.get('id', 'N/A')}", file=sys.stderr)
-            print(f"   Distance: {object_data.get('distance', 0) / 1000:.2f} km", file=sys.stderr)
+            print(
+                f"   Distance: {object_data.get('distance', 0) / 1000:.2f} km",
+                file=sys.stderr,
+            )
             print("", file=sys.stderr)
 
             # Reset tool call counter before executing music crew
@@ -1008,79 +1076,102 @@ class StravaDescriptionCrew:
             # Debug: Show raw music result
             print("\n📦 Raw music crew result:", file=sys.stderr)
             print(f"   Type: {type(music_result)}", file=sys.stderr)
-            if hasattr(music_result, 'raw'):
+            if hasattr(music_result, "raw"):
                 raw_output = music_result.raw
-                print(f"   Raw output (first 500 chars): {str(raw_output)[:500]}", file=sys.stderr)
-            if hasattr(music_result, 'json_dict'):
+                print(
+                    f"   Raw output (first 500 chars): {str(raw_output)[:500]}",
+                    file=sys.stderr,
+                )
+            if hasattr(music_result, "json_dict"):
                 print(f"   JSON dict: {music_result.json_dict}", file=sys.stderr)
-            if hasattr(music_result, 'pydantic'):
+            if hasattr(music_result, "pydantic"):
                 print(f"   Pydantic: {music_result.pydantic}", file=sys.stderr)
             print("", file=sys.stderr)
 
             # ENHANCED LOGGING: Log music crew execution completion
             self.logger.info(
                 "Music crew execution completed",
-                extra={"extra_fields": {
-                    "result_type": type(music_result).__name__,
-                    "has_raw": hasattr(music_result, 'raw'),
-                    "has_json_dict": hasattr(music_result, 'json_dict'),
-                    "has_pydantic": hasattr(music_result, 'pydantic'),
-                }}
+                extra={
+                    "extra_fields": {
+                        "result_type": type(music_result).__name__,
+                        "has_raw": hasattr(music_result, "raw"),
+                        "has_json_dict": hasattr(music_result, "json_dict"),
+                        "has_pydantic": hasattr(music_result, "pydantic"),
+                    }
+                },
             )
 
             # ENHANCED LOGGING: Log raw output for debugging
-            if hasattr(music_result, 'raw'):
+            if hasattr(music_result, "raw"):
                 raw_output = music_result.raw
                 self.logger.debug(
                     "Music raw output",
-                    extra={"extra_fields": {
-                        "raw_output": str(raw_output)[:1000],  # First 1000 chars
-                        "raw_output_length": len(str(raw_output)),
-                    }}
+                    extra={
+                        "extra_fields": {
+                            "raw_output": str(raw_output)[:1000],  # First 1000 chars
+                            "raw_output_length": len(str(raw_output)),
+                        }
+                    },
                 )
 
             # ENHANCED LOGGING: Log JSON extraction strategies
             json_extraction_attempts = []
 
             # Strategy 1: Direct json_dict
-            if hasattr(music_result, 'json_dict') and music_result.json_dict:
-                json_extraction_attempts.append({
-                    "strategy": "direct_json_dict",
-                    "success": True,
-                    "data_preview": str(music_result.json_dict)[:500],
-                })
+            if hasattr(music_result, "json_dict") and music_result.json_dict:
+                json_extraction_attempts.append(
+                    {
+                        "strategy": "direct_json_dict",
+                        "success": True,
+                        "data_preview": str(music_result.json_dict)[:500],
+                    }
+                )
 
             # Strategy 2: Pydantic model
-            if hasattr(music_result, 'pydantic') and music_result.pydantic:
-                json_extraction_attempts.append({
-                    "strategy": "pydantic_model",
-                    "success": True,
-                    "model_type": type(music_result.pydantic).__name__,
-                })
+            if hasattr(music_result, "pydantic") and music_result.pydantic:
+                json_extraction_attempts.append(
+                    {
+                        "strategy": "pydantic_model",
+                        "success": True,
+                        "model_type": type(music_result.pydantic).__name__,
+                    }
+                )
 
             # Strategy 3: _extract_json_from_text (from raw)
-            if hasattr(music_result, 'raw'):
+            if hasattr(music_result, "raw"):
                 try:
                     extracted_json = self._extract_json_from_text(str(music_result.raw))
-                    json_extraction_attempts.append({
-                        "strategy": "extract_json_from_text",
-                        "success": extracted_json is not None,
-                        "data_preview": str(extracted_json)[:500] if extracted_json else None,
-                    })
+                    json_extraction_attempts.append(
+                        {
+                            "strategy": "extract_json_from_text",
+                            "success": extracted_json is not None,
+                            "data_preview": (
+                                str(extracted_json)[:500] if extracted_json else None
+                            ),
+                        }
+                    )
                 except Exception as e:
-                    json_extraction_attempts.append({
-                        "strategy": "extract_json_from_text",
-                        "success": False,
-                        "error": str(e),
-                    })
+                    json_extraction_attempts.append(
+                        {
+                            "strategy": "extract_json_from_text",
+                            "success": False,
+                            "error": str(e),
+                        }
+                    )
 
             self.logger.info(
                 "JSON extraction strategies attempted",
-                extra={"extra_fields": {
-                    "attempts": json_extraction_attempts,
-                    "total_strategies": len(json_extraction_attempts),
-                    "successful_strategies": sum(1 for a in json_extraction_attempts if a.get("success", False)),
-                }}
+                extra={
+                    "extra_fields": {
+                        "attempts": json_extraction_attempts,
+                        "total_strategies": len(json_extraction_attempts),
+                        "successful_strategies": sum(
+                            1
+                            for a in json_extraction_attempts
+                            if a.get("success", False)
+                        ),
+                    }
+                },
             )
 
             # ENHANCED LOGGING: Log Pydantic validation with detailed error handling
@@ -1092,22 +1183,27 @@ class StravaDescriptionCrew:
             except ValidationError as e:
                 self.logger.error(
                     "Pydantic validation failed for music result",
-                    extra={"extra_fields": {
-                        "validation_errors": [
-                            {
-                                "loc": str(err["loc"]),
-                                "msg": err["msg"],
-                                "type": err["type"],
-                            }
-                            for err in e.errors()
-                        ],
-                        "error_count": len(e.errors()),
-                    }},
+                    extra={
+                        "extra_fields": {
+                            "validation_errors": [
+                                {
+                                    "loc": str(err["loc"]),
+                                    "msg": err["msg"],
+                                    "type": err["type"],
+                                }
+                                for err in e.errors()
+                            ],
+                            "error_count": len(e.errors()),
+                        }
+                    },
                     exc_info=True,
                 )
                 print(f"❌ Pydantic validation failed: {e}\n", file=sys.stderr)
 
-            print(f"🔍 Music model extraction result: {music_model is not None}\n", file=sys.stderr)
+            print(
+                f"🔍 Music model extraction result: {music_model is not None}\n",
+                file=sys.stderr,
+            )
 
             # Log music model result
             if music_model is not None:
@@ -1136,12 +1232,14 @@ class StravaDescriptionCrew:
                 music_payload = music_model.model_dump()
                 print("📄 Parsed music payload:", file=sys.stderr)
                 print(f"   Keys: {list(music_payload.keys())}", file=sys.stderr)
-                
+
                 # Extract candidate tracks
                 candidate_tracks = music_payload.get("candidate_tracks", [])
                 if isinstance(candidate_tracks, list):
                     candidate_tracks = [
-                        track for track in candidate_tracks if isinstance(track, str) and track
+                        track
+                        for track in candidate_tracks
+                        if isinstance(track, str) and track
                     ]
 
                 print(f"🎵 Candidate tracks: {candidate_tracks}", file=sys.stderr)
@@ -1151,47 +1249,65 @@ class StravaDescriptionCrew:
                     # ------------------------------------------------------------------
                     # Step 3: Lyrics Verification and Quote Selection
                     # ------------------------------------------------------------------
-                    print("\n🎤 Step 3: Verifying lyrics and selecting quote...\n", file=sys.stderr)
-                    
+                    print(
+                        "\n🎤 Step 3: Verifying lyrics and selecting quote...\n",
+                        file=sys.stderr,
+                    )
+
                     current_description = generated_content.get("description", "")
-                    
+
                     lyrics_task = create_lyrics_task(
                         self.lyrics_agent,
                         candidate_tracks,
                         current_description,
-                        activity_data
+                        activity_data,
                     )
-                    
+
                     lyrics_crew = Crew(
                         agents=[self.lyrics_agent],
                         tasks=[lyrics_task],
                         process=Process.sequential,
                         verbose=True,
                     )
-                    
+
                     lyrics_result = lyrics_crew.kickoff()
-                    
+
                     lyrics_model = self._extract_model_from_output(
                         lyrics_result, LyricsVerificationResult
                     )
 
                     if lyrics_model:
                         print("\n✅ Lyrics verification complete:", file=sys.stderr)
-                        print(f"   Accepted: {lyrics_model.accepted_tracks}", file=sys.stderr)
-                        print(f"   Rejected: {lyrics_model.rejected_tracks}", file=sys.stderr)
-                        print(f"   Quote: \"{lyrics_model.selected_quote}\" ({lyrics_model.quote_source})", file=sys.stderr)
+                        print(
+                            f"   Accepted: {lyrics_model.accepted_tracks}",
+                            file=sys.stderr,
+                        )
+                        print(
+                            f"   Rejected: {lyrics_model.rejected_tracks}",
+                            file=sys.stderr,
+                        )
+                        print(
+                            f'   Quote: "{lyrics_model.selected_quote}" ({lyrics_model.quote_source})',
+                            file=sys.stderr,
+                        )
 
                         # ENHANCED LOGGING: Log lyrics verification results
                         self.logger.info(
                             "Lyrics verification completed",
-                            extra={"extra_fields": {
-                                "accepted_tracks_count": len(lyrics_model.accepted_tracks),
-                                "rejected_tracks_count": len(lyrics_model.rejected_tracks),
-                                "accepted_tracks": lyrics_model.accepted_tracks,
-                                "rejected_tracks": lyrics_model.rejected_tracks,
-                                "quote_selected": lyrics_model.selected_quote,
-                                "quote_source": lyrics_model.quote_source,
-                            }}
+                            extra={
+                                "extra_fields": {
+                                    "accepted_tracks_count": len(
+                                        lyrics_model.accepted_tracks
+                                    ),
+                                    "rejected_tracks_count": len(
+                                        lyrics_model.rejected_tracks
+                                    ),
+                                    "accepted_tracks": lyrics_model.accepted_tracks,
+                                    "rejected_tracks": lyrics_model.rejected_tracks,
+                                    "quote_selected": lyrics_model.selected_quote,
+                                    "quote_source": lyrics_model.quote_source,
+                                }
+                            },
                         )
 
                         # ENHANCED LOGGING: Log rejection reasoning for each rejected track
@@ -1199,25 +1315,36 @@ class StravaDescriptionCrew:
                             for track in lyrics_model.rejected_tracks:
                                 self.logger.info(
                                     f"Track rejected: {track}",
-                                    extra={"extra_fields": {
-                                        "track_name": track,
-                                        "rejection_reason": "political_content",  # Infer from agent backstory
-                                    }}
+                                    extra={
+                                        "extra_fields": {
+                                            "track_name": track,
+                                            "rejection_reason": "political_content",  # Infer from agent backstory
+                                        }
+                                    },
                                 )
 
                         # Update description with the final version from Lyrics Agent
-                        generated_content["description"] = lyrics_model.final_description
-                        
+                        generated_content["description"] = (
+                            lyrics_model.final_description
+                        )
+
                         # Update key metrics with music info if available
                         if lyrics_model.accepted_tracks:
                             metrics = generated_content.get("key_metrics", {})
-                            metrics["music"] = f"{len(lyrics_model.accepted_tracks)} tracks"
+                            metrics["music"] = (
+                                f"{len(lyrics_model.accepted_tracks)} tracks"
+                            )
                             generated_content["key_metrics"] = metrics
                     else:
-                        print("\n⚠️  Warning: Lyrics agent returned invalid JSON, using original description.\n", file=sys.stderr)
+                        print(
+                            "\n⚠️  Warning: Lyrics agent returned invalid JSON, using original description.\n",
+                            file=sys.stderr,
+                        )
                         # Fallback: append music tracks manually if lyrics agent failed but we have candidates
                         if candidate_tracks:
-                            music_section = "\n\n🎧 Music: " + "; ".join(candidate_tracks)
+                            music_section = "\n\n🎧 Music: " + "; ".join(
+                                candidate_tracks
+                            )
                             generated_content["description"] += music_section
                 else:
                     print(
@@ -1300,7 +1427,9 @@ class StravaDescriptionCrew:
 
         print("\n🌐 Step 4: Translating content (if enabled)...\n", file=sys.stderr)
 
-        translation_enabled = os.getenv("TRANSLATION_ENABLED", "false").lower() == "true"
+        translation_enabled = (
+            os.getenv("TRANSLATION_ENABLED", "false").lower() == "true"
+        )
 
         if translation_enabled:
             translation_payload = {
@@ -1389,9 +1518,9 @@ class StravaDescriptionCrew:
         return final_result
 
 
-
 class RedirectStdoutToStderr:
     """Context manager to redirect stdout to stderr."""
+
     def __enter__(self):
         self._original_stdout = sys.stdout
         sys.stdout = sys.stderr
@@ -1419,14 +1548,15 @@ def main():
         with RedirectStdoutToStderr():
             crew = StravaDescriptionCrew()
             result = crew.process_activity(activity_data)
-        
+
         # Output result as JSON to stdout
         print(json.dumps(result, indent=2))
-        
+
     except Exception as e:
         # Log error to stderr with full traceback
         print(f"\n❌ Error: {str(e)}\n", file=sys.stderr)
         import traceback
+
         traceback.print_exc(file=sys.stderr)
 
         # Try to extract activity_id even on error
@@ -1446,8 +1576,8 @@ def main():
                 "approved": False,
                 "during_work_hours": False,
                 "issues": [str(e)],
-                "reasoning": "Error during processing"
-            }
+                "reasoning": "Error during processing",
+            },
         }
         print(json.dumps(error_result, indent=2))
         sys.exit(1)

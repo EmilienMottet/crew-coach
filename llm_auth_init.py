@@ -3,6 +3,7 @@
 This module MUST be imported first to ensure Basic Auth is properly configured
 for all LLM instances, including those created by CrewAI's structured output system.
 """
+
 import os
 import sys
 from typing import Any, Dict, List, Optional
@@ -14,7 +15,12 @@ def load_env_with_optional_override() -> None:
     """Load .env without clobbering explicit environment overrides."""
 
     load_dotenv(override=False)
-    if os.getenv("DOTENV_FORCE_OVERRIDE", "").strip().lower() in {"1", "true", "yes", "on"}:
+    if os.getenv("DOTENV_FORCE_OVERRIDE", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }:
         load_dotenv(override=True)
 
 
@@ -28,7 +34,11 @@ load_env_with_optional_override()
 # Reference: https://docs.crewai.com/en/telemetry
 # ============================================================================
 
-enable_telemetry = os.getenv("CREWAI_ENABLE_TELEMETRY", "true").lower() in ("true", "1", "yes")
+enable_telemetry = os.getenv("CREWAI_ENABLE_TELEMETRY", "true").lower() in (
+    "true",
+    "1",
+    "yes",
+)
 
 if enable_telemetry:
     # Enable OpenTelemetry SDK
@@ -37,17 +47,15 @@ if enable_telemetry:
     # Configure OTEL exporters for platform.crewai.com
     os.environ["OTEL_EXPORTER_OTLP_ENDPOINT"] = os.getenv(
         "OTEL_EXPORTER_OTLP_ENDPOINT",
-        "https://telemetry.crewai.com"  # Official CrewAI telemetry endpoint
+        "https://telemetry.crewai.com",  # Official CrewAI telemetry endpoint
     )
     os.environ["OTEL_EXPORTER_OTLP_PROTOCOL"] = os.getenv(
-        "OTEL_EXPORTER_OTLP_PROTOCOL",
-        "grpc"
+        "OTEL_EXPORTER_OTLP_PROTOCOL", "grpc"
     )
 
     # Set service name for identification on platform
     os.environ["OTEL_SERVICE_NAME"] = os.getenv(
-        "OTEL_SERVICE_NAME",
-        "strava-description-crew"
+        "OTEL_SERVICE_NAME", "strava-description-crew"
     )
 
     # Enable all exporters
@@ -73,7 +81,7 @@ else:
 def initialize_basic_auth() -> str:
     """
     Initialize API key configuration for LiteLLM/OpenAI clients.
-    
+
     Now uses standard Bearer token authentication (OPENAI_API_KEY).
     Legacy Basic Auth (OPENAI_API_AUTH_TOKEN) has been removed.
 
@@ -93,143 +101,160 @@ def initialize_basic_auth() -> str:
 def patch_litellm_for_tools() -> None:
     """
     Monkey-patch litellm.completion to log when tools are passed.
-    
+
     This helps debug whether CrewAI's LLM.call() is actually passing
     the tools parameter to the underlying LiteLLM completion call.
     """
     import sys
     import litellm
     from functools import wraps
-    
+
     if getattr(litellm.completion, "_tools_logging_patched", False):
         return  # Already patched
-    
+
     # Store original completion function
     _original_completion = litellm.completion
-    
+
     def _get_tool_name(tool: Dict) -> str:
         """Extract tool name from either OpenAI or Anthropic format."""
         if not isinstance(tool, dict):
-            return 'invalid'
+            return "invalid"
         # OpenAI format: {"type": "function", "function": {"name": "..."}}
-        if 'function' in tool:
-            return tool.get('function', {}).get('name', 'unnamed')
+        if "function" in tool:
+            return tool.get("function", {}).get("name", "unnamed")
         # Anthropic format: {"name": "...", "description": "...", "input_schema": {...}}
-        if 'name' in tool:
-            return tool.get('name', 'unnamed')
-        return 'no-name'
+        if "name" in tool:
+            return tool.get("name", "unnamed")
+        return "no-name"
 
     @wraps(_original_completion)
     def _completion_with_tool_logging(*args, **kwargs):
         """Wrapper that logs when tools are passed to completion."""
         # Check if tools are present
-        tools = kwargs.get('tools')
+        tools = kwargs.get("tools")
         if tools and isinstance(tools, list) and len(tools) > 0:
             print(
                 f"🛠️  LiteLLM completion called with {len(tools)} tools\n"
                 f"   Model: {kwargs.get('model', 'unknown')}\n"
                 f"   Tool names: {[_get_tool_name(t) for t in tools[:5]]}\n",
-                file=sys.stderr
+                file=sys.stderr,
             )
         else:
             # Log that NO tools were passed
             print(
                 f"⚠️  LiteLLM completion called WITHOUT tools\n"
                 f"   Model: {kwargs.get('model', 'unknown')}\n",
-                file=sys.stderr
+                file=sys.stderr,
             )
-        
+
         return _original_completion(*args, **kwargs)
-    
+
     # Apply the patch
     litellm.completion = _completion_with_tool_logging
     setattr(litellm.completion, "_tools_logging_patched", True)
-    
+
     print("✅ LiteLLM completion patched for tool logging\n", file=sys.stderr)
 
 
 def patch_crewai_llm_call() -> None:
     """
     Monkey-patch CrewAI's LLM.call() to pass tools to litellm.completion.
-    
+
     CrewAI's LLM.call() ignores the tools parameter completely.
     This patch intercepts the call and passes tools to litellm when present.
     """
     import sys
-    
+
     try:
         from crewai.llm import LLM
         import litellm
     except ImportError:
         print("⚠️  Could not import CrewAI LLM for patching\n", file=sys.stderr)
         return
-    
+
     if getattr(LLM, "_tool_calling_patched", False):
         return  # Already patched
-    
+
     # Store original call method
     _original_call = LLM.call
-    
+
     def _call_with_tools(self, messages, tools=None, **kwargs):
         """Patched LLM.call that passes tools to litellm.completion."""
         # Extract tools from agent if not provided
-        if not tools and 'from_agent' in kwargs:
-            agent = kwargs.get('from_agent')
-            if hasattr(agent, 'tools') and agent.tools:
+        if not tools and "from_agent" in kwargs:
+            agent = kwargs.get("from_agent")
+            if hasattr(agent, "tools") and agent.tools:
                 # Convert CrewAI tools to OpenAI function calling format
                 converted_tools = []
                 for tool in agent.tools:
                     try:
                         # Try to_function() first
-                        if hasattr(tool, 'to_function') and callable(tool.to_function):
+                        if hasattr(tool, "to_function") and callable(tool.to_function):
                             func_def = tool.to_function()
                             converted_tools.append(func_def)
                         # Fall back to manual conversion
-                        elif hasattr(tool, 'args_schema'):
+                        elif hasattr(tool, "args_schema"):
                             tool_def = {
                                 "type": "function",
                                 "function": {
-                                    "name": getattr(tool, 'name', str(tool)),
-                                    "description": getattr(tool, 'description', ''),
-                                    "parameters": tool.args_schema.model_json_schema() if tool.args_schema else {}
-                                }
+                                    "name": getattr(tool, "name", str(tool)),
+                                    "description": getattr(tool, "description", ""),
+                                    "parameters": (
+                                        tool.args_schema.model_json_schema()
+                                        if tool.args_schema
+                                        else {}
+                                    ),
+                                },
                             }
                             converted_tools.append(tool_def)
                     except Exception:
                         pass  # Skip tools that can't be converted
-                
+
                 if converted_tools:
                     tools = converted_tools
                     print(
                         f"   🔧 Patched LLM.call extracted {len(tools)} tools from agent\n",
-                        file=sys.stderr
+                        file=sys.stderr,
                     )
-        
+
         # If we have tools, call litellm.completion directly
         if tools and len(tools) > 0:
             print(
                 f"   🚀 Calling litellm.completion with {len(tools)} tools\n",
-                file=sys.stderr
+                file=sys.stderr,
             )
-            
+
             # Prepare messages
             if isinstance(messages, str):
                 formatted_messages = [{"role": "user", "content": messages}]
             else:
                 formatted_messages = messages
-            
+
             # DEBUG: Print messages to see what the LLM sees
-            print(f"   📨 LLM.call received {len(formatted_messages)} messages", file=sys.stderr)
+            print(
+                f"   📨 LLM.call received {len(formatted_messages)} messages",
+                file=sys.stderr,
+            )
             if len(formatted_messages) > 0:
                 last_msg = formatted_messages[-1]
                 print(f"   Last message role: {last_msg.get('role')}", file=sys.stderr)
-                if last_msg.get('role') == 'tool':
-                     print(f"   Last message content: {last_msg.get('content')}", file=sys.stderr)
-            
+                if last_msg.get("role") == "tool":
+                    print(
+                        f"   Last message content: {last_msg.get('content')}",
+                        file=sys.stderr,
+                    )
+
             # Call litellm directly
             try:
                 # Filter out non-serializable and CrewAI-specific kwargs
-                excluded_keys = {'from_agent', 'from_task', 'tools', 'available_functions', 'callbacks', 'response_model'}
+                excluded_keys = {
+                    "from_agent",
+                    "from_task",
+                    "tools",
+                    "available_functions",
+                    "callbacks",
+                    "response_model",
+                }
                 safe_kwargs = {}
                 for k, v in kwargs.items():
                     if k in excluded_keys:
@@ -237,6 +262,7 @@ def patch_crewai_llm_call() -> None:
                     # Skip non-JSON-serializable objects
                     try:
                         import json
+
                         json.dumps(v)
                         safe_kwargs[k] = v
                     except (TypeError, ValueError):
@@ -246,40 +272,51 @@ def patch_crewai_llm_call() -> None:
                     model=self.model,
                     messages=formatted_messages,
                     tools=tools,
-                    api_base=getattr(self, 'base_url', None),
-                    api_key=getattr(self, 'api_key', None),
+                    api_base=getattr(self, "base_url", None),
+                    api_key=getattr(self, "api_key", None),
                     drop_params=True,  # Ignore unsupported params
                     max_tokens=32000,  # Increased for weekly meal plans (7 days with full recipes)
-                    **safe_kwargs
+                    **safe_kwargs,
                 )
 
                 # Validate response before accessing choices
-                if response is None or not hasattr(response, 'choices') or response.choices is None or len(response.choices) == 0:
-                    print(f"   ❌ Invalid LLM response (no choices), falling back\n", file=sys.stderr)
+                if (
+                    response is None
+                    or not hasattr(response, "choices")
+                    or response.choices is None
+                    or len(response.choices) == 0
+                ):
+                    print(
+                        f"   ❌ Invalid LLM response (no choices), falling back\n",
+                        file=sys.stderr,
+                    )
                     return _original_call(self, messages, **kwargs)
 
                 # Return the content or function call
                 choice = response.choices[0]
-                if hasattr(choice.message, 'tool_calls') and choice.message.tool_calls:
+                if hasattr(choice.message, "tool_calls") and choice.message.tool_calls:
                     print(
                         f"   ✅ LLM returned {len(choice.message.tool_calls)} tool calls!\n",
-                        file=sys.stderr
+                        file=sys.stderr,
                     )
-                
+
                 return choice.message.content or str(choice.message)
-                
+
             except Exception as e:
-                print(f"   ⚠️  litellm.completion with tools failed: {e}\n", file=sys.stderr)
+                print(
+                    f"   ⚠️  litellm.completion with tools failed: {e}\n",
+                    file=sys.stderr,
+                )
                 # Fall back to original call
                 return _original_call(self, messages, **kwargs)
-        
+
         # No tools, use original call
         return _original_call(self, messages, **kwargs)
-    
+
     # Apply the patch
     LLM.call = _call_with_tools  # type: ignore[assignment]
     setattr(LLM, "_tool_calling_patched", True)
-    
+
     print("✅ CrewAI LLM.call() patched for tool calling support\n", file=sys.stderr)
 
 
@@ -309,7 +346,7 @@ def patch_trace_message_suppression() -> None:
         if args and isinstance(args[0], Panel):
             panel = args[0]
             # Access the title attribute (might be a Text object or string)
-            title = getattr(panel, 'title', None)
+            title = getattr(panel, "title", None)
             if title:
                 title_str = str(title)
                 if "Trace Batch Finalization" in title_str:

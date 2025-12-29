@@ -39,7 +39,24 @@ from llm_config import (
 )
 
 
-RATE_LIMIT_KEYWORDS = ("rate limit", "quota", "429", "token_expired", "no quota", "unknown provider", "404", "not found", "model not available", "auth_unavailable", "no auth available", "authorized for use with claude code", "403", "forbidden", "permission_denied", "subscription_required")
+RATE_LIMIT_KEYWORDS = (
+    "rate limit",
+    "quota",
+    "429",
+    "token_expired",
+    "no quota",
+    "unknown provider",
+    "404",
+    "not found",
+    "model not available",
+    "auth_unavailable",
+    "no auth available",
+    "authorized for use with claude code",
+    "403",
+    "forbidden",
+    "permission_denied",
+    "subscription_required",
+)
 
 # Persistent blacklist configuration
 DEFAULT_BLACKLIST_FILE = ".disabled_providers.json"
@@ -80,8 +97,12 @@ class PersistentProviderBlacklist:
         """
         self._file_path = Path(file_path)
         self._lock = threading.Lock()
-        self._base_ttl = int(os.getenv("PROVIDER_BASE_TTL_SECONDS", str(DEFAULT_BASE_TTL_SECONDS)))
-        self._max_ttl = int(os.getenv("PROVIDER_MAX_TTL_SECONDS", str(DEFAULT_MAX_TTL_SECONDS)))
+        self._base_ttl = int(
+            os.getenv("PROVIDER_BASE_TTL_SECONDS", str(DEFAULT_BASE_TTL_SECONDS))
+        )
+        self._max_ttl = int(
+            os.getenv("PROVIDER_MAX_TTL_SECONDS", str(DEFAULT_MAX_TTL_SECONDS))
+        )
 
         # In-memory cache (synced with file)
         self._providers: Dict[str, Dict[str, Any]] = {}
@@ -126,7 +147,7 @@ class PersistentProviderBlacklist:
             # Create temp file in same directory for atomic rename
             fd, temp_path = tempfile.mkstemp(
                 dir=self._file_path.parent if self._file_path.parent.exists() else None,
-                suffix=".tmp"
+                suffix=".tmp",
             )
             try:
                 with os.fdopen(fd, "w") as f:
@@ -166,7 +187,10 @@ class PersistentProviderBlacklist:
 
         if reenabled_keys:
             self._save()
-            print(f"✅ Blacklist: {len(reenabled_keys)} expired provider(s) now available", file=sys.stderr)
+            print(
+                f"✅ Blacklist: {len(reenabled_keys)} expired provider(s) now available",
+                file=sys.stderr,
+            )
 
     def _extract_resets_at(self, error_msg: str) -> Optional[int]:
         """Extract resets_at timestamp from provider error message.
@@ -219,9 +243,9 @@ class PersistentProviderBlacklist:
         """
         # Multipliers relative to base TTL: 1x, 6x, 24x
         multipliers = {
-            1: 1,    # 1h if base=3600s
-            2: 6,    # 6h if base=3600s
-            3: 24,   # 24h if base=3600s
+            1: 1,  # 1h if base=3600s
+            2: 6,  # 6h if base=3600s
+            3: 24,  # 24h if base=3600s
         }
 
         if strike_count in multipliers:
@@ -241,7 +265,11 @@ class PersistentProviderBlacklist:
             True if provider is disabled and TTL hasn't expired
         """
         # Check env var to disable persistence
-        if os.getenv("DISABLE_PERSISTENT_BLACKLIST", "").lower() in ("true", "1", "yes"):
+        if os.getenv("DISABLE_PERSISTENT_BLACKLIST", "").lower() in (
+            "true",
+            "1",
+            "yes",
+        ):
             return False
 
         with self._lock:
@@ -328,7 +356,11 @@ class PersistentProviderBlacklist:
             New strike count
         """
         # Check env var to disable persistence
-        if os.getenv("DISABLE_PERSISTENT_BLACKLIST", "").lower() in ("true", "1", "yes"):
+        if os.getenv("DISABLE_PERSISTENT_BLACKLIST", "").lower() in (
+            "true",
+            "1",
+            "yes",
+        ):
             return 0
 
         with self._lock:
@@ -396,7 +428,11 @@ class PersistentProviderBlacklist:
             Previous strike count (0 if wasn't in blacklist)
         """
         # Check env var to disable persistence
-        if os.getenv("DISABLE_PERSISTENT_BLACKLIST", "").lower() in ("true", "1", "yes"):
+        if os.getenv("DISABLE_PERSISTENT_BLACKLIST", "").lower() in (
+            "true",
+            "1",
+            "yes",
+        ):
             return 0
 
         with self._lock:
@@ -431,6 +467,7 @@ class PersistentProviderBlacklist:
         else:
             days = seconds // 86400
             return f"{days} day{'s' if days > 1 else ''}"
+
 
 # Minimum expected response length for non-JSON responses
 # JSON responses are validated by parsing, not length
@@ -476,8 +513,10 @@ def _validate_llm_response(response: Any, context: str = "LLM call") -> Any:
     if response is None:
         raise ValueError(f"{context}: Response is None")
 
-    if not hasattr(response, 'choices'):
-        raise ValueError(f"{context}: Response has no 'choices' attribute. Response type: {type(response)}")
+    if not hasattr(response, "choices"):
+        raise ValueError(
+            f"{context}: Response has no 'choices' attribute. Response type: {type(response)}"
+        )
 
     if response.choices is None:
         raise ValueError(f"{context}: response.choices is None")
@@ -511,7 +550,7 @@ def _parse_react_format(content: str) -> dict | None:
 
     # Look for Action: and Action Input: pattern (case-insensitive)
     # Action can be at the end of reasoning text, so we look for the last occurrence
-    action_match = re.search(r'Action:\s*(\S+)', content, re.IGNORECASE)
+    action_match = re.search(r"Action:\s*(\S+)", content, re.IGNORECASE)
 
     if not action_match:
         return None
@@ -519,9 +558,7 @@ def _parse_react_format(content: str) -> dict | None:
     # Look for Action Input: with JSON object
     # The JSON might be on the same line or the next line
     input_match = re.search(
-        r'Action Input:\s*(\{.*?\})',
-        content,
-        re.DOTALL | re.IGNORECASE
+        r"Action Input:\s*(\{.*?\})", content, re.DOTALL | re.IGNORECASE
     )
 
     if not input_match:
@@ -536,10 +573,7 @@ def _parse_react_format(content: str) -> dict | None:
     except json.JSONDecodeError:
         return None
 
-    return {
-        'name': tool_name,
-        'arguments': arguments
-    }
+    return {"name": tool_name, "arguments": arguments}
 
 
 def get_models_for_category(category: str) -> tuple[str, ...]:
@@ -562,7 +596,13 @@ def get_model_for_category(category: str) -> str:
     return random.choice(models)
 
 
-def build_category_cascade(starting_category: str, endpoint_url: str, api_key: str, agent_name: str = "", has_tools: bool = False) -> List[ProviderCandidate]:
+def build_category_cascade(
+    starting_category: str,
+    endpoint_url: str,
+    api_key: str,
+    agent_name: str = "",
+    has_tools: bool = False,
+) -> List[ProviderCandidate]:
     """Build a provider chain with category cascade (random selection + fallback to lower tiers).
 
     Logic:
@@ -589,22 +629,38 @@ def build_category_cascade(starting_category: str, endpoint_url: str, api_key: s
         start_index = CATEGORY_CASCADE.index(starting_category)
     except ValueError:
         # Unknown category → default to fallback
-        print(f"⚠️  Unknown category '{starting_category}', defaulting to 'fallback'", file=sys.stderr)
+        print(
+            f"⚠️  Unknown category '{starting_category}', defaulting to 'fallback'",
+            file=sys.stderr,
+        )
         start_index = CATEGORY_CASCADE.index("fallback")
 
     # Get blacklisted models from global and agent-specific sources
-    global_blacklist = os.getenv("GLOBAL_BLACKLISTED_MODELS", "").split(",") if os.getenv("GLOBAL_BLACKLISTED_MODELS") else []
-    agent_blacklist = os.getenv(f"{agent_name}_BLACKLISTED_MODELS", "").split(",") if agent_name and os.getenv(f"{agent_name}_BLACKLISTED_MODELS") else []
+    global_blacklist = (
+        os.getenv("GLOBAL_BLACKLISTED_MODELS", "").split(",")
+        if os.getenv("GLOBAL_BLACKLISTED_MODELS")
+        else []
+    )
+    agent_blacklist = (
+        os.getenv(f"{agent_name}_BLACKLISTED_MODELS", "").split(",")
+        if agent_name and os.getenv(f"{agent_name}_BLACKLISTED_MODELS")
+        else []
+    )
 
     # Combine and clean blacklists
-    all_blacklisted = [m.strip() for m in global_blacklist + agent_blacklist if m.strip()]
+    all_blacklisted = [
+        m.strip() for m in global_blacklist + agent_blacklist if m.strip()
+    ]
 
     # Apply default blacklist from centralized constant (only if no env-specific blacklist)
     if agent_name and not agent_blacklist and agent_name in DEFAULT_AGENT_BLACKLISTS:
         all_blacklisted.extend(DEFAULT_AGENT_BLACKLISTS[agent_name])
 
     if all_blacklisted:
-        print(f"   🚫 Blacklist active: {', '.join(all_blacklisted[:5])}{'...' if len(all_blacklisted) > 5 else ''}", file=sys.stderr)
+        print(
+            f"   🚫 Blacklist active: {', '.join(all_blacklisted[:5])}{'...' if len(all_blacklisted) > 5 else ''}",
+            file=sys.stderr,
+        )
 
     providers = []
 
@@ -623,10 +679,16 @@ def build_category_cascade(starting_category: str, endpoint_url: str, api_key: s
             models = [m for m in models if not _is_thinking_model_name(m)]
             excluded = before_count - len(models)
             if excluded > 0:
-                print(f"   🧠 Excluded {excluded} thinking model(s) from '{category}' (agent has tools)", file=sys.stderr)
+                print(
+                    f"   🧠 Excluded {excluded} thinking model(s) from '{category}' (agent has tools)",
+                    file=sys.stderr,
+                )
 
         if not models:
-            print(f"   ⚠️  All models in category '{category}' are blacklisted/excluded, skipping category", file=sys.stderr)
+            print(
+                f"   ⚠️  All models in category '{category}' are blacklisted/excluded, skipping category",
+                file=sys.stderr,
+            )
             continue
 
         # Randomize order within category for load balancing
@@ -639,7 +701,9 @@ def build_category_cascade(starting_category: str, endpoint_url: str, api_key: s
                     model=model,
                     api_base=endpoint_url,
                     api_key=api_key,
-                    disable_system_prompt=_requires_promptless_mode(endpoint_url, model),
+                    disable_system_prompt=_requires_promptless_mode(
+                        endpoint_url, model
+                    ),
                     tool_free_only=_requires_tool_free_context(endpoint_url, model),
                 )
             )
@@ -703,11 +767,21 @@ def _apply_blacklist_if_needed(agent_name: str, model_name: str, api_base: str) 
         Model name to use (either original or fallback if blacklisted)
     """
     # Get blacklisted models from global and agent-specific sources
-    global_blacklist = os.getenv("GLOBAL_BLACKLISTED_MODELS", "").split(",") if os.getenv("GLOBAL_BLACKLISTED_MODELS") else []
-    agent_blacklist = os.getenv(f"{agent_name}_BLACKLISTED_MODELS", "").split(",") if os.getenv(f"{agent_name}_BLACKLISTED_MODELS") else []
+    global_blacklist = (
+        os.getenv("GLOBAL_BLACKLISTED_MODELS", "").split(",")
+        if os.getenv("GLOBAL_BLACKLISTED_MODELS")
+        else []
+    )
+    agent_blacklist = (
+        os.getenv(f"{agent_name}_BLACKLISTED_MODELS", "").split(",")
+        if os.getenv(f"{agent_name}_BLACKLISTED_MODELS")
+        else []
+    )
 
     # Combine and clean blacklists (agent-specific takes precedence)
-    all_blacklisted = [m.strip() for m in global_blacklist + agent_blacklist if m.strip()]
+    all_blacklisted = [
+        m.strip() for m in global_blacklist + agent_blacklist if m.strip()
+    ]
 
     # Apply default blacklist from centralized constant (only if no env-specific blacklist)
     if agent_name and not agent_blacklist and agent_name in DEFAULT_AGENT_BLACKLISTS:
@@ -715,8 +789,19 @@ def _apply_blacklist_if_needed(agent_name: str, model_name: str, api_base: str) 
 
     # Check if model is blacklisted
     if model_name in all_blacklisted:
-        source = "global" if model_name in global_blacklist else ("default" if agent_name in DEFAULT_AGENT_BLACKLISTS else "agent-specific")
-        print(f"⚠️  {agent_name}: Model '{model_name}' is blacklisted ({source}) after normalization, using fallback", file=sys.stderr)
+        source = (
+            "global"
+            if model_name in global_blacklist
+            else (
+                "default"
+                if agent_name in DEFAULT_AGENT_BLACKLISTS
+                else "agent-specific"
+            )
+        )
+        print(
+            f"⚠️  {agent_name}: Model '{model_name}' is blacklisted ({source}) after normalization, using fallback",
+            file=sys.stderr,
+        )
 
         # Use safer fallback models
         if "codex" in api_base.lower():
@@ -728,7 +813,12 @@ def _apply_blacklist_if_needed(agent_name: str, model_name: str, api_base: str) 
 
 
 def create_llm_with_rotation(
-    *, agent_name: str, model_name: str, api_base: str, api_key: str, has_tools: bool = False
+    *,
+    agent_name: str,
+    model_name: str,
+    api_base: str,
+    api_key: str,
+    has_tools: bool = False,
 ) -> BaseLLM:
     """Create an LLM wrapped with provider rotation logic when enabled.
 
@@ -758,7 +848,9 @@ def create_llm_with_rotation(
     normalized_model = _normalize_model_name(model_name, api_base)
 
     # Apply blacklist after model normalization (this fixes the issue)
-    normalized_model = _apply_blacklist_if_needed(agent_name, normalized_model, api_base)
+    normalized_model = _apply_blacklist_if_needed(
+        agent_name, normalized_model, api_base
+    )
 
     provider_chain = _build_provider_chain(
         agent_name=agent_name,
@@ -778,7 +870,12 @@ def create_llm_with_rotation(
 
 
 def create_llm_with_category(
-    *, agent_name: str, category: str, api_base: str, api_key: str, has_tools: bool = False
+    *,
+    agent_name: str,
+    category: str,
+    api_base: str,
+    api_key: str,
+    has_tools: bool = False,
 ) -> BaseLLM:
     """Create an LLM with category-based cascade (random selection + auto-fallback).
 
@@ -818,13 +915,18 @@ def create_llm_with_category(
     )
 
     # Log cascade for transparency
-    labels = ", ".join(f"{p.label.split(':')[0]}:{len([x for x in provider_chain if x.label.startswith(p.label.split(':')[0])])}" for p in provider_chain[:1])  # Show count per category
+    labels = ", ".join(
+        f"{p.label.split(':')[0]}:{len([x for x in provider_chain if x.label.startswith(p.label.split(':')[0])])}"
+        for p in provider_chain[:1]
+    )  # Show count per category
     category_counts = {}
     for p in provider_chain:
-        cat = p.label.split(':')[0]
+        cat = p.label.split(":")[0]
         category_counts[cat] = category_counts.get(cat, 0) + 1
 
-    cascade_summary = " → ".join(f"{cat}({count})" for cat, count in category_counts.items())
+    cascade_summary = " → ".join(
+        f"{cat}({count})" for cat, count in category_counts.items()
+    )
 
     print(
         f"\n🎯 {agent_name or 'LLM'} category cascade: {cascade_summary}\n"
@@ -841,7 +943,9 @@ def _build_provider_chain(
 ) -> List[ProviderCandidate]:
     """Assemble the ordered provider list for a given agent."""
 
-    rotation_enabled = os.getenv("ENABLE_LLM_PROVIDER_ROTATION", "true").lower() not in {
+    rotation_enabled = os.getenv(
+        "ENABLE_LLM_PROVIDER_ROTATION", "true"
+    ).lower() not in {
         "0",
         "false",
         "no",
@@ -881,7 +985,9 @@ def _build_provider_chain(
         )
 
     candidates = _deduplicate_candidates(candidates)
-    candidates = _randomize_primary_providers(candidates)  # Randomize primary providers only
+    candidates = _randomize_primary_providers(
+        candidates
+    )  # Randomize primary providers only
     candidates = _ensure_copilot_fallback(candidates, api_key)
 
     for candidate in candidates:
@@ -917,7 +1023,9 @@ def _parse_rotation_entries(
         label_part, model_part, base_part, key_part = parts[:4]
         resolved_base = base_part or default_base
         resolved_model = (
-            default_model if _uses_default_marker(model_part) else _normalize_model_name(model_part, resolved_base)
+            default_model
+            if _uses_default_marker(model_part)
+            else _normalize_model_name(model_part, resolved_base)
         )
         resolved_key = _resolve_api_key_hint(key_part, default_key)
 
@@ -935,8 +1043,12 @@ def _parse_rotation_entries(
                 model=resolved_model,
                 api_base=resolved_base,
                 api_key=resolved_key,
-                disable_system_prompt=_requires_promptless_mode(resolved_base, resolved_model),
-                tool_free_only=_requires_tool_free_context(resolved_base, resolved_model),
+                disable_system_prompt=_requires_promptless_mode(
+                    resolved_base, resolved_model
+                ),
+                tool_free_only=_requires_tool_free_context(
+                    resolved_base, resolved_model
+                ),
             )
         )
 
@@ -968,7 +1080,9 @@ def _ensure_copilot_fallback(
 
     copilot_base = os.getenv("COPILOT_API_BASE", "https://ccproxy.emottet.com/v1")
     copilot_key = os.getenv("COPILOT_API_KEY", default_key)
-    copilot_model = _normalize_model_name(os.getenv("COPILOT_FALLBACK_MODEL", "gpt-5-mini"), copilot_base)
+    copilot_model = _normalize_model_name(
+        os.getenv("COPILOT_FALLBACK_MODEL", "gpt-5-mini"), copilot_base
+    )
 
     fallback = ProviderCandidate(
         label="copilot-fallback",
@@ -1024,8 +1138,8 @@ def _randomize_primary_providers(
     for candidate in randomized:
         # Identify fallback providers by label (copilot-fallback) or model (gpt-5-mini)
         is_fallback = (
-            "fallback" in candidate.label.lower() or
-            "gpt-5-mini" in candidate.model.lower()
+            "fallback" in candidate.label.lower()
+            or "gpt-5-mini" in candidate.model.lower()
         )
 
         if is_fallback:
@@ -1048,20 +1162,23 @@ def _normalize_model_name(model_name: str, api_base: str = "") -> str:
         raise ValueError("Model name cannot be empty")
 
     # Debug logging
-    print(f"🔍 Normalizing model: '{cleaned}' for endpoint: '{api_base}'", file=sys.stderr)
+    print(
+        f"🔍 Normalizing model: '{cleaned}' for endpoint: '{api_base}'", file=sys.stderr
+    )
 
     # Default: add openai/ prefix if needed for LiteLLM to use OpenAI format
     # This is required for non-OpenAI models (like Claude) when using an OpenAI-compatible proxy
     if "/" not in cleaned and not cleaned.startswith("gpt-"):
-         # For Claude models via proxy, we usually need openai/ prefix for LiteLLM
-         # unless it's a GPT model which LiteLLM handles natively
-         if "claude" in cleaned.lower() or "gemini" in cleaned.lower() or "deepseek" in cleaned.lower():
-             return f"openai/{cleaned}"
-             
+        # For Claude models via proxy, we usually need openai/ prefix for LiteLLM
+        # unless it's a GPT model which LiteLLM handles natively
+        if (
+            "claude" in cleaned.lower()
+            or "gemini" in cleaned.lower()
+            or "deepseek" in cleaned.lower()
+        ):
+            return f"openai/{cleaned}"
+
     return cleaned
-
-
-
 
 
 def _normalize_for_zai(model_name: str) -> str:
@@ -1095,7 +1212,6 @@ def _provider_label(prefix: str, base_url: str, suffix: str | None = None) -> st
     return f"{prefix or 'fallback'}@{host}"
 
 
-
 def _clean_json_schema(schema: Any) -> Any:
     """Recursively clean JSON schema to be Claude/OpenAI compatible.
 
@@ -1105,24 +1221,24 @@ def _clean_json_schema(schema: Any) -> Any:
         return schema
 
     cleaned = {}
-    
+
     # Handle optional fields (anyOf/oneOf with null) - common in Pydantic v2
     # We pick the first non-null option to ensure the field has a type
-    if 'anyOf' in schema and isinstance(schema['anyOf'], list):
-        for option in schema['anyOf']:
-            if isinstance(option, dict) and option.get('type') != 'null':
+    if "anyOf" in schema and isinstance(schema["anyOf"], list):
+        for option in schema["anyOf"]:
+            if isinstance(option, dict) and option.get("type") != "null":
                 # Found a non-null option, use it as the base
                 cleaned.update(_clean_json_schema(option))
                 break
-    elif 'oneOf' in schema and isinstance(schema['oneOf'], list):
-        for option in schema['oneOf']:
-            if isinstance(option, dict) and option.get('type') != 'null':
+    elif "oneOf" in schema and isinstance(schema["oneOf"], list):
+        for option in schema["oneOf"]:
+            if isinstance(option, dict) and option.get("type") != "null":
                 cleaned.update(_clean_json_schema(option))
                 break
 
     for key, value in schema.items():
         # Skip unsupported fields (we handled anyOf/oneOf above)
-        if key in ['title', 'definitions', '$defs', 'allOf', 'anyOf', 'oneOf']:
+        if key in ["title", "definitions", "$defs", "allOf", "anyOf", "oneOf"]:
             continue
 
         # Skip None values
@@ -1134,7 +1250,11 @@ def _clean_json_schema(schema: Any) -> Any:
             continue
 
         # Skip empty dicts (except for 'properties' and 'required' which are allowed)
-        if isinstance(value, dict) and len(value) == 0 and key not in ['properties', 'required']:
+        if (
+            isinstance(value, dict)
+            and len(value) == 0
+            and key not in ["properties", "required"]
+        ):
             continue
 
         # Recursively clean nested dicts
@@ -1142,7 +1262,10 @@ def _clean_json_schema(schema: Any) -> Any:
             cleaned[key] = _clean_json_schema(value)
         # Recursively clean dicts in lists
         elif isinstance(value, list):
-            cleaned[key] = [_clean_json_schema(item) if isinstance(item, dict) else item for item in value]
+            cleaned[key] = [
+                _clean_json_schema(item) if isinstance(item, dict) else item
+                for item in value
+            ]
         # Keep other values as-is
         else:
             cleaned[key] = value
@@ -1150,7 +1273,9 @@ def _clean_json_schema(schema: Any) -> Any:
     return cleaned
 
 
-def _requires_anthropic_format(model_name: str, has_tools: bool = False, api_base: str = "") -> bool:
+def _requires_anthropic_format(
+    model_name: str, has_tools: bool = False, api_base: str = ""
+) -> bool:
     """Check if model requires Anthropic-style API format.
 
     Returns True for:
@@ -1179,8 +1304,8 @@ def _requires_anthropic_format(model_name: str, has_tools: bool = False, api_bas
 
     # Claude/Anthropic thinking models always need native Anthropic API
     anthropic_thinking_patterns = [
-        "claude-sonnet-4-5-thinking",     # Claude Sonnet 4.5 thinking
-        "claude-opus-4-5-thinking",       # Claude Opus 4.5 thinking variants
+        "claude-sonnet-4-5-thinking",  # Claude Sonnet 4.5 thinking
+        "claude-opus-4-5-thinking",  # Claude Opus 4.5 thinking variants
         "gemini-claude-sonnet-4-5-thinking",  # Gemini-proxied Claude thinking
     ]
     if any(pattern in model_lower for pattern in anthropic_thinking_patterns):
@@ -1204,13 +1329,15 @@ def _is_thinking_model(model: str) -> bool:
     """
     model_lower = model.lower()
     thinking_patterns = [
-        "thinking",      # All Claude thinking variants
-        "-r1",           # deepseek-r1
+        "thinking",  # All Claude thinking variants
+        "-r1",  # deepseek-r1
     ]
     return any(pattern in model_lower for pattern in thinking_patterns)
 
 
-def _convert_to_anthropic_format(openai_tools: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def _convert_to_anthropic_format(
+    openai_tools: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
     """Convert OpenAI function calling format to Anthropic tool format.
 
     OpenAI format:
@@ -1227,23 +1354,32 @@ def _convert_to_anthropic_format(openai_tools: List[Dict[str, Any]]) -> List[Dic
             continue
 
         if tool.get("type") != "function":
-            print(f"   ⚠️  Tool {i} has unexpected type: {tool.get('type')}", file=sys.stderr)
+            print(
+                f"   ⚠️  Tool {i} has unexpected type: {tool.get('type')}",
+                file=sys.stderr,
+            )
             continue
 
         func = tool.get("function", {})
         tool_name = func.get("name", "")
 
         if not tool_name:
-            print(f"   ⚠️  Tool {i} has no name! Keys in function: {list(func.keys())}", file=sys.stderr)
+            print(
+                f"   ⚠️  Tool {i} has no name! Keys in function: {list(func.keys())}",
+                file=sys.stderr,
+            )
 
         # Build Anthropic-style tool
         anthropic_tool = {
             "name": tool_name,
             "description": func.get("description", ""),
-            "input_schema": func.get("parameters", {
-                "type": "object",
-                "properties": {},
-            })
+            "input_schema": func.get(
+                "parameters",
+                {
+                    "type": "object",
+                    "properties": {},
+                },
+            ),
         }
 
         anthropic_tools.append(anthropic_tool)
@@ -1257,7 +1393,6 @@ def _convert_to_anthropic_format(openai_tools: List[Dict[str, Any]]) -> List[Dic
 
 
 class RotatingLLM(BaseLLM):
-
     """BaseLLM wrapper that retries calls across multiple providers on 429 errors."""
 
     # Use persistent blacklist singleton (shared across all instances)
@@ -1316,7 +1451,7 @@ class RotatingLLM(BaseLLM):
             f"      tools param: {len(tools) if tools else 'None'}\n"
             f"      from_agent: {from_agent.role if from_agent else 'None'}\n"
             f"      available_functions: {len(available_functions) if available_functions else 'None'}\n",
-            file=sys.stderr
+            file=sys.stderr,
         )
 
         # Ensure tools passed directly are also cleaned
@@ -1326,8 +1461,10 @@ class RotatingLLM(BaseLLM):
                 if isinstance(tool, dict) and "function" in tool:
                     # It's already in tool format, clean the parameters
                     if "parameters" in tool["function"]:
-                        tool["function"]["parameters"] = _clean_json_schema(tool["function"]["parameters"])
-                        
+                        tool["function"]["parameters"] = _clean_json_schema(
+                            tool["function"]["parameters"]
+                        )
+
                         # Ensure required fields exist
                         if "type" not in tool["function"]["parameters"]:
                             tool["function"]["parameters"]["type"] = "object"
@@ -1342,88 +1479,111 @@ class RotatingLLM(BaseLLM):
 
         # CRITICAL FIX: CrewAI doesn't pass tools parameter, extract from agent
         if not tools and from_agent:
-            agent_tools = getattr(from_agent, 'tools', None)
+            agent_tools = getattr(from_agent, "tools", None)
             if agent_tools:
                 # Build available_functions dict from agent tools
                 if not available_functions:
                     available_functions = {
-                        getattr(tool, 'name', str(tool)): tool 
-                        for tool in agent_tools
+                        getattr(tool, "name", str(tool)): tool for tool in agent_tools
                     }
                     print(
                         f"   ℹ️  Extracted {len(available_functions)} tools from agent\n",
                     )
-                
+
                 # Clean tools if they were extracted from agent
                 # This ensures they are compatible with Claude/OpenAI
                 if available_functions:
                     # We'll do the cleaning in the conversion loop below
                     pass
-                
+
                 # ALWAYS try to convert to tools format for function calling
                 try:
                     from crewai.tools.base_tool import BaseTool as CrewBaseTool
                     import json
-                    
 
-                    
                     tools = []
                     for tool in agent_tools:
                         tool_def = None
-                        
+
                         # PRIORITY 1: Use args_schema if available (most reliable)
                         # Check for _original_args_schema first (in case tool is wrapped)
-                        schema_to_use = getattr(tool, '_original_args_schema', None) or getattr(tool, 'args_schema', None)
-                        
+                        schema_to_use = getattr(
+                            tool, "_original_args_schema", None
+                        ) or getattr(tool, "args_schema", None)
+
                         if schema_to_use:
                             try:
                                 schema = schema_to_use
-                                if hasattr(schema, 'model_json_schema'):
+                                if hasattr(schema, "model_json_schema"):
                                     json_schema = schema.model_json_schema()
                                     # Deep clean the schema
                                     json_schema = _clean_json_schema(json_schema)
-                                    
+
                                     # Ensure required fields exist after cleaning
-                                    if 'type' not in json_schema:
-                                        json_schema['type'] = 'object'
-                                    if 'properties' not in json_schema:
-                                        json_schema['properties'] = {}
-                                    
+                                    if "type" not in json_schema:
+                                        json_schema["type"] = "object"
+                                    if "properties" not in json_schema:
+                                        json_schema["properties"] = {}
+
                                     tool_def = {
                                         "type": "function",
                                         "function": {
-                                            "name": getattr(tool, 'name', str(tool)),
-                                            "description": getattr(tool, 'description', ''),
-                                            "parameters": json_schema
-                                        }
+                                            "name": getattr(tool, "name", str(tool)),
+                                            "description": getattr(
+                                                tool, "description", ""
+                                            ),
+                                            "parameters": json_schema,
+                                        },
                                     }
                             except Exception as e:
-                                print(f"⚠️  Failed to use args_schema for {getattr(tool, 'name', 'unknown')}: {e}", file=sys.stderr)
-                        
+                                print(
+                                    f"⚠️  Failed to use args_schema for {getattr(tool, 'name', 'unknown')}: {e}",
+                                    file=sys.stderr,
+                                )
+
                         # FALLBACK: Try to_function if args_schema failed
-                        if not tool_def and hasattr(tool, 'to_function') and callable(tool.to_function):
+                        if (
+                            not tool_def
+                            and hasattr(tool, "to_function")
+                            and callable(tool.to_function)
+                        ):
                             try:
                                 func_def = tool.to_function()
-                                
+
                                 # CRITICAL: Clean up schema for Claude/OpenAI compatibility
-                                if 'function' in func_def and 'parameters' in func_def['function']:
-                                    params = func_def['function']['parameters']
+                                if (
+                                    "function" in func_def
+                                    and "parameters" in func_def["function"]
+                                ):
+                                    params = func_def["function"]["parameters"]
                                     # Deep clean the entire schema
-                                    func_def['function']['parameters'] = _clean_json_schema(params)
-                                    
+                                    func_def["function"]["parameters"] = (
+                                        _clean_json_schema(params)
+                                    )
+
                                     # Ensure required fields exist after cleaning
-                                    if 'type' not in func_def['function']['parameters']:
-                                        func_def['function']['parameters']['type'] = 'object'
-                                    if 'properties' not in func_def['function']['parameters']:
-                                        func_def['function']['parameters']['properties'] = {}
-                                
+                                    if "type" not in func_def["function"]["parameters"]:
+                                        func_def["function"]["parameters"][
+                                            "type"
+                                        ] = "object"
+                                    if (
+                                        "properties"
+                                        not in func_def["function"]["parameters"]
+                                    ):
+                                        func_def["function"]["parameters"][
+                                            "properties"
+                                        ] = {}
+
                                 tool_def = func_def
                             except Exception as e:
-                                print(f"⚠️  Failed to use to_function for {getattr(tool, 'name', 'unknown')}: {e}", file=sys.stderr)
-                        
+                                print(
+                                    f"⚠️  Failed to use to_function for {getattr(tool, 'name', 'unknown')}: {e}",
+                                    file=sys.stderr,
+                                )
+
                         if tool_def:
                             tools.append(tool_def)
-                    
+
                     if tools:
                         print(
                             f"   ℹ️  Converted {len(tools)} tools to function calling format\n",
@@ -1443,12 +1603,16 @@ class RotatingLLM(BaseLLM):
                         )
                 except Exception as e:
                     print(f"   ⚠️  Failed to convert tools: {e}\n", file=sys.stderr)
-        
+
         has_tools = bool(tools) or bool(available_functions)
         attempted_provider = False
 
         # Log agent call with tool info
-        tool_count = len(tools) if tools else (len(available_functions) if available_functions else 0)
+        tool_count = (
+            len(tools)
+            if tools
+            else (len(available_functions) if available_functions else 0)
+        )
         print(
             f"🤖 {self._agent_name} calling LLM (has_tools={has_tools}, tool_count={tool_count})",
             file=sys.stderr,
@@ -1515,31 +1679,44 @@ class RotatingLLM(BaseLLM):
                         f"   🚀 Calling litellm.completion directly with {len(tools)} tools\n"
                         f"      Model: {provider.model}\n"
                         f"      API Base: {provider.api_base}\n",
-                        file=sys.stderr
+                        file=sys.stderr,
                     )
 
                     # Ensure messages are in correct format
                     if isinstance(effective_messages, str):
-                        formatted_messages = [{"role": "user", "content": effective_messages}]
+                        formatted_messages = [
+                            {"role": "user", "content": effective_messages}
+                        ]
                     else:
-                        formatted_messages = list(effective_messages)  # Make a copy to avoid mutation
+                        formatted_messages = list(
+                            effective_messages
+                        )  # Make a copy to avoid mutation
 
                     # CRITICAL: Inject stored thinking blocks for thinking models
                     # CrewAI doesn't preserve thinking blocks in messages, so we need to
                     # inject them back into the last assistant message
-                    if _is_thinking_model(provider.model) and self._last_thinking_blocks:
+                    if (
+                        _is_thinking_model(provider.model)
+                        and self._last_thinking_blocks
+                    ):
                         # Find the last assistant message that needs thinking blocks
                         for i in range(len(formatted_messages) - 1, -1, -1):
                             msg = formatted_messages[i]
-                            if msg.get("role") == "assistant" and not msg.get("thinking_blocks"):
+                            if msg.get("role") == "assistant" and not msg.get(
+                                "thinking_blocks"
+                            ):
                                 # Inject thinking blocks into this message
                                 formatted_messages[i] = dict(msg)  # Make a copy
-                                formatted_messages[i]["thinking_blocks"] = self._last_thinking_blocks
+                                formatted_messages[i][
+                                    "thinking_blocks"
+                                ] = self._last_thinking_blocks
                                 if self._last_reasoning_content:
-                                    formatted_messages[i]["reasoning_content"] = self._last_reasoning_content
+                                    formatted_messages[i][
+                                        "reasoning_content"
+                                    ] = self._last_reasoning_content
                                 print(
                                     f"   🧠 Injected {len(self._last_thinking_blocks)} thinking block(s) into assistant message\n",
-                                    file=sys.stderr
+                                    file=sys.stderr,
                                 )
                                 break
 
@@ -1550,7 +1727,9 @@ class RotatingLLM(BaseLLM):
                     # Claude models with tools need /v1/messages endpoint (CLIProxyAPI limitation)
                     # BUT proxy endpoints (ccproxy) use OpenAI-compatible format for tool calling
                     has_tools = bool(tools)
-                    use_anthropic_api = _requires_anthropic_format(provider.model, has_tools, provider.api_base)
+                    use_anthropic_api = _requires_anthropic_format(
+                        provider.model, has_tools, provider.api_base
+                    )
 
                     # Adjust api_base for Anthropic (needs /v1/messages, not /v1/chat/completions)
                     # LiteLLM appends /v1/messages to api_base for Anthropic, so we need to remove /v1
@@ -1559,7 +1738,7 @@ class RotatingLLM(BaseLLM):
                         api_base_for_call = provider.api_base[:-3]  # Remove /v1 suffix
                         print(
                             f"   📍 Adjusted api_base for Anthropic: {api_base_for_call}\n",
-                            file=sys.stderr
+                            file=sys.stderr,
                         )
 
                     # Set custom provider based on API format
@@ -1574,9 +1753,12 @@ class RotatingLLM(BaseLLM):
                             model_for_litellm = f"anthropic/{provider.model}"
                         print(
                             f"   🔄 Using Anthropic native API for {provider.model} with {len(tools) if tools else 0} tools\n",
-                            file=sys.stderr
+                            file=sys.stderr,
                         )
-                    elif "claude" in provider.model.lower() and not provider.model.lower().startswith("openai/"):
+                    elif (
+                        "claude" in provider.model.lower()
+                        and not provider.model.lower().startswith("openai/")
+                    ):
                         # Claude without tools - use openai/ prefix (original behavior)
                         model_for_litellm = f"openai/{provider.model}"
 
@@ -1586,6 +1768,7 @@ class RotatingLLM(BaseLLM):
 
                     # Call litellm directly with the necessary parameters
                     import litellm
+
                     try:
                         litellm_response = litellm.completion(
                             model=model_for_litellm,
@@ -1598,17 +1781,21 @@ class RotatingLLM(BaseLLM):
                             timeout=180,  # 180 seconds timeout for httpx/openai client
                             max_tokens=32000,  # Increased for weekly meal plans (7 days with full recipes)
                         )
-                            
+
                     except Exception as e:
                         print(
                             f"   ❌ litellm.completion failed: {e}\n"
                             f"      Falling back to CrewAI LLM.call()\n",
-                            file=sys.stderr
+                            file=sys.stderr,
                         )
                         # Log detailed error info for debugging
                         if hasattr(e, "response"):
-                            print(f"      Response content: {getattr(e, 'response', 'N/A')}", file=sys.stderr)
+                            print(
+                                f"      Response content: {getattr(e, 'response', 'N/A')}",
+                                file=sys.stderr,
+                            )
                         import traceback
+
                         traceback.print_exc()
 
                         # Fall back to CrewAI's normal flow (without tools)
@@ -1629,7 +1816,9 @@ class RotatingLLM(BaseLLM):
 
                     # Validate response before using
                     try:
-                        _validate_llm_response(litellm_response, "Initial litellm.completion")
+                        _validate_llm_response(
+                            litellm_response, "Initial litellm.completion"
+                        )
                     except ValueError as e:
                         # Invalid response (choices=None) - raise to try next provider
                         # Don't fallback to CrewAI's llm.call() as it has the same bug
@@ -1646,96 +1835,148 @@ class RotatingLLM(BaseLLM):
                         choice = current_response.choices[0]
 
                         # Check if LLM wants to call tools
-                        print(f"   🔍 DEBUG: choice.message: {choice.message}", file=sys.stderr)
+                        print(
+                            f"   🔍 DEBUG: choice.message: {choice.message}",
+                            file=sys.stderr,
+                        )
 
                         # ALWAYS capture thinking blocks from response for thinking models
                         # This is critical for multi-turn conversations where CrewAI
                         # will parse ReAct actions and call us again without the thinking
                         if _is_thinking_model(model_for_litellm):
-                            thinking_blocks = getattr(choice.message, 'thinking_blocks', None)
-                            reasoning_content = getattr(choice.message, 'reasoning_content', None)
+                            thinking_blocks = getattr(
+                                choice.message, "thinking_blocks", None
+                            )
+                            reasoning_content = getattr(
+                                choice.message, "reasoning_content", None
+                            )
                             # Also check provider_specific_fields
                             if not thinking_blocks:
-                                provider_fields = getattr(choice.message, 'provider_specific_fields', {}) or {}
-                                thinking_blocks = provider_fields.get('thinking_blocks')
+                                provider_fields = (
+                                    getattr(
+                                        choice.message, "provider_specific_fields", {}
+                                    )
+                                    or {}
+                                )
+                                thinking_blocks = provider_fields.get("thinking_blocks")
                             if not reasoning_content:
-                                reasoning_content = getattr(choice.message, 'reasoning', None)
+                                reasoning_content = getattr(
+                                    choice.message, "reasoning", None
+                                )
 
                             if thinking_blocks:
                                 self._last_thinking_blocks = thinking_blocks
-                                print(f"   🧠 Captured {len(thinking_blocks)} thinking block(s) for future turns", file=sys.stderr)
+                                print(
+                                    f"   🧠 Captured {len(thinking_blocks)} thinking block(s) for future turns",
+                                    file=sys.stderr,
+                                )
                             if reasoning_content:
                                 self._last_reasoning_content = reasoning_content
 
-                        if not (hasattr(choice.message, 'tool_calls') and choice.message.tool_calls):
+                        if not (
+                            hasattr(choice.message, "tool_calls")
+                            and choice.message.tool_calls
+                        ):
                             # No tool_calls in response - check for ReAct format in content
                             react_action = _parse_react_format(choice.message.content)
 
                             if react_action and available_functions:
-                                tool_name = react_action['name']
-                                tool_args_str = react_action['arguments']
+                                tool_name = react_action["name"]
+                                tool_args_str = react_action["arguments"]
 
                                 if tool_name in available_functions:
                                     # Found ReAct format with valid tool - execute it
                                     iteration += 1
                                     print(
                                         f"   🔄 Detected ReAct format in content (iteration {iteration}): {tool_name}\n",
-                                        file=sys.stderr
+                                        file=sys.stderr,
                                     )
 
                                     try:
                                         # Parse arguments
-                                        tool_args = json.loads(tool_args_str) if isinstance(tool_args_str, str) else tool_args_str
+                                        tool_args = (
+                                            json.loads(tool_args_str)
+                                            if isinstance(tool_args_str, str)
+                                            else tool_args_str
+                                        )
 
                                         # Get the tool callable
                                         tool_func = available_functions[tool_name]
 
                                         # Execute the tool
-                                        if hasattr(tool_func, '_run'):
-                                            tool_result = tool_func._run(**tool_args) if isinstance(tool_args, dict) else tool_func._run(tool_args)
-                                        elif hasattr(tool_func, 'run'):
-                                            tool_result = tool_func.run(**tool_args) if isinstance(tool_args, dict) else tool_func.run(tool_args)
+                                        if hasattr(tool_func, "_run"):
+                                            tool_result = (
+                                                tool_func._run(**tool_args)
+                                                if isinstance(tool_args, dict)
+                                                else tool_func._run(tool_args)
+                                            )
+                                        elif hasattr(tool_func, "run"):
+                                            tool_result = (
+                                                tool_func.run(**tool_args)
+                                                if isinstance(tool_args, dict)
+                                                else tool_func.run(tool_args)
+                                            )
                                         elif callable(tool_func):
-                                            tool_result = tool_func(**tool_args) if isinstance(tool_args, dict) else tool_func(tool_args)
+                                            tool_result = (
+                                                tool_func(**tool_args)
+                                                if isinstance(tool_args, dict)
+                                                else tool_func(tool_args)
+                                            )
                                         else:
-                                            tool_result = {"error": f"Tool {tool_name} is not callable"}
+                                            tool_result = {
+                                                "error": f"Tool {tool_name} is not callable"
+                                            }
 
                                         print(
                                             f"   ✅ Tool {tool_name} executed successfully (ReAct)\n"
                                             f"      Result: {str(tool_result)[:200]}...\n",
-                                            file=sys.stderr
+                                            file=sys.stderr,
                                         )
 
                                         # Generate a pseudo tool_call_id for ReAct format
-                                        react_tool_call_id = f"react_{tool_name}_{iteration}"
+                                        react_tool_call_id = (
+                                            f"react_{tool_name}_{iteration}"
+                                        )
 
-                                        tool_results = [{
-                                            "tool_call_id": react_tool_call_id,
-                                            "role": "tool",
-                                            "name": tool_name,
-                                            "content": json.dumps(tool_result) if not isinstance(tool_result, str) else tool_result
-                                        }]
+                                        tool_results = [
+                                            {
+                                                "tool_call_id": react_tool_call_id,
+                                                "role": "tool",
+                                                "name": tool_name,
+                                                "content": (
+                                                    json.dumps(tool_result)
+                                                    if not isinstance(tool_result, str)
+                                                    else tool_result
+                                                ),
+                                            }
+                                        ]
 
                                         # Build assistant message with ReAct content (no tool_calls)
                                         assistant_message = {
                                             "role": "assistant",
                                             "content": choice.message.content,
-                                            "tool_calls": [{
-                                                "id": react_tool_call_id,
-                                                "type": "function",
-                                                "function": {
-                                                    "name": tool_name,
-                                                    "arguments": tool_args_str
+                                            "tool_calls": [
+                                                {
+                                                    "id": react_tool_call_id,
+                                                    "type": "function",
+                                                    "function": {
+                                                        "name": tool_name,
+                                                        "arguments": tool_args_str,
+                                                    },
                                                 }
-                                            }]
+                                            ],
                                         }
 
-                                        current_messages = current_messages + [assistant_message] + tool_results
+                                        current_messages = (
+                                            current_messages
+                                            + [assistant_message]
+                                            + tool_results
+                                        )
 
                                         # Call LLM again with tool results
                                         print(
                                             f"   🔁 Sending ReAct tool result back to LLM...\n",
-                                            file=sys.stderr
+                                            file=sys.stderr,
                                         )
 
                                         current_response = litellm.completion(
@@ -1752,9 +1993,15 @@ class RotatingLLM(BaseLLM):
 
                                         # Validate follow-up response
                                         try:
-                                            _validate_llm_response(current_response, f"ReAct tool loop iteration {iteration}")
+                                            _validate_llm_response(
+                                                current_response,
+                                                f"ReAct tool loop iteration {iteration}",
+                                            )
                                         except ValueError as e:
-                                            print(f"   ❌ Invalid LLM response in ReAct tool loop: {e}\n", file=sys.stderr)
+                                            print(
+                                                f"   ❌ Invalid LLM response in ReAct tool loop: {e}\n",
+                                                file=sys.stderr,
+                                            )
                                             response = "Error: LLM returned invalid response after ReAct tool execution"
                                             break
 
@@ -1763,7 +2010,7 @@ class RotatingLLM(BaseLLM):
                                     except Exception as tool_error:
                                         print(
                                             f"   ❌ ReAct tool {tool_name} failed: {tool_error}\n",
-                                            file=sys.stderr
+                                            file=sys.stderr,
                                         )
                                         # Fall through to treat as final response
 
@@ -1774,7 +2021,7 @@ class RotatingLLM(BaseLLM):
                         iteration += 1
                         print(
                             f"   ✅ LLM returned {len(choice.message.tool_calls)} tool calls (iteration {iteration})!\n",
-                            file=sys.stderr
+                            file=sys.stderr,
                         )
 
                         # Execute each tool call
@@ -1786,67 +2033,99 @@ class RotatingLLM(BaseLLM):
                             print(
                                 f"   🔧 Executing tool: {tool_name}\n"
                                 f"      Arguments: {tool_args_str[:200]}...\n",
-                                file=sys.stderr
+                                file=sys.stderr,
                             )
 
                             # Find the tool in available_functions
                             if available_functions and tool_name in available_functions:
                                 try:
                                     # Parse arguments
-                                    tool_args = json.loads(tool_args_str) if isinstance(tool_args_str, str) else tool_args_str
+                                    tool_args = (
+                                        json.loads(tool_args_str)
+                                        if isinstance(tool_args_str, str)
+                                        else tool_args_str
+                                    )
 
                                     # Get the tool callable
                                     tool_func = available_functions[tool_name]
 
                                     # Execute the tool
-                                    if hasattr(tool_func, '_run'):
-                                        tool_result = tool_func._run(**tool_args) if isinstance(tool_args, dict) else tool_func._run(tool_args)
-                                    elif hasattr(tool_func, 'run'):
-                                        tool_result = tool_func.run(**tool_args) if isinstance(tool_args, dict) else tool_func.run(tool_args)
+                                    if hasattr(tool_func, "_run"):
+                                        tool_result = (
+                                            tool_func._run(**tool_args)
+                                            if isinstance(tool_args, dict)
+                                            else tool_func._run(tool_args)
+                                        )
+                                    elif hasattr(tool_func, "run"):
+                                        tool_result = (
+                                            tool_func.run(**tool_args)
+                                            if isinstance(tool_args, dict)
+                                            else tool_func.run(tool_args)
+                                        )
                                     elif callable(tool_func):
-                                        tool_result = tool_func(**tool_args) if isinstance(tool_args, dict) else tool_func(tool_args)
+                                        tool_result = (
+                                            tool_func(**tool_args)
+                                            if isinstance(tool_args, dict)
+                                            else tool_func(tool_args)
+                                        )
                                     else:
-                                        tool_result = {"error": f"Tool {tool_name} is not callable"}
+                                        tool_result = {
+                                            "error": f"Tool {tool_name} is not callable"
+                                        }
 
                                     print(
                                         f"   ✅ Tool {tool_name} executed successfully\n"
                                         f"      Result: {str(tool_result)[:200]}...\n",
-                                        file=sys.stderr
+                                        file=sys.stderr,
                                     )
 
-                                    tool_results.append({
-                                        "tool_call_id": tool_call.id,
-                                        "role": "tool",
-                                        "name": tool_name,
-                                        "content": json.dumps(tool_result) if not isinstance(tool_result, str) else tool_result
-                                    })
+                                    tool_results.append(
+                                        {
+                                            "tool_call_id": tool_call.id,
+                                            "role": "tool",
+                                            "name": tool_name,
+                                            "content": (
+                                                json.dumps(tool_result)
+                                                if not isinstance(tool_result, str)
+                                                else tool_result
+                                            ),
+                                        }
+                                    )
                                 except Exception as tool_error:
                                     print(
                                         f"   ❌ Tool {tool_name} failed: {tool_error}\n",
-                                        file=sys.stderr
+                                        file=sys.stderr,
                                     )
-                                    tool_results.append({
-                                        "tool_call_id": tool_call.id,
-                                        "role": "tool",
-                                        "name": tool_name,
-                                        "content": json.dumps({"error": str(tool_error)})
-                                    })
+                                    tool_results.append(
+                                        {
+                                            "tool_call_id": tool_call.id,
+                                            "role": "tool",
+                                            "name": tool_name,
+                                            "content": json.dumps(
+                                                {"error": str(tool_error)}
+                                            ),
+                                        }
+                                    )
                             else:
                                 print(
                                     f"   ⚠️  Tool {tool_name} not found in available_functions\n",
-                                    file=sys.stderr
+                                    file=sys.stderr,
                                 )
-                                tool_results.append({
-                                    "tool_call_id": tool_call.id,
-                                    "role": "tool",
-                                    "name": tool_name,
-                                    "content": json.dumps({"error": f"Tool {tool_name} not available"})
-                                })
+                                tool_results.append(
+                                    {
+                                        "tool_call_id": tool_call.id,
+                                        "role": "tool",
+                                        "name": tool_name,
+                                        "content": json.dumps(
+                                            {"error": f"Tool {tool_name} not available"}
+                                        ),
+                                    }
+                                )
 
                         # Build new messages with assistant response and tool results
                         print(
                             f"   🔁 Sending {len(tool_results)} tool results back to LLM...\n",
-                            file=sys.stderr
+                            file=sys.stderr,
                         )
 
                         # Build assistant message with thinking blocks preserved
@@ -1859,27 +2138,38 @@ class RotatingLLM(BaseLLM):
                                     "type": "function",
                                     "function": {
                                         "name": tc.function.name,
-                                        "arguments": tc.function.arguments
-                                    }
+                                        "arguments": tc.function.arguments,
+                                    },
                                 }
                                 for tc in choice.message.tool_calls
-                            ]
+                            ],
                         }
 
                         # Preserve thinking blocks for thinking models (required by Anthropic API)
                         # When thinking is enabled, assistant messages must include the original
                         # thinking blocks with their cryptographic signatures for multi-turn
                         if _is_thinking_model(model_for_litellm):
-                            thinking_blocks = getattr(choice.message, 'thinking_blocks', None)
+                            thinking_blocks = getattr(
+                                choice.message, "thinking_blocks", None
+                            )
                             if thinking_blocks:
                                 assistant_message["thinking_blocks"] = thinking_blocks
-                                print(f"   🧠 Preserved {len(thinking_blocks)} thinking block(s) for multi-turn", file=sys.stderr)
+                                print(
+                                    f"   🧠 Preserved {len(thinking_blocks)} thinking block(s) for multi-turn",
+                                    file=sys.stderr,
+                                )
 
-                            reasoning_content = getattr(choice.message, 'reasoning_content', None)
+                            reasoning_content = getattr(
+                                choice.message, "reasoning_content", None
+                            )
                             if reasoning_content:
-                                assistant_message["reasoning_content"] = reasoning_content
+                                assistant_message["reasoning_content"] = (
+                                    reasoning_content
+                                )
 
-                        current_messages = current_messages + [assistant_message] + tool_results
+                        current_messages = (
+                            current_messages + [assistant_message] + tool_results
+                        )
 
                         # Call LLM again with tool results
                         current_response = litellm.completion(
@@ -1896,23 +2186,37 @@ class RotatingLLM(BaseLLM):
 
                         # Validate follow-up response
                         try:
-                            _validate_llm_response(current_response, f"Tool loop iteration {iteration}")
+                            _validate_llm_response(
+                                current_response, f"Tool loop iteration {iteration}"
+                            )
                         except ValueError as e:
-                            print(f"   ❌ Invalid LLM response in tool loop: {e}\n", file=sys.stderr)
+                            print(
+                                f"   ❌ Invalid LLM response in tool loop: {e}\n",
+                                file=sys.stderr,
+                            )
                             response = "Error: LLM returned invalid response after tool execution"
                             break
                     else:
                         # Max iterations reached
                         print(
                             f"   ⚠️  Max tool iterations ({max_tool_iterations}) reached, using last response\n",
-                            file=sys.stderr
+                            file=sys.stderr,
                         )
                         # Safely access response with validation
                         try:
-                            _validate_llm_response(current_response, "Max iterations fallback")
-                            response = current_response.choices[0].message.content or str(current_response.choices[0].message)
+                            _validate_llm_response(
+                                current_response, "Max iterations fallback"
+                            )
+                            response = current_response.choices[
+                                0
+                            ].message.content or str(
+                                current_response.choices[0].message
+                            )
                         except ValueError as e:
-                            print(f"   ❌ Invalid response at max iterations: {e}\n", file=sys.stderr)
+                            print(
+                                f"   ❌ Invalid response at max iterations: {e}\n",
+                                file=sys.stderr,
+                            )
                             response = "Error: LLM returned invalid response"
                 else:
                     # No tools, use normal CrewAI flow
@@ -1944,7 +2248,9 @@ class RotatingLLM(BaseLLM):
                     provider_key = self._provider_key(provider)
 
                     # Track truncation occurrences for debugging
-                    self._truncation_retry_count[provider_key] = self._truncation_retry_count.get(provider_key, 0) + 1
+                    self._truncation_retry_count[provider_key] = (
+                        self._truncation_retry_count.get(provider_key, 0) + 1
+                    )
                     truncation_count = self._truncation_retry_count[provider_key]
 
                     error_msg = f"Truncated response ({response_len} chars)"
@@ -1985,7 +2291,11 @@ class RotatingLLM(BaseLLM):
                 is_context_length = _is_context_length_error(exc)
                 is_invalid_response = _is_invalid_response_error(exc)
 
-                if not is_rate_limit and not is_context_length and not is_invalid_response:
+                if (
+                    not is_rate_limit
+                    and not is_context_length
+                    and not is_invalid_response
+                ):
                     raise
 
                 if is_rate_limit:
@@ -2037,15 +2347,29 @@ class RotatingLLM(BaseLLM):
         model = target.model
         # Force LiteLLM routing for Claude models with custom api_base
         # This prevents CrewAI from using native Anthropic provider which would bypass our proxy
-        if target.api_base and "claude" in model.lower() and not model.startswith("openai/"):
+        if (
+            target.api_base
+            and "claude" in model.lower()
+            and not model.startswith("openai/")
+        ):
             model = f"openai/{model}"
-            print(f"   ℹ️  Forcing LiteLLM routing for {target.model} → {model}", file=sys.stderr)
-        
+            print(
+                f"   ℹ️  Forcing LiteLLM routing for {target.model} → {model}",
+                file=sys.stderr,
+            )
+
         # Force LiteLLM routing for Gemini models with custom api_base
         # This prevents CrewAI from trying to use native Google Gen AI provider
-        if target.api_base and "gemini" in model.lower() and not model.startswith("openai/"):
+        if (
+            target.api_base
+            and "gemini" in model.lower()
+            and not model.startswith("openai/")
+        ):
             model = f"openai/{model}"
-            print(f"   ℹ️  Forcing LiteLLM routing for {target.model} → {model}", file=sys.stderr)
+            print(
+                f"   ℹ️  Forcing LiteLLM routing for {target.model} → {model}",
+                file=sys.stderr,
+            )
         return LLM(model=model, api_base=target.api_base, api_key=target.api_key)
 
     def _sync_metadata(self, llm: LLM) -> None:
@@ -2080,7 +2404,9 @@ class RotatingLLM(BaseLLM):
 
         return False
 
-    def _disable_provider(self, provider: ProviderCandidate, error_msg: str = "") -> None:
+    def _disable_provider(
+        self, provider: ProviderCandidate, error_msg: str = ""
+    ) -> None:
         """Mark a provider as disabled due to quota/rate limit error.
 
         Increments strike count and calculates TTL with exponential backoff.
@@ -2107,7 +2433,9 @@ class RotatingLLM(BaseLLM):
         raise AttributeError(item)
 
     @staticmethod
-    def set_callbacks(callbacks: List[Any]) -> None:  # pragma: no cover - delegation helper
+    def set_callbacks(
+        callbacks: List[Any],
+    ) -> None:  # pragma: no cover - delegation helper
         LLM.set_callbacks(callbacks)
 
     @staticmethod
@@ -2131,7 +2459,11 @@ def _is_rate_limit_error(exc: Exception) -> bool:
         return True
 
     status_code = getattr(exc, "status_code", None) or getattr(exc, "http_status", None)
-    if status_code in {402, 403, 429}:  # 402 = quota exceeded, 403 = forbidden/no license, 429 = rate limit
+    if status_code in {
+        402,
+        403,
+        429,
+    }:  # 402 = quota exceeded, 403 = forbidden/no license, 429 = rate limit
         return True
 
     # Handle codex endpoint 401 "token_expired" as quota error (not real auth failure)

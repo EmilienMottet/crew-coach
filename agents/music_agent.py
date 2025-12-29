@@ -1,4 +1,5 @@
 """Agent responsible for enriching activity summaries with soundtrack details."""
+
 from __future__ import annotations
 
 from typing import Any, Optional, Sequence
@@ -30,7 +31,7 @@ def create_music_agent(
             "3. If tracks are found: format up to 5 as '<artist> – <title>'\n"
             "4. If NO tracks are provided or data is empty: return empty list\n"
             "5. FINAL STEP: Output ONLY a JSON object in this exact format:\n"
-            "   {\"original_description\": \"text\", \"candidate_tracks\": [\"Artist – Track\", ...]}\n\n"
+            '   {"original_description": "text", "candidate_tracks": ["Artist – Track", ...]}\n\n'
             "CRITICAL RULES:\n"
             "- NEVER invent music tracks if the provided data is empty or missing\n"
             "- Only report tracks that are ACTUALLY in the provided Spotify data\n"
@@ -47,11 +48,12 @@ def create_music_agent(
 
     # Debug info
     import sys
+
     print(
         f"🔍 Music agent created:\n"
         f"   Mode: Data analysis (no MCP tools)\n"
         f"   Source: Spotify data from n8n\n",
-        file=sys.stderr
+        file=sys.stderr,
     )
 
     return agent

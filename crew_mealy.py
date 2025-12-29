@@ -1,4 +1,5 @@
 """Main Crew definition for weekly meal plan generation."""
+
 from __future__ import annotations
 
 # CRITICAL: Initialize auth BEFORE importing CrewAI to ensure structured outputs work
@@ -93,7 +94,15 @@ from macro_calculator import (
 # ==============================================================================
 # Utility functions for deterministic day_name handling
 # ==============================================================================
-DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+DAY_NAMES = [
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+    "Sunday",
+]
 
 
 def _date_to_day_name(date_str: str) -> str:
@@ -328,25 +337,41 @@ class MealPlanningCrew:
         active_servers = {name: url for name, url in mcp_servers.items() if url}
 
         if active_servers and mcp_api_key:
-            print(f"\n🔗 Connecting to {len(active_servers)} MCP servers...\n", file=sys.stderr)
+            print(
+                f"\n🔗 Connecting to {len(active_servers)} MCP servers...\n",
+                file=sys.stderr,
+            )
 
             for server_name, server_url in active_servers.items():
                 try:
                     print(f"   Connecting to {server_name}...", file=sys.stderr)
-                    adapter = MetaMCPAdapter(server_url, mcp_api_key, connect_timeout=30)
+                    adapter = MetaMCPAdapter(
+                        server_url, mcp_api_key, connect_timeout=30
+                    )
                     adapter.start()
                     self.mcp_adapters.append(adapter)
                     self.mcp_tools.extend(adapter.tools)
-                    print(f"   ✅ {server_name}: {len(adapter.tools)} tools discovered", file=sys.stderr)
+                    print(
+                        f"   ✅ {server_name}: {len(adapter.tools)} tools discovered",
+                        file=sys.stderr,
+                    )
                 except Exception as e:
                     error_msg = f"   ❌ {server_name}: Connection failed - {e}"
                     if require_mcp:
                         print(error_msg, file=sys.stderr)
-                        raise ValueError(f"MCP connection failed for {server_name}: {e}")
+                        raise ValueError(
+                            f"MCP connection failed for {server_name}: {e}"
+                        )
                     else:
-                        print(f"{error_msg} (continuing without this server)", file=sys.stderr)
+                        print(
+                            f"{error_msg} (continuing without this server)",
+                            file=sys.stderr,
+                        )
 
-            print(f"\n✅ MCP connection complete! Total tools discovered: {len(self.mcp_tools)}\n", file=sys.stderr)
+            print(
+                f"\n✅ MCP connection complete! Total tools discovered: {len(self.mcp_tools)}\n",
+                file=sys.stderr,
+            )
 
             # Wrap MCP tools with input validation to fix malformed inputs from LLM
             print("🛡️  Wrapping MCP tools with input validation...\n", file=sys.stderr)
@@ -360,20 +385,37 @@ class MealPlanningCrew:
             print(error_msg, file=sys.stderr)
             raise ValueError("MCP configuration is required but not provided")
         else:
-            print("\n⚠️  Warning: No MCP configuration. Agents will operate without live data.\n", file=sys.stderr)
+            print(
+                "\n⚠️  Warning: No MCP configuration. Agents will operate without live data.\n",
+                file=sys.stderr,
+            )
 
         # Filter tools by type for different agents
         hexis_tools = [t for t in self.mcp_tools if "hexis" in t.name.lower()]
-        food_data_tools = [t for t in self.mcp_tools if "food" in t.name.lower() and "hexis" not in t.name.lower()]
+        food_data_tools = [
+            t
+            for t in self.mcp_tools
+            if "food" in t.name.lower() and "hexis" not in t.name.lower()
+        ]
         intervals_tools = [t for t in self.mcp_tools if "intervals" in t.name.lower()]
-        toolbox_tools = [t for t in self.mcp_tools if any(keyword in t.name.lower() for keyword in ["fetch", "time", "task"])]
+        toolbox_tools = [
+            t
+            for t in self.mcp_tools
+            if any(keyword in t.name.lower() for keyword in ["fetch", "time", "task"])
+        ]
 
         if hexis_tools:
             print(f"✅ Found {len(hexis_tools)} Hexis tools\n", file=sys.stderr)
         if food_data_tools:
-            print(f"🍎 Found {len(food_data_tools)} Food Data Central tools\n", file=sys.stderr)
+            print(
+                f"🍎 Found {len(food_data_tools)} Food Data Central tools\n",
+                file=sys.stderr,
+            )
         if intervals_tools:
-            print(f"📊 Found {len(intervals_tools)} Intervals.icu tools\n", file=sys.stderr)
+            print(
+                f"📊 Found {len(intervals_tools)} Intervals.icu tools\n",
+                file=sys.stderr,
+            )
         if toolbox_tools:
             print(f"🛠️  Found {len(toolbox_tools)} Toolbox tools\n", file=sys.stderr)
 
@@ -381,16 +423,20 @@ class MealPlanningCrew:
         # Hexis Analysis Agent: needs Hexis tools only
         hexis_analysis_tools = hexis_tools
         self.hexis_analysis_agent = create_hexis_analysis_agent(
-            self.hexis_analysis_llm, tools=hexis_analysis_tools if hexis_analysis_tools else None
+            self.hexis_analysis_llm,
+            tools=hexis_analysis_tools if hexis_analysis_tools else None,
         )
 
         # Weekly Structure Agent: no MCP tools needed (pure reasoning)
-        self.weekly_structure_agent = create_weekly_structure_agent(self.weekly_structure_llm)
+        self.weekly_structure_agent = create_weekly_structure_agent(
+            self.weekly_structure_llm
+        )
 
         # Meal Generation Agent: needs all food-related tools (LEGACY - kept for backwards compatibility)
         meal_generation_tools = hexis_tools + food_data_tools + toolbox_tools
         self.meal_generation_agent = create_meal_generation_agent(
-            self.meal_generation_llm, tools=meal_generation_tools if meal_generation_tools else None
+            self.meal_generation_llm,
+            tools=meal_generation_tools if meal_generation_tools else None,
         )
 
         # =====================================================================
@@ -407,18 +453,30 @@ class MealPlanningCrew:
         # Only needs the search tool, not all hexis tools
         # IMPORTANT: Use exact match to avoid selecting barcode or advanced variants
         self.passio_search_tool = next(
-            (t for t in hexis_tools if t.name.lower() == "hexis__hexis_search_passio_foods"),
-            None
+            (
+                t
+                for t in hexis_tools
+                if t.name.lower() == "hexis__hexis_search_passio_foods"
+            ),
+            None,
         )
         executor_tools = [self.passio_search_tool] if self.passio_search_tool else []
-        self.ingredient_validation_executor_agent = create_ingredient_validation_executor_agent(
-            self.ingredient_validation_executor_llm,
-            tools=executor_tools if executor_tools else None
+        self.ingredient_validation_executor_agent = (
+            create_ingredient_validation_executor_agent(
+                self.ingredient_validation_executor_llm,
+                tools=executor_tools if executor_tools else None,
+            )
         )
         if self.passio_search_tool:
-            print(f"   ✅ Executor agent has {self.passio_search_tool.name} tool\n", file=sys.stderr)
+            print(
+                f"   ✅ Executor agent has {self.passio_search_tool.name} tool\n",
+                file=sys.stderr,
+            )
         else:
-            print(f"   ⚠️  Executor agent missing hexis_search_passio_foods tool!\n", file=sys.stderr)
+            print(
+                f"   ⚠️  Executor agent missing hexis_search_passio_foods tool!\n",
+                file=sys.stderr,
+            )
 
         # REVIEWER: Pure reasoning - calculates macros and finalizes (NO TOOLS)
         self.meal_recipe_reviewer_agent = create_meal_recipe_reviewer_agent(
@@ -458,7 +516,9 @@ class MealPlanningCrew:
             self.hexis_analysis_reviewer_llm
         )
 
-        self.meal_compilation_agent = create_meal_compilation_agent(self.meal_compilation_llm)
+        self.meal_compilation_agent = create_meal_compilation_agent(
+            self.meal_compilation_llm
+        )
 
         # Nutritional Validation Agent: pure reasoning agent (NO TOOLS)
         # It analyzes the meal plan and nutrition targets provided in the task description
@@ -475,7 +535,10 @@ class MealPlanningCrew:
 
         # Wrap composite tool with input validation to handle list inputs from LLM
         # This is critical: LLMs may pass multiple meals as a list instead of calling once per meal
-        print("🛡️  Wrapping hexis_log_meal composite tool with input validation...\n", file=sys.stderr)
+        print(
+            "🛡️  Wrapping hexis_log_meal composite tool with input validation...\n",
+            file=sys.stderr,
+        )
         hexis_log_meal_tool = wrap_mcp_tool(hexis_log_meal_tool)
 
         # Integration agent gets ONLY the composite tool (and maybe get_weekly_plan if needed)
@@ -483,8 +546,7 @@ class MealPlanningCrew:
         integration_tools = [hexis_log_meal_tool]
 
         self.mealy_integration_agent = create_mealy_integration_agent(
-            llm=self.mealy_integration_llm,
-            tools=integration_tools
+            llm=self.mealy_integration_llm, tools=integration_tools
         )
 
     def _create_agent_llm(
@@ -579,7 +641,10 @@ class MealPlanningCrew:
         import re
 
         if not self.passio_search_tool:
-            print("   ⚠️ No passio_search_tool available for parallel validation", file=sys.stderr)
+            print(
+                "   ⚠️ No passio_search_tool available for parallel validation",
+                file=sys.stderr,
+            )
             return self._empty_validation_result(meal_template)
 
         # Extract unique ingredients from all meals
@@ -600,13 +665,18 @@ class MealPlanningCrew:
             print("   ⚠️ No ingredients to validate", file=sys.stderr)
             return self._empty_validation_result(meal_template)
 
-        print(f"   🔍 Validating {len(unique_ingredients)} unique ingredients in parallel (max_workers={max_workers})...", file=sys.stderr)
+        print(
+            f"   🔍 Validating {len(unique_ingredients)} unique ingredients in parallel (max_workers={max_workers})...",
+            file=sys.stderr,
+        )
 
         # Search all ingredients in parallel
         validated_cache: Dict[str, Dict[str, Any]] = {}
         errors: List[str] = []
 
-        def search_single_ingredient(name: str, original: str, quantity: float) -> tuple:
+        def search_single_ingredient(
+            name: str, original: str, quantity: float
+        ) -> tuple:
             """Search a single ingredient (runs in thread)."""
             try:
                 result = self.passio_search_tool._run(query=name, limit=5)
@@ -619,27 +689,39 @@ class MealPlanningCrew:
                 foods = result.get("foods", [])
                 if foods:
                     first_match = foods[0]
-                    return (name, {
-                        "name": original,
-                        "passio_food_id": first_match.get("id") or first_match.get("resultId"),
-                        "passio_food_name": first_match.get("displayName") or first_match.get("shortName") or first_match.get("longName"),
-                        "passio_ref_code": first_match.get("refCode"),
-                        "quantity_g": quantity,
-                        "validation_status": "found",
-                    })
+                    return (
+                        name,
+                        {
+                            "name": original,
+                            "passio_food_id": first_match.get("id")
+                            or first_match.get("resultId"),
+                            "passio_food_name": first_match.get("displayName")
+                            or first_match.get("shortName")
+                            or first_match.get("longName"),
+                            "passio_ref_code": first_match.get("refCode"),
+                            "quantity_g": quantity,
+                            "validation_status": "found",
+                        },
+                    )
                 else:
-                    return (name, {
-                        "name": original,
-                        "validation_status": "not_found",
-                        "quantity_g": quantity,
-                    })
+                    return (
+                        name,
+                        {
+                            "name": original,
+                            "validation_status": "not_found",
+                            "quantity_g": quantity,
+                        },
+                    )
             except Exception as e:
-                return (name, {
-                    "name": original,
-                    "validation_status": "error",
-                    "substitution_note": str(e)[:100],
-                    "quantity_g": quantity,
-                })
+                return (
+                    name,
+                    {
+                        "name": original,
+                        "validation_status": "error",
+                        "substitution_note": str(e)[:100],
+                        "quantity_g": quantity,
+                    },
+                )
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = {
@@ -652,8 +734,13 @@ class MealPlanningCrew:
                 validated_cache[name] = result
 
         # Count successes
-        successful = sum(1 for v in validated_cache.values() if v.get("validation_status") == "found")
-        print(f"   ✅ Validated {successful}/{len(unique_ingredients)} ingredients in parallel", file=sys.stderr)
+        successful = sum(
+            1 for v in validated_cache.values() if v.get("validation_status") == "found"
+        )
+        print(
+            f"   ✅ Validated {successful}/{len(unique_ingredients)} ingredients in parallel",
+            file=sys.stderr,
+        )
 
         # Build ValidatedIngredientsList structure
         validated_meals = []
@@ -676,19 +763,24 @@ class MealPlanningCrew:
                         successful_validations += 1
                 else:
                     # Fallback for missing cache entry
-                    meal_ingredients.append({
-                        "name": ingredient_str,
-                        "validation_status": "not_found",
-                    })
+                    meal_ingredients.append(
+                        {
+                            "name": ingredient_str,
+                            "validation_status": "not_found",
+                        }
+                    )
 
-            validated_meals.append({
-                "meal_type": meal.get("meal_type", "Unknown"),
-                "meal_name": meal.get("meal_name", "Unknown"),
-                "validated_ingredients": meal_ingredients,
-                "validation_success": all(
-                    ing.get("validation_status") == "found" for ing in meal_ingredients
-                ),
-            })
+            validated_meals.append(
+                {
+                    "meal_type": meal.get("meal_type", "Unknown"),
+                    "meal_name": meal.get("meal_name", "Unknown"),
+                    "validated_ingredients": meal_ingredients,
+                    "validation_success": all(
+                        ing.get("validation_status") == "found"
+                        for ing in meal_ingredients
+                    ),
+                }
+            )
 
         return {
             "day_name": meal_template.get("day_name", "Unknown"),
@@ -702,28 +794,46 @@ class MealPlanningCrew:
     # Unit conversions for ingredient parsing (grams per unit)
     UNIT_CONVERSIONS = {
         # Eggs by size
-        "egg": 50, "eggs": 50,
-        "large egg": 60, "large eggs": 60,
-        "medium egg": 50, "medium eggs": 50,
-        "small egg": 40, "small eggs": 40,
+        "egg": 50,
+        "eggs": 50,
+        "large egg": 60,
+        "large eggs": 60,
+        "medium egg": 50,
+        "medium eggs": 50,
+        "small egg": 40,
+        "small eggs": 40,
         # Bread slices
-        "slice": 30, "slices": 30,
-        "large slice": 40, "large slices": 40,
-        "medium slice": 30, "medium slices": 30,
-        "small slice": 20, "small slices": 20,
+        "slice": 30,
+        "slices": 30,
+        "large slice": 40,
+        "large slices": 40,
+        "medium slice": 30,
+        "medium slices": 30,
+        "small slice": 20,
+        "small slices": 20,
         # Volume measures (approximate gram equivalents)
-        "cup": 240, "cups": 240,
-        "tbsp": 15, "tsp": 5,
+        "cup": 240,
+        "cups": 240,
+        "tbsp": 15,
+        "tsp": 5,
         # Generic pieces
-        "piece": 50, "pieces": 50,
-        "large piece": 75, "large pieces": 75,
-        "medium piece": 50, "medium pieces": 50,
-        "small piece": 30, "small pieces": 30,
+        "piece": 50,
+        "pieces": 50,
+        "large piece": 75,
+        "large pieces": 75,
+        "medium piece": 50,
+        "medium pieces": 50,
+        "small piece": 30,
+        "small pieces": 30,
         # Common items
-        "banana": 120, "bananas": 120,
-        "apple": 180, "apples": 180,
-        "tortilla": 50, "tortillas": 50,
-        "whole wheat tortilla": 50, "whole wheat tortillas": 50,
+        "banana": 120,
+        "bananas": 120,
+        "apple": 180,
+        "apples": 180,
+        "tortilla": 50,
+        "tortillas": 50,
+        "whole wheat tortilla": 50,
+        "whole wheat tortillas": 50,
     }
 
     def _parse_ingredient_string(self, ingredient_str: str) -> tuple:
@@ -746,8 +856,9 @@ class MealPlanningCrew:
 
         # Pattern 1: "2 large eggs", "3 medium slices", "4 small pieces"
         match = re.match(
-            r'^(\d+(?:\.\d+)?)\s+(large|medium|small)\s+(eggs?|slices?|pieces?|bananas?|apples?|tortillas?)(.*)$',
-            ingredient_str, re.IGNORECASE
+            r"^(\d+(?:\.\d+)?)\s+(large|medium|small)\s+(eggs?|slices?|pieces?|bananas?|apples?|tortillas?)(.*)$",
+            ingredient_str,
+            re.IGNORECASE,
         )
         if match:
             qty = float(match.group(1))
@@ -757,16 +868,19 @@ class MealPlanningCrew:
 
             # Build conversion key: "large eggs" or "large egg"
             key = f"{size} {unit}"
-            conversion = self.UNIT_CONVERSIONS.get(key, self.UNIT_CONVERSIONS.get(unit, 50))
+            conversion = self.UNIT_CONVERSIONS.get(
+                key, self.UNIT_CONVERSIONS.get(unit, 50)
+            )
 
             # Name is either the rest or the unit itself
-            name = rest if rest else unit.rstrip('s')
+            name = rest if rest else unit.rstrip("s")
             return (qty * conversion, name)
 
         # Pattern 2: "2 eggs", "3 slices bread", "1 banana"
         match = re.match(
-            r'^(\d+(?:\.\d+)?)\s+(eggs?|slices?|pieces?|cups?|tbsp|tsp|bananas?|apples?|tortillas?)\s*(.*)$',
-            ingredient_str, re.IGNORECASE
+            r"^(\d+(?:\.\d+)?)\s+(eggs?|slices?|pieces?|cups?|tbsp|tsp|bananas?|apples?|tortillas?)\s*(.*)$",
+            ingredient_str,
+            re.IGNORECASE,
         )
         if match:
             qty = float(match.group(1))
@@ -774,13 +888,12 @@ class MealPlanningCrew:
             rest = match.group(3).strip()
 
             conversion = self.UNIT_CONVERSIONS.get(unit, 50)
-            name = rest if rest else unit.rstrip('s')
+            name = rest if rest else unit.rstrip("s")
             return (qty * conversion, name)
 
         # Pattern 3: "120g chicken", "1.5kg rice", "200ml milk", "2l water"
         match = re.match(
-            r'^(\d+(?:\.\d+)?)\s*(g|kg|ml|l)\s+(.+)$',
-            ingredient_str, re.IGNORECASE
+            r"^(\d+(?:\.\d+)?)\s*(g|kg|ml|l)\s+(.+)$", ingredient_str, re.IGNORECASE
         )
         if match:
             qty = float(match.group(1))
@@ -796,8 +909,7 @@ class MealPlanningCrew:
 
         # Pattern 4: "120g" at start without space (e.g., "120g chicken breast")
         match = re.match(
-            r'^(\d+(?:\.\d+)?)(g|kg|ml|l)(.+)$',
-            ingredient_str, re.IGNORECASE
+            r"^(\d+(?:\.\d+)?)(g|kg|ml|l)(.+)$", ingredient_str, re.IGNORECASE
         )
         if match:
             qty = float(match.group(1))
@@ -824,7 +936,9 @@ class MealPlanningCrew:
             "substitutions_made": 0,
         }
 
-    def _create_passio_nutrition_fetcher(self) -> Callable[[str], Optional[Dict[str, Any]]]:
+    def _create_passio_nutrition_fetcher(
+        self,
+    ) -> Callable[[str], Optional[Dict[str, Any]]]:
         """Create a function that fetches nutrition data from Passio API.
 
         Returns a callable that takes a ref_code and returns nutrition data.
@@ -838,7 +952,10 @@ class MealPlanningCrew:
                 break
 
         if details_tool is None:
-            print("   ⚠️ hexis_get_passio_food_details tool not found in MCP tools", file=sys.stderr)
+            print(
+                "   ⚠️ hexis_get_passio_food_details tool not found in MCP tools",
+                file=sys.stderr,
+            )
             return lambda ref_code: None
 
         def fetch_nutrition(ref_code: str) -> Optional[Dict[str, Any]]:
@@ -905,32 +1022,45 @@ class MealPlanningCrew:
     def _clean_json_text(text: str) -> str:
         """Remove markdown fences, thought blocks, reasoning prefixes from JSON text."""
         import re
+
         text = text.strip()
 
         # STRATEGY: Strip everything before the first '{' if it looks like reasoning
         # This handles multiline reasoning from thinking models (e.g., "Thought: ...")
-        first_brace = text.find('{')
+        first_brace = text.find("{")
         if first_brace > 0:
             prefix = text[:first_brace]
             # Check if the prefix looks like LLM reasoning (common patterns)
             reasoning_indicators = [
-                'Thought:', 'I need to', 'Let me', 'Looking at',
-                'I should', 'First,', 'To ', 'Based on', 'Given ',
-                'I will', "I'll", 'My approach', 'The task',
+                "Thought:",
+                "I need to",
+                "Let me",
+                "Looking at",
+                "I should",
+                "First,",
+                "To ",
+                "Based on",
+                "Given ",
+                "I will",
+                "I'll",
+                "My approach",
+                "The task",
             ]
             prefix_lower = prefix.lower()
-            if any(indicator.lower() in prefix_lower for indicator in reasoning_indicators):
+            if any(
+                indicator.lower() in prefix_lower for indicator in reasoning_indicators
+            ):
                 # Strip everything before the JSON
                 text = text[first_brace:]
 
         text = text.strip()
 
         # Remove markdown code fences (anywhere in text)
-        text = re.sub(r'```json\s*\n?', '', text)  # Remove opening fence
-        text = re.sub(r'\n?\s*```', '', text)  # Remove closing fence
+        text = re.sub(r"```json\s*\n?", "", text)  # Remove opening fence
+        text = re.sub(r"\n?\s*```", "", text)  # Remove closing fence
 
         # Remove <thought>...</thought> blocks (common in thinking models)
-        text = re.sub(r'<thought>.*?</thought>', '', text, flags=re.DOTALL)
+        text = re.sub(r"<thought>.*?</thought>", "", text, flags=re.DOTALL)
 
         return text.strip()
 
@@ -941,7 +1071,7 @@ class MealPlanningCrew:
         More robust than regex for large/complex JSON with nested structures.
         Handles escaped quotes and nested objects correctly.
         """
-        start = text.find('{')
+        start = text.find("{")
         if start == -1:
             return None
 
@@ -953,7 +1083,7 @@ class MealPlanningCrew:
             if escape_next:
                 escape_next = False
                 continue
-            if char == '\\':
+            if char == "\\":
                 escape_next = True
                 continue
             if char == '"' and not escape_next:
@@ -961,12 +1091,12 @@ class MealPlanningCrew:
                 continue
             if in_string:
                 continue
-            if char == '{':
+            if char == "{":
                 depth += 1
-            elif char == '}':
+            elif char == "}":
                 depth -= 1
                 if depth == 0:
-                    return text[start:i+1]
+                    return text[start : i + 1]
 
         return None  # Unbalanced braces
 
@@ -987,12 +1117,18 @@ class MealPlanningCrew:
             nested_priorities = daily_energy.get("nutritional_priorities")
 
             if nested_macros and "daily_macro_targets" not in data:
-                print("   🔧 Structure healing: Moving daily_macro_targets to root", file=sys.stderr)
+                print(
+                    "   🔧 Structure healing: Moving daily_macro_targets to root",
+                    file=sys.stderr,
+                )
                 data["daily_macro_targets"] = nested_macros
                 del daily_energy["daily_macro_targets"]
 
             if nested_priorities and "nutritional_priorities" not in data:
-                print("   🔧 Structure healing: Moving nutritional_priorities to root", file=sys.stderr)
+                print(
+                    "   🔧 Structure healing: Moving nutritional_priorities to root",
+                    file=sys.stderr,
+                )
                 data["nutritional_priorities"] = nested_priorities
                 del daily_energy["nutritional_priorities"]
 
@@ -1006,7 +1142,10 @@ class MealPlanningCrew:
         # Debug: log available sources
         print(f"   📥 Parsing task output:", file=sys.stderr)
         if task_output.json_dict:
-            print(f"      - json_dict keys: {list(task_output.json_dict.keys())}", file=sys.stderr)
+            print(
+                f"      - json_dict keys: {list(task_output.json_dict.keys())}",
+                file=sys.stderr,
+            )
             payloads.append(task_output.json_dict)
 
         if task_output.pydantic:
@@ -1026,7 +1165,10 @@ class MealPlanningCrew:
                 try:
                     parsed = json.loads(extracted)
                     if isinstance(parsed, dict):
-                        print(f"      - Brace-balanced parse SUCCESS, keys: {list(parsed.keys())}", file=sys.stderr)
+                        print(
+                            f"      - Brace-balanced parse SUCCESS, keys: {list(parsed.keys())}",
+                            file=sys.stderr,
+                        )
                         # Apply structure healing for HexisWeeklyAnalysis
                         parsed = MealPlanningCrew._heal_hexis_analysis_structure(parsed)
                         payloads.append(parsed)
@@ -1057,35 +1199,54 @@ class MealPlanningCrew:
                         potential = json.loads(normalized)
                         if isinstance(potential, dict):
                             parsed_raw = potential
-                            print(f"      - json.loads SUCCESS, keys: {list(parsed_raw.keys())}", file=sys.stderr)
+                            print(
+                                f"      - json.loads SUCCESS, keys: {list(parsed_raw.keys())}",
+                                file=sys.stderr,
+                            )
                     except json.JSONDecodeError:
                         try:
                             potential, _ = decoder.raw_decode(normalized)
                             if isinstance(potential, dict):
                                 parsed_raw = potential
-                                print(f"      - raw_decode SUCCESS, keys: {list(parsed_raw.keys())}", file=sys.stderr)
+                                print(
+                                    f"      - raw_decode SUCCESS, keys: {list(parsed_raw.keys())}",
+                                    file=sys.stderr,
+                                )
                         except json.JSONDecodeError:
                             # Fallback: Try json_repair for malformed JSON (e.g. unescaped newlines)
                             # 150KB limit to handle 7 days of Hexis data (~110KB)
                             if len(normalized) < 150000:
                                 try:
-                                    potential = json_repair.repair_json(normalized, return_objects=True)
+                                    potential = json_repair.repair_json(
+                                        normalized, return_objects=True
+                                    )
                                     if isinstance(potential, dict):
                                         parsed_raw = potential
-                                        print(f"      - json_repair SUCCESS, keys: {list(parsed_raw.keys())}", file=sys.stderr)
+                                        print(
+                                            f"      - json_repair SUCCESS, keys: {list(parsed_raw.keys())}",
+                                            file=sys.stderr,
+                                        )
                                 except Exception:
                                     continue
                             else:
-                                print(f"      - Skipping json_repair (input too large: {len(normalized)} chars)", file=sys.stderr)
+                                print(
+                                    f"      - Skipping json_repair (input too large: {len(normalized)} chars)",
+                                    file=sys.stderr,
+                                )
                                 continue
 
                     if parsed_raw is not None:
                         # Apply structure healing for HexisWeeklyAnalysis
-                        parsed_raw = MealPlanningCrew._heal_hexis_analysis_structure(parsed_raw)
+                        parsed_raw = MealPlanningCrew._heal_hexis_analysis_structure(
+                            parsed_raw
+                        )
                         payloads.append(parsed_raw)
                     else:
                         # Log failure to parse this candidate
-                        print(f"   ⚠️  Failed to parse candidate JSON: {normalized[:100]}...", file=sys.stderr)
+                        print(
+                            f"   ⚠️  Failed to parse candidate JSON: {normalized[:100]}...",
+                            file=sys.stderr,
+                        )
 
             except json.JSONDecodeError:
                 pass
@@ -1100,12 +1261,16 @@ class MealPlanningCrew:
 
         if crew_output.json_dict:
             # Apply structure healing for HexisWeeklyAnalysis
-            healed = MealPlanningCrew._heal_hexis_analysis_structure(crew_output.json_dict)
+            healed = MealPlanningCrew._heal_hexis_analysis_structure(
+                crew_output.json_dict
+            )
             candidates.append(healed)
 
         if crew_output.pydantic:
             # Apply structure healing for HexisWeeklyAnalysis
-            healed = MealPlanningCrew._heal_hexis_analysis_structure(crew_output.pydantic.model_dump())
+            healed = MealPlanningCrew._heal_hexis_analysis_structure(
+                crew_output.pydantic.model_dump()
+            )
             candidates.append(healed)
 
         for task_output in reversed(crew_output.tasks_output or []):
@@ -1164,7 +1329,10 @@ class MealPlanningCrew:
             Dict with compliance_issues if compliance failed, None otherwise
         """
         for candidate in self._collect_payload_candidates(crew_output):
-            if isinstance(candidate, dict) and candidate.get("compliance_failed") is True:
+            if (
+                isinstance(candidate, dict)
+                and candidate.get("compliance_failed") is True
+            ):
                 return {
                     "compliance_failed": True,
                     "compliance_issues": candidate.get("compliance_issues", []),
@@ -1237,7 +1405,10 @@ class MealPlanningCrew:
         for idx, candidate in enumerate(self._collect_payload_candidates(crew_output)):
             try:
                 # Apply enrichment for MealPlanTemplate if data provided
-                if enrichment_data is not None and model_type.__name__ == "MealPlanTemplate":
+                if (
+                    enrichment_data is not None
+                    and model_type.__name__ == "MealPlanTemplate"
+                ):
                     candidate = self._enrich_meal_template_with_targets(
                         candidate, enrichment_data
                     )
@@ -1295,7 +1466,10 @@ class MealPlanningCrew:
 
         if max_days is not None:
             if max_days <= 0:
-                print("\n❌ Cannot generate meal plans for fewer than one day\n", file=sys.stderr)
+                print(
+                    "\n❌ Cannot generate meal plans for fewer than one day\n",
+                    file=sys.stderr,
+                )
                 return None
 
             if max_days < total_targets:
@@ -1325,12 +1499,14 @@ class MealPlanningCrew:
             }
             # Keep plans from previous round
             reused_plans = [
-                plan for plan in previous_successful_plans
+                plan
+                for plan in previous_successful_plans
                 if plan.get("day_name") in {t.get("day_name") for t in daily_targets}
             ]
             # Only generate days that are missing
             targets_to_generate = [
-                target for target in daily_targets
+                target
+                for target in daily_targets
                 if target.get("day_name") not in successful_day_names
             ]
 
@@ -1351,7 +1527,9 @@ class MealPlanningCrew:
                 return reused_plans
 
         # Check if parallel generation is enabled (default: True for 2+ days)
-        parallel_enabled = os.getenv("PARALLEL_DAY_GENERATION", "true").lower() == "true"
+        parallel_enabled = (
+            os.getenv("PARALLEL_DAY_GENERATION", "true").lower() == "true"
+        )
         num_days = len(targets_to_generate)
 
         if parallel_enabled and num_days >= 2:
@@ -1546,9 +1724,7 @@ class MealPlanningCrew:
         ratio = unique_meals / total_meals if total_meals > 0 else 1.0
 
         # Find duplicates (meals appearing in multiple days)
-        duplicates = {
-            name: days for name, days in meal_to_day.items() if len(days) > 1
-        }
+        duplicates = {name: days for name, days in meal_to_day.items() if len(days) > 1}
 
         return {
             "unique_meals": unique_meals,
@@ -1621,7 +1797,9 @@ class MealPlanningCrew:
                 day_target,
                 nutrition_plan,
                 other_days,  # Full context from all other days
-                validation_feedback={"variety_issue": f"Regenerating {day_name} due to duplicate meals"},
+                validation_feedback={
+                    "variety_issue": f"Regenerating {day_name} due to duplicate meals"
+                },
             )
 
             if new_plan:
@@ -1667,7 +1845,9 @@ class MealPlanningCrew:
         lock = threading.Lock()
         failed_days: List[str] = []
 
-        def generate_with_context(target: Dict[str, Any], idx: int) -> Optional[Dict[str, Any]]:
+        def generate_with_context(
+            target: Dict[str, Any], idx: int
+        ) -> Optional[Dict[str, Any]]:
             """Generate a single day with access to shared completed context."""
             day_name = target.get("day_name", "Unknown")
             date_key = target.get("date", "")  # Use date for variety_seed lookup
@@ -1711,7 +1891,9 @@ class MealPlanningCrew:
             futures = []
             for idx, target in enumerate(daily_targets):
                 if idx > 0:
-                    time.sleep(0.5)  # Stagger starts to allow earlier days to complete first
+                    time.sleep(
+                        0.5
+                    )  # Stagger starts to allow earlier days to complete first
                 futures.append(executor.submit(generate_with_context, target, idx))
 
             # Wait for all to complete
@@ -1805,7 +1987,11 @@ class MealPlanningCrew:
         is_extreme = is_extreme_low or is_extreme_high
 
         if is_extreme:
-            mode_type = "LOW CALORIE (Simplicity Mode)" if is_extreme_low else "HIGH CALORIE (Fueling Mode)"
+            mode_type = (
+                "LOW CALORIE (Simplicity Mode)"
+                if is_extreme_low
+                else "HIGH CALORIE (Fueling Mode)"
+            )
             print(
                 f"   ⚠️  EXTREME TARGET DETECTED: {target_calories} kcal - Activating {mode_type}",
                 file=sys.stderr,
@@ -1827,7 +2013,7 @@ class MealPlanningCrew:
 
         for attempt in range(1, max_attempts + 1):
             # 4th attempt uses relaxed thresholds (+50%) as a fallback
-            use_relaxed = (attempt == max_attempts)
+            use_relaxed = attempt == max_attempts
             threshold_note = " (RELAXED thresholds +50%)" if use_relaxed else ""
             print(
                 f"\n🔄 {day_name} - Attempt {attempt}/{max_attempts}{threshold_note}...\n",
@@ -1919,8 +2105,12 @@ class MealPlanningCrew:
                 "carbs_g": macros.get("carbs_g", 0),
                 "fat_g": macros.get("fat_g", 0),
             }
-            pre_calc_summary = format_pre_calculated_summary(validated_ingredients, target_totals)
-            print(f"   📊 Pre-calculated macros:\n{pre_calc_summary}\n", file=sys.stderr)
+            pre_calc_summary = format_pre_calculated_summary(
+                validated_ingredients, target_totals
+            )
+            print(
+                f"   📊 Pre-calculated macros:\n{pre_calc_summary}\n", file=sys.stderr
+            )
 
             # =================================================================
             # STEP 3: REVIEWER - Calculate macros and finalize (pure reasoning)
@@ -1963,7 +2153,11 @@ class MealPlanningCrew:
                     issues_str = []
                     for issue in issues[:2]:
                         if isinstance(issue, dict):
-                            issues_str.append(str(issue.get("message", issue.get("issue", str(issue)))))
+                            issues_str.append(
+                                str(
+                                    issue.get("message", issue.get("issue", str(issue)))
+                                )
+                            )
                         else:
                             issues_str.append(str(issue))
                     validation_feedback = {
@@ -2006,7 +2200,9 @@ class MealPlanningCrew:
             # =================================================================
             # STEP 4a: Python quantity adjustment (if needed)
             # =================================================================
-            daily_plan, was_adjusted = self._adjust_ingredient_quantities(daily_plan, target)
+            daily_plan, was_adjusted = self._adjust_ingredient_quantities(
+                daily_plan, target
+            )
             if was_adjusted:
                 print(
                     f"   ✅ Python fine-tuned ingredient quantities",
@@ -2032,9 +2228,13 @@ class MealPlanningCrew:
                     # Build feedback for next Supervisor attempt
                     local_feedback = validation_feedback or {}
                     python_note = (
-                        "Python already attempted quantity adjustment but macros are still off. "
-                        "The Supervisor MUST design meals with significantly different ingredient choices or portions."
-                    ) if was_adjusted else ""
+                        (
+                            "Python already attempted quantity adjustment but macros are still off. "
+                            "The Supervisor MUST design meals with significantly different ingredient choices or portions."
+                        )
+                        if was_adjusted
+                        else ""
+                    )
 
                     # Prioritize issues: focus on the biggest deviation first
                     issues = macro_validation["issues"]
@@ -2055,7 +2255,8 @@ class MealPlanningCrew:
                             "IMPORTANT: Fix the priority_fix issue FIRST without breaking other macros. "
                             "Make targeted adjustments (±10-20g ingredient changes), not complete meal redesigns."
                         ),
-                        "critical_instruction": python_note or f"Priority: {priority_issue}",
+                        "critical_instruction": python_note
+                        or f"Priority: {priority_issue}",
                     }
                     print(
                         f"\n   🔄 Retrying with priority feedback: {priority_issue} (Python adjusted: {was_adjusted})...\n",
@@ -2080,7 +2281,10 @@ class MealPlanningCrew:
                 file=sys.stderr,
             )
             # Fallback: Construct a "mathematical" meal plan if LLM fails
-            print(f"   🧱 Engaging Fallback Protocol: Constructing mathematical meal plan...", file=sys.stderr)
+            print(
+                f"   🧱 Engaging Fallback Protocol: Constructing mathematical meal plan...",
+                file=sys.stderr,
+            )
             daily_plan = self._generate_fallback_meal_plan(target)
             if daily_plan:
                 print(f"   ✅ Fallback plan constructed successfully", file=sys.stderr)
@@ -2110,7 +2314,7 @@ class MealPlanningCrew:
             ("Breakfast", 0.25),
             ("Lunch", 0.35),
             ("Afternoon Snack", 0.10),
-            ("Dinner", 0.30)
+            ("Dinner", 0.30),
         ]
 
         meals = []
@@ -2160,76 +2364,93 @@ class MealPlanningCrew:
             if chicken_qty > 10:
                 name = f"{chicken_qty}g Chicken Breast"
                 ingredients.append(name)
-                validated.append({
-                    "name": name,
-                    "passio_food_id": "550", # Generic ID
-                    "passio_food_name": "Chicken Breast",
-                    "quantity_g": chicken_qty,
-                    "protein_per_100g": 31,
-                    "carbs_per_100g": 0,
-                    "fat_per_100g": 3.6,
-                    "calories_per_100g": 165
-                })
+                validated.append(
+                    {
+                        "name": name,
+                        "passio_food_id": "550",  # Generic ID
+                        "passio_food_name": "Chicken Breast",
+                        "quantity_g": chicken_qty,
+                        "protein_per_100g": 31,
+                        "carbs_per_100g": 0,
+                        "fat_per_100g": 3.6,
+                        "calories_per_100g": 165,
+                    }
+                )
 
             if rice_qty > 10:
                 name = f"{rice_qty}g Cooked White Rice"
                 ingredients.append(name)
-                validated.append({
-                    "name": name,
-                    "passio_food_id": "551",
-                    "passio_food_name": "White Rice",
-                    "quantity_g": rice_qty,
-                    "protein_per_100g": 2.6,
-                    "carbs_per_100g": 25,
-                    "fat_per_100g": 0.9,
-                    "calories_per_100g": 120
-                })
+                validated.append(
+                    {
+                        "name": name,
+                        "passio_food_id": "551",
+                        "passio_food_name": "White Rice",
+                        "quantity_g": rice_qty,
+                        "protein_per_100g": 2.6,
+                        "carbs_per_100g": 25,
+                        "fat_per_100g": 0.9,
+                        "calories_per_100g": 120,
+                    }
+                )
 
             if oil_qty > 2:
                 name = f"{oil_qty}g Olive Oil"
                 ingredients.append(name)
-                validated.append({
-                    "name": name,
-                    "passio_food_id": "552",
-                    "passio_food_name": "Olive Oil",
-                    "quantity_g": oil_qty,
-                    "protein_per_100g": 0,
-                    "carbs_per_100g": 0,
-                    "fat_per_100g": 100,
-                    "calories_per_100g": 884
-                })
+                validated.append(
+                    {
+                        "name": name,
+                        "passio_food_id": "552",
+                        "passio_food_name": "Olive Oil",
+                        "quantity_g": oil_qty,
+                        "protein_per_100g": 0,
+                        "carbs_per_100g": 0,
+                        "fat_per_100g": 100,
+                        "calories_per_100g": 884,
+                    }
+                )
 
             ingredients.append(f"{veg_qty}g Steamed Green Beans")
-            validated.append({
-                "name": "Green Beans",
-                "passio_food_id": "553",
-                "passio_food_name": "Green Beans",
-                "quantity_g": veg_qty,
-                "protein_per_100g": 1.8,
-                "carbs_per_100g": 7,
-                "fat_per_100g": 0.2,
-                "calories_per_100g": 31
-            })
+            validated.append(
+                {
+                    "name": "Green Beans",
+                    "passio_food_id": "553",
+                    "passio_food_name": "Green Beans",
+                    "quantity_g": veg_qty,
+                    "protein_per_100g": 1.8,
+                    "carbs_per_100g": 7,
+                    "fat_per_100g": 0.2,
+                    "calories_per_100g": 31,
+                }
+            )
 
             # Recalculate actuals
             act_p = (chicken_qty * 0.31) + (rice_qty * 0.026) + (veg_qty * 0.018)
             act_c = (rice_qty * 0.25) + (veg_qty * 0.07)
-            act_f = (chicken_qty * 0.036) + (rice_qty * 0.009) + (veg_qty * 0.002) + oil_qty
-            act_cal = (chicken_qty * 1.65) + (rice_qty * 1.20) + (veg_qty * 0.31) + (oil_qty * 8.84)
+            act_f = (
+                (chicken_qty * 0.036) + (rice_qty * 0.009) + (veg_qty * 0.002) + oil_qty
+            )
+            act_cal = (
+                (chicken_qty * 1.65)
+                + (rice_qty * 1.20)
+                + (veg_qty * 0.31)
+                + (oil_qty * 8.84)
+            )
 
-            meals.append({
-                "meal_type": meal_type,
-                "meal_name": f"Fallback {meal_type} (Chicken/Rice)",
-                "description": "Simple fallback meal generated to meet nutritional targets.",
-                "calories": round(act_cal),
-                "protein_g": round(act_p, 1),
-                "carbs_g": round(act_c, 1),
-                "fat_g": round(act_f, 1),
-                "preparation_time_min": 15,
-                "ingredients": ingredients,
-                "validated_ingredients": validated,
-                "recipe_notes": "Generated by Fallback Protocol due to planning failure."
-            })
+            meals.append(
+                {
+                    "meal_type": meal_type,
+                    "meal_name": f"Fallback {meal_type} (Chicken/Rice)",
+                    "description": "Simple fallback meal generated to meet nutritional targets.",
+                    "calories": round(act_cal),
+                    "protein_g": round(act_p, 1),
+                    "carbs_g": round(act_c, 1),
+                    "fat_g": round(act_f, 1),
+                    "preparation_time_min": 15,
+                    "ingredients": ingredients,
+                    "validated_ingredients": validated,
+                    "recipe_notes": "Generated by Fallback Protocol due to planning failure.",
+                }
+            )
 
             running_totals["protein"] += act_p
             running_totals["carbs"] += act_c
@@ -2244,9 +2465,9 @@ class MealPlanningCrew:
                 "protein_g": round(running_totals["protein"], 1),
                 "carbs_g": round(running_totals["carbs"], 1),
                 "fat_g": round(running_totals["fat"], 1),
-                "calories": round(running_totals["calories"])
+                "calories": round(running_totals["calories"]),
             },
-            "notes": "Fallback plan generated automatically to ensure macro compliance."
+            "notes": "Fallback plan generated automatically to ensure macro compliance.",
         }
 
     def _adjust_ingredient_quantities(
@@ -2300,7 +2521,9 @@ class MealPlanningCrew:
         fat_pct = abs(fat_delta) / target_fat if target_fat > 0 else 0
 
         # Guard: Don't adjust if current values are 0 (indicates missing data, not actual deficit)
-        if current_calories == 0 or (current_protein == 0 and current_carbs == 0 and current_fat == 0):
+        if current_calories == 0 or (
+            current_protein == 0 and current_carbs == 0 and current_fat == 0
+        ):
             return daily_plan, False  # Skip adjustment - data is incomplete
 
         if protein_pct <= TOLERANCE and carbs_pct <= TOLERANCE and fat_pct <= TOLERANCE:
@@ -2313,10 +2536,12 @@ class MealPlanningCrew:
 
         # Find which macro needs the most adjustment
         max_issue = max(
-            [("protein", protein_delta, protein_pct),
-             ("carbs", carbs_delta, carbs_pct),
-             ("fat", fat_delta, fat_pct)],
-            key=lambda x: x[2]
+            [
+                ("protein", protein_delta, protein_pct),
+                ("carbs", carbs_delta, carbs_pct),
+                ("fat", fat_delta, fat_pct),
+            ],
+            key=lambda x: x[2],
         )
         priority_macro = max_issue[0]
 
@@ -2341,7 +2566,11 @@ class MealPlanningCrew:
                 calories_per_100g = ing.get("calories_per_100g")
 
                 # Skip ingredients without Passio nutritional data
-                if protein_per_100g is None and carbs_per_100g is None and fat_per_100g is None:
+                if (
+                    protein_per_100g is None
+                    and carbs_per_100g is None
+                    and fat_per_100g is None
+                ):
                     continue
 
                 # Default to 0 if any macro is missing
@@ -2408,7 +2637,9 @@ class MealPlanningCrew:
                             continue
 
                         # Apply adjustment with caps (min 30% of original, max 3x original)
-                        min_qty = max(5, quantity * MIN_SCALE)  # Fats can be smaller (5g min)
+                        min_qty = max(
+                            5, quantity * MIN_SCALE
+                        )  # Fats can be smaller (5g min)
                         max_qty = quantity * MAX_SCALE
                         new_qty = max(min_qty, min(max_qty, quantity - adjustment_g))
                         if abs(new_qty - quantity) >= 3:  # Smaller threshold for fats
@@ -2570,7 +2801,10 @@ class MealPlanningCrew:
                 f"Remove {v['ingredient']} and substitute with allowed alternative"
                 for v in dietary_check["violations"]
             ]
-            print(f"   ❌ Dietary restriction violations: {violation_msgs}", file=sys.stderr)
+            print(
+                f"   ❌ Dietary restriction violations: {violation_msgs}",
+                file=sys.stderr,
+            )
             return {
                 "passed": False,
                 "reason": "Dietary restriction violation",
@@ -2582,7 +2816,10 @@ class MealPlanningCrew:
         # Log any warnings (non-blocking)
         if dietary_check.get("warnings"):
             for w in dietary_check["warnings"]:
-                print(f"   ⚠️ Dietary warning: {w['ingredient']} ({w['restriction']})", file=sys.stderr)
+                print(
+                    f"   ⚠️ Dietary warning: {w['ingredient']} ({w['restriction']})",
+                    file=sys.stderr,
+                )
 
         # Extract daily totals from plan
         daily_totals = daily_plan.get("daily_totals", {})
@@ -2614,7 +2851,9 @@ class MealPlanningCrew:
         # Use centralized compliance check (OR logic: pass if either % or abs is met)
         # Get adaptive thresholds: relaxed for 4th attempt, or looser for high-energy days
         target_calories = int(target_vals.get("calories", 0) or 0)
-        thresholds = get_adaptive_thresholds(target_calories, use_relaxed=use_relaxed_thresholds)
+        thresholds = get_adaptive_thresholds(
+            target_calories, use_relaxed=use_relaxed_thresholds
+        )
         compliance = check_compliance(actual, target_vals, thresholds)
         issues = list(compliance["issues"])
 
@@ -2693,7 +2932,10 @@ class MealPlanningCrew:
         """Merge daily plans into a weekly plan using the compilation agent when possible."""
 
         if self.meal_compilation_agent:
-            print("\n🔗 Compiling weekly meal plan from daily outputs...\n", file=sys.stderr)
+            print(
+                "\n🔗 Compiling weekly meal plan from daily outputs...\n",
+                file=sys.stderr,
+            )
 
             try:
                 compilation_task = create_meal_compilation_task(
@@ -2711,7 +2953,9 @@ class MealPlanningCrew:
                 )
 
                 compilation_result = compilation_crew.kickoff()
-                weekly_model = self._extract_model_from_output(compilation_result, WeeklyMealPlan)
+                weekly_model = self._extract_model_from_output(
+                    compilation_result, WeeklyMealPlan
+                )
 
                 if weekly_model is not None:
                     compiled_plan = weekly_model.model_dump()
@@ -2721,7 +2965,10 @@ class MealPlanningCrew:
                     )
                     return compiled_plan
 
-                print("\n⚠️  Weekly compilation returned invalid JSON. Falling back to deterministic merge.\n", file=sys.stderr)
+                print(
+                    "\n⚠️  Weekly compilation returned invalid JSON. Falling back to deterministic merge.\n",
+                    file=sys.stderr,
+                )
             except Exception as exc:
                 print(
                     f"\n⚠️  Weekly compilation agent failed ({exc}). Falling back to deterministic merge.\n",
@@ -2737,10 +2984,16 @@ class MealPlanningCrew:
     ) -> Optional[Dict[str, Any]]:
         """Deterministically merge daily plans into a WeeklyMealPlan-compliant structure."""
 
-        print("\n🧮 Fallback: Merging daily plans without LLM assistance...\n", file=sys.stderr)
+        print(
+            "\n🧮 Fallback: Merging daily plans without LLM assistance...\n",
+            file=sys.stderr,
+        )
 
         if not daily_plans:
-            print("\n❌ Fallback merge aborted: no daily plans supplied\n", file=sys.stderr)
+            print(
+                "\n❌ Fallback merge aborted: no daily plans supplied\n",
+                file=sys.stderr,
+            )
             return None
 
         try:
@@ -2779,7 +3032,9 @@ class MealPlanningCrew:
                 normalized_daily_plans.append(plan)
 
             shopping_list = self._build_shopping_list(ingredient_counter)
-            meal_prep_tips = self._build_meal_prep_tips(nutrition_plan, normalized_daily_plans, ingredient_counter)
+            meal_prep_tips = self._build_meal_prep_tips(
+                nutrition_plan, normalized_daily_plans, ingredient_counter
+            )
 
             fallback_plan = {
                 "week_start_date": nutrition_plan.get("week_start_date"),
@@ -2852,39 +3107,95 @@ class MealPlanningCrew:
     def _parse_ingredient(raw: str) -> Tuple[float, str, str]:
         """Parse an ingredient string into quantity, unit, and name."""
         import re
-        
+
         raw = raw.strip()
         if not raw:
             return 0.0, "", ""
 
         valid_units = {
             # Metric
-            "g", "kg", "mg", "ml", "l", "cl", 
+            "g",
+            "kg",
+            "mg",
+            "ml",
+            "l",
+            "cl",
             # Imperial / US
-            "oz", "lb", "lbs", "cup", "cups", "tbsp", "tablespoon", "tablespoons", 
-            "tsp", "teaspoon", "teaspoons", 
+            "oz",
+            "lb",
+            "lbs",
+            "cup",
+            "cups",
+            "tbsp",
+            "tablespoon",
+            "tablespoons",
+            "tsp",
+            "teaspoon",
+            "teaspoons",
             # French
-            "c.à.s", "cas", "c.à.c", "cac", "cuillère", "cuillères", 
-            "tranche", "tranches", "pincée", "pincées", "poignée", "poignées",
-            "gousse", "gousses", "branche", "branches", "feuille", "feuilles",
-            "tasse", "tasses", "verre", "verres", "bol", "bols",
+            "c.à.s",
+            "cas",
+            "c.à.c",
+            "cac",
+            "cuillère",
+            "cuillères",
+            "tranche",
+            "tranches",
+            "pincée",
+            "pincées",
+            "poignée",
+            "poignées",
+            "gousse",
+            "gousses",
+            "branche",
+            "branches",
+            "feuille",
+            "feuilles",
+            "tasse",
+            "tasses",
+            "verre",
+            "verres",
+            "bol",
+            "bols",
             # Common
-            "scoop", "scoops", "piece", "pieces", "slice", "slices", "whole", 
-            "large", "small", "medium", "can", "cans", "jar", "jars",
-            "pack", "packs", "bag", "bags", "box", "boxes", "boîte", "boîtes",
-            "sachet", "sachets", "paquet", "paquets"
+            "scoop",
+            "scoops",
+            "piece",
+            "pieces",
+            "slice",
+            "slices",
+            "whole",
+            "large",
+            "small",
+            "medium",
+            "can",
+            "cans",
+            "jar",
+            "jars",
+            "pack",
+            "packs",
+            "bag",
+            "bags",
+            "box",
+            "boxes",
+            "boîte",
+            "boîtes",
+            "sachet",
+            "sachets",
+            "paquet",
+            "paquets",
         }
 
         # Match: quantity (float/int/fraction) + optional unit + name
         # Examples: "100g chicken", "2.5 tbsp oil", "1/2 cup rice", "onion"
-        
+
         # Handle fractions first (e.g., "1/2")
         fraction_match = re.match(r"^(\d+)/(\d+)\s*(.*)", raw)
         if fraction_match:
             try:
                 num, den, rest = fraction_match.groups()
                 qty = float(num) / float(den)
-                
+
                 # Check for unit in the rest
                 parts = rest.strip().split(maxsplit=1)
                 if parts:
@@ -2893,7 +3204,7 @@ class MealPlanningCrew:
                     if potential_unit in valid_units:
                         name = parts[1] if len(parts) > 1 else ""
                         return qty, potential_unit, name
-                
+
                 return qty, "", rest.strip()
             except (ValueError, ZeroDivisionError):
                 pass
@@ -2901,23 +3212,23 @@ class MealPlanningCrew:
         # Standard pattern
         pattern = r"^(\d+(?:[.,]\d+)?)\s*([a-zA-Z.à]+)?\s+(.*)$"
         match = re.match(pattern, raw)
-        
+
         if match:
             qty_str, unit, name = match.groups()
-            
+
             try:
                 qty = float(qty_str.replace(",", "."))
                 unit = unit.lower() if unit else ""
-                
+
                 if unit and unit not in valid_units:
                     # Unit is likely part of the name (e.g. "1 salmon fillet")
                     name = f"{unit} {name}"
                     unit = ""
-                
+
                 return qty, unit, name.strip()
             except ValueError:
                 pass
-        
+
         # No quantity found, assume 1 unit if it looks countable, else just return name
         return 1.0, "", raw
 
@@ -2925,36 +3236,263 @@ class MealPlanningCrew:
     def _categorize_item(name: str) -> str:
         """Categorize an ingredient based on keywords (French & English)."""
         name = name.lower()
-        
+
         categories = {
             "Fruits & Légumes": [
-                "apple", "banana", "pear", "peach", "berry", "fruit", "spinach", "kale", "lettuce", "tomato", "cucumber", "pepper", "onion", "garlic", "ginger", "potato", "carrot", "broccoli", "cauliflower", "zucchini", "mushroom", "herb", "parsley", "cilantro", "basil", "lime", "lemon", "avocado",
-                "pomme", "banane", "poire", "pêche", "fruit", "épinard", "chou", "laitue", "salade", "tomate", "concombre", "poivron", "oignon", "ail", "gingembre", "patate", "carotte", "brocoli", "chou-fleur", "courgette", "champignon", "herbe", "persil", "coriandre", "basilic", "citron", "avocat", "aubergine", "haricot vert", "poireau", "courge", "navet", "radis", "céleri", "fenouil"
+                "apple",
+                "banana",
+                "pear",
+                "peach",
+                "berry",
+                "fruit",
+                "spinach",
+                "kale",
+                "lettuce",
+                "tomato",
+                "cucumber",
+                "pepper",
+                "onion",
+                "garlic",
+                "ginger",
+                "potato",
+                "carrot",
+                "broccoli",
+                "cauliflower",
+                "zucchini",
+                "mushroom",
+                "herb",
+                "parsley",
+                "cilantro",
+                "basil",
+                "lime",
+                "lemon",
+                "avocado",
+                "pomme",
+                "banane",
+                "poire",
+                "pêche",
+                "fruit",
+                "épinard",
+                "chou",
+                "laitue",
+                "salade",
+                "tomate",
+                "concombre",
+                "poivron",
+                "oignon",
+                "ail",
+                "gingembre",
+                "patate",
+                "carotte",
+                "brocoli",
+                "chou-fleur",
+                "courgette",
+                "champignon",
+                "herbe",
+                "persil",
+                "coriandre",
+                "basilic",
+                "citron",
+                "avocat",
+                "aubergine",
+                "haricot vert",
+                "poireau",
+                "courge",
+                "navet",
+                "radis",
+                "céleri",
+                "fenouil",
             ],
             "Viande & Poisson": [
-                "chicken", "beef", "pork", "lamb", "turkey", "fish", "salmon", "tuna", "cod", "shrimp", "prawn", "steak", "breast", "thigh", "mince", "sausage", "bacon", "egg",
-                "poulet", "boeuf", "porc", "agneau", "dinde", "poisson", "saumon", "thon", "cabillaud", "crevette", "steak", "blanc de poulet", "blanc de dinde", "cuisse", "haché", "saucisse", "lardon", "jambon", "viande", "veau", "canard", "colin", "merlu", "sardine", "maquereau"
+                "chicken",
+                "beef",
+                "pork",
+                "lamb",
+                "turkey",
+                "fish",
+                "salmon",
+                "tuna",
+                "cod",
+                "shrimp",
+                "prawn",
+                "steak",
+                "breast",
+                "thigh",
+                "mince",
+                "sausage",
+                "bacon",
+                "egg",
+                "poulet",
+                "boeuf",
+                "porc",
+                "agneau",
+                "dinde",
+                "poisson",
+                "saumon",
+                "thon",
+                "cabillaud",
+                "crevette",
+                "steak",
+                "blanc de poulet",
+                "blanc de dinde",
+                "cuisse",
+                "haché",
+                "saucisse",
+                "lardon",
+                "jambon",
+                "viande",
+                "veau",
+                "canard",
+                "colin",
+                "merlu",
+                "sardine",
+                "maquereau",
             ],
             "Crèmerie & Oeufs": [
-                "milk", "yogurt", "cheese", "butter", "cream", "ghee", "kefir", "whey", "casein", "egg",
-                "lait", "yaourt", "fromage", "beurre", "crème", "skyr", "faisselle", "blanc battu", "emmental", "mozzarella", "parmesan", "comté", "gruyère", "chèvre", "brebis", "oeuf"
+                "milk",
+                "yogurt",
+                "cheese",
+                "butter",
+                "cream",
+                "ghee",
+                "kefir",
+                "whey",
+                "casein",
+                "egg",
+                "lait",
+                "yaourt",
+                "fromage",
+                "beurre",
+                "crème",
+                "skyr",
+                "faisselle",
+                "blanc battu",
+                "emmental",
+                "mozzarella",
+                "parmesan",
+                "comté",
+                "gruyère",
+                "chèvre",
+                "brebis",
+                "oeuf",
             ],
             "Épicerie Salée": [
-                "rice", "pasta", "quinoa", "oat", "couscous", "bread", "flour", "oil", "olive", "coconut", "vinegar", "sauce", "soy", "tamari", "spice", "salt", "pepper", "curry", "paprika", "cumin", "turmeric", "powder", "nut", "seed", "almond", "walnut", "chia", "flax", "peanut", "cashew", "bean", "lentil", "chickpea", "stock", "broth", "can",
-                "riz", "pâte", "quinoa", "avoine", "couscous", "pain", "farine", "huile", "olive", "coco", "vinaigre", "sauce", "soja", "épice", "sel", "poivre", "curry", "paprika", "cumin", "curcuma", "poudre", "noix", "graine", "amande", "chia", "lin", "cacahuète", "cajou", "haricot", "lentille", "pois chiche", "bouillon", "conserve", "bocal", "moutarde", "mayonnaise", "cornichon", "thon en boîte", "sardine en boîte"
+                "rice",
+                "pasta",
+                "quinoa",
+                "oat",
+                "couscous",
+                "bread",
+                "flour",
+                "oil",
+                "olive",
+                "coconut",
+                "vinegar",
+                "sauce",
+                "soy",
+                "tamari",
+                "spice",
+                "salt",
+                "pepper",
+                "curry",
+                "paprika",
+                "cumin",
+                "turmeric",
+                "powder",
+                "nut",
+                "seed",
+                "almond",
+                "walnut",
+                "chia",
+                "flax",
+                "peanut",
+                "cashew",
+                "bean",
+                "lentil",
+                "chickpea",
+                "stock",
+                "broth",
+                "can",
+                "riz",
+                "pâte",
+                "quinoa",
+                "avoine",
+                "couscous",
+                "pain",
+                "farine",
+                "huile",
+                "olive",
+                "coco",
+                "vinaigre",
+                "sauce",
+                "soja",
+                "épice",
+                "sel",
+                "poivre",
+                "curry",
+                "paprika",
+                "cumin",
+                "curcuma",
+                "poudre",
+                "noix",
+                "graine",
+                "amande",
+                "chia",
+                "lin",
+                "cacahuète",
+                "cajou",
+                "haricot",
+                "lentille",
+                "pois chiche",
+                "bouillon",
+                "conserve",
+                "bocal",
+                "moutarde",
+                "mayonnaise",
+                "cornichon",
+                "thon en boîte",
+                "sardine en boîte",
             ],
             "Épicerie Sucrée": [
-                "sugar", "honey", "syrup", "chocolate", "cocoa", "jam", "biscuit", "cookie",
-                "sucre", "miel", "sirop", "chocolat", "cacao", "confiture", "biscuit", "gâteau", "vanille", "cannelle", "levure"
+                "sugar",
+                "honey",
+                "syrup",
+                "chocolate",
+                "cocoa",
+                "jam",
+                "biscuit",
+                "cookie",
+                "sucre",
+                "miel",
+                "sirop",
+                "chocolat",
+                "cacao",
+                "confiture",
+                "biscuit",
+                "gâteau",
+                "vanille",
+                "cannelle",
+                "levure",
             ],
             "Surgelés": ["frozen", "surgelé", "glace", "sorbet"],
-            "Boissons": ["water", "juice", "tea", "coffee", "eau", "jus", "thé", "café", "boisson", "sirop"],
+            "Boissons": [
+                "water",
+                "juice",
+                "tea",
+                "coffee",
+                "eau",
+                "jus",
+                "thé",
+                "café",
+                "boisson",
+                "sirop",
+            ],
         }
-        
+
         for category, keywords in categories.items():
             if any(keyword in name for keyword in keywords):
                 return category
-                
+
         return "Autre"
 
     @staticmethod
@@ -2971,11 +3509,10 @@ class MealPlanningCrew:
             "lbs": (453.59, "g"),
             "pound": (453.59, "g"),
             "pounds": (453.59, "g"),
-
             # Volume
             "cup": (240.0, "ml"),
             "cups": (240.0, "ml"),
-            "tasse": (240.0, "ml"), # Assuming US cup size for consistency
+            "tasse": (240.0, "ml"),  # Assuming US cup size for consistency
             "tasses": (240.0, "ml"),
             "tbsp": (1.0, "c.à.s"),
             "tablespoon": (1.0, "c.à.s"),
@@ -2985,7 +3522,6 @@ class MealPlanningCrew:
             "teaspoons": (1.0, "c.à.c"),
             "fl oz": (29.57, "ml"),
             "fluid ounce": (29.57, "ml"),
-
             # Length (rare but possible)
             "inch": (2.54, "cm"),
             "inches": (2.54, "cm"),
@@ -2997,7 +3533,9 @@ class MealPlanningCrew:
 
         return qty, unit
 
-    def _normalize_unit_by_category(self, name: str, qty: float, unit: str) -> Tuple[float, str]:
+    def _normalize_unit_by_category(
+        self, name: str, qty: float, unit: str
+    ) -> Tuple[float, str]:
         """
         Normalize units based on ingredient category for better consolidation.
 
@@ -3088,12 +3626,21 @@ class MealPlanningCrew:
 
         # Crèmerie & Oeufs: Hybrid
         elif category == "Crèmerie & Oeufs":
-            if "yaourt" in name_lower or "yogurt" in name_lower or "oeuf" in name_lower or "egg" in name_lower:
+            if (
+                "yaourt" in name_lower
+                or "yogurt" in name_lower
+                or "oeuf" in name_lower
+                or "egg" in name_lower
+            ):
                 # Yogurts and eggs in pieces
                 if unit in ["g", "kg"]:
                     # 1 yogurt ≈ 125g, 1 egg ≈ 60g
-                    avg_weight = 125 if "yaourt" in name_lower or "yogurt" in name_lower else 60
-                    pieces = qty / avg_weight if unit == "g" else (qty * 1000) / avg_weight
+                    avg_weight = (
+                        125 if "yaourt" in name_lower or "yogurt" in name_lower else 60
+                    )
+                    pieces = (
+                        qty / avg_weight if unit == "g" else (qty * 1000) / avg_weight
+                    )
                     return round(pieces), "pièce"
                 return qty, "pièce"
             else:
@@ -3114,7 +3661,7 @@ class MealPlanningCrew:
             return []
 
         consolidated: Dict[str, Dict[str, Any]] = {}
-        
+
         for raw_ingredient, count in ingredient_counter.items():
             qty, unit, name = self._parse_ingredient(raw_ingredient)
 
@@ -3138,14 +3685,14 @@ class MealPlanningCrew:
 
         # Group by category
         by_category: Dict[str, List[str]] = {}
-        
+
         for item in consolidated.values():
             name = item["name"]
             unit = item["unit"]
             qty = item["qty"]
-            
+
             category = self._categorize_item(name)
-            
+
             # Format quantity
             if qty == int(qty):
                 qty_str = str(int(qty))
@@ -3159,28 +3706,39 @@ class MealPlanningCrew:
                     if qty <= 1:
                         entry = f"{name} ({qty_str})"  # Just the number, no unit for single piece
                     else:
-                        entry = f"{name} ({qty_str} pièces)"  # Plural for multiple pieces
+                        entry = (
+                            f"{name} ({qty_str} pièces)"  # Plural for multiple pieces
+                        )
                 else:
                     entry = f"{name} ({qty_str} {unit})"
             else:
                 entry = f"{name} ({qty_str})"
-                
+
             if category not in by_category:
                 by_category[category] = []
             by_category[category].append(entry)
 
         # Build final list
         final_list: List[str] = []
-        
+
         # Order categories
-        cat_order = ["Fruits & Légumes", "Viande & Poisson", "Crèmerie & Oeufs", "Surgelés", "Épicerie Salée", "Épicerie Sucrée", "Boissons", "Autre"]
-        
+        cat_order = [
+            "Fruits & Légumes",
+            "Viande & Poisson",
+            "Crèmerie & Oeufs",
+            "Surgelés",
+            "Épicerie Salée",
+            "Épicerie Sucrée",
+            "Boissons",
+            "Autre",
+        ]
+
         for cat in cat_order:
             if cat in by_category:
                 items = sorted(by_category[cat])
                 for item in items:
                     final_list.append(f"{cat}: {item}")
-                    
+
         return final_list
 
     def _build_meal_prep_tips(
@@ -3193,8 +3751,25 @@ class MealPlanningCrew:
 
         tips: List[str] = []
 
-        grain_keywords = ["rice", "quinoa", "couscous", "pasta", "noodle", "oat", "polenta", "grits"]
-        roast_keywords = ["sweet potato", "potato", "carrot", "brussels", "squash", "broccolini", "broccoli"]
+        grain_keywords = [
+            "rice",
+            "quinoa",
+            "couscous",
+            "pasta",
+            "noodle",
+            "oat",
+            "polenta",
+            "grits",
+        ]
+        roast_keywords = [
+            "sweet potato",
+            "potato",
+            "carrot",
+            "brussels",
+            "squash",
+            "broccolini",
+            "broccoli",
+        ]
 
         grains = {
             self._simplify_ingredient_name(item)
@@ -3299,13 +3874,12 @@ class MealPlanningCrew:
 
         return ""
 
-
     @staticmethod
     def _format_telegram_message(daily_plan: Dict[str, Any]) -> str:
         """Format a daily meal plan into a Telegram-friendly HTML message."""
         day_name = daily_plan.get("day_name", "Unknown Day")
         date_str = daily_plan.get("date", "")
-        
+
         # Format date (e.g., 2025-11-24 -> 24/11)
         formatted_date = ""
         if date_str:
@@ -3317,7 +3891,7 @@ class MealPlanningCrew:
 
         # Header
         message = f"📅 <b>{day_name} {formatted_date}</b>\n\n"
-        
+
         # Meals
         meals = daily_plan.get("meals", [])
         meal_emojis = {
@@ -3326,32 +3900,32 @@ class MealPlanningCrew:
             "Dinner": "🍽️",
             "Snack": "🍎",
             "Pre-workout": "⚡",
-            "Post-workout": "💪"
+            "Post-workout": "💪",
         }
-        
+
         for meal in meals:
             m_type = meal.get("meal_type", "Meal")
             m_name = meal.get("meal_name", "Unknown")
             emoji = meal_emojis.get(m_type, "🥘")
-            
+
             # Simple bold header for meal type
             message += f"{emoji} <b>{m_type}</b>: {m_name}\n"
-            
+
             # Optional: Add macros for main meals if desired, but keeping it clean for now
             # message += f"   <i>({meal.get('calories', 0)}kcal)</i>\n"
-        
+
         message += "\n"
-        
+
         # Daily Totals
         totals = daily_plan.get("daily_totals", {})
         cals = totals.get("calories", 0)
         p = totals.get("protein_g", 0)
         c = totals.get("carbs_g", 0)
         f = totals.get("fat_g", 0)
-        
+
         message += f"📊 <b>Total</b>: {cals}kcal\n"
         message += f"Protocol: {p}P / {c}C / {f}F"
-        
+
         return message
 
     @staticmethod
@@ -3359,7 +3933,7 @@ class MealPlanningCrew:
         """Calculate Unix timestamp for 07:00 AM Europe/Paris on the given date."""
         if not date_str:
             return 0
-            
+
         try:
             paris_tz = pytz.timezone("Europe/Paris")
             # Parse date
@@ -3373,7 +3947,9 @@ class MealPlanningCrew:
         except Exception:
             return 0
 
-    def generate_meal_plan(self, week_start_date: str, days_to_generate: int = 7) -> Dict[str, Any]:
+    def generate_meal_plan(
+        self, week_start_date: str, days_to_generate: int = 7
+    ) -> Dict[str, Any]:
         """
         Generate a complete weekly meal plan.
 
@@ -3397,7 +3973,10 @@ class MealPlanningCrew:
         # ===================================================================
         # STEP 0: Sync Integration Data - Ensure latest training data
         # ===================================================================
-        print("\n🔄 Step 0: Syncing integration data from intervals.icu...\n", file=sys.stderr)
+        print(
+            "\n🔄 Step 0: Syncing integration data from intervals.icu...\n",
+            file=sys.stderr,
+        )
 
         # Calculate date range (sync 7 days prior to cover training context)
         try:
@@ -3417,8 +3996,12 @@ class MealPlanningCrew:
         sync_tool = None
         if from_date and to_date:
             sync_tool = next(
-                (t for t in self.mcp_tools if "hexis_trigger_integration_sync" in t.name.lower()),
-                None
+                (
+                    t
+                    for t in self.mcp_tools
+                    if "hexis_trigger_integration_sync" in t.name.lower()
+                ),
+                None,
             )
 
         if sync_tool:
@@ -3427,27 +4010,37 @@ class MealPlanningCrew:
                 sync_result = sync_tool._run(
                     modules=["PLANNED_WORKOUTS", "COMPLETED_WORKOUTS", "WELLNESS"],
                     from_date=from_date,
-                    to_date=to_date
+                    to_date=to_date,
                 )
-                print(f"   ✅ Integration sync complete: {sync_result}\n", file=sys.stderr)
+                print(
+                    f"   ✅ Integration sync complete: {sync_result}\n", file=sys.stderr
+                )
             except Exception as e:
                 print(f"   ⚠️  Integration sync failed: {e}\n", file=sys.stderr)
                 print("   Continuing with existing Hexis data...\n", file=sys.stderr)
         else:
             if from_date and to_date:
-                print("   ⚠️  hexis_trigger_integration_sync tool not available\n", file=sys.stderr)
+                print(
+                    "   ⚠️  hexis_trigger_integration_sync tool not available\n",
+                    file=sys.stderr,
+                )
             print("   Continuing with existing Hexis data...\n", file=sys.stderr)
 
         # ===================================================================
         # STEP 1: Hexis Analysis - Analyze training data to determine needs
         # Using Supervisor/Executor/Reviewer pattern for reliable data retrieval
         # ===================================================================
-        print("\n📊 Step 1: Analyzing Hexis training data (Supervisor/Executor/Reviewer pattern)...\n", file=sys.stderr)
+        print(
+            "\n📊 Step 1: Analyzing Hexis training data (Supervisor/Executor/Reviewer pattern)...\n",
+            file=sys.stderr,
+        )
 
         # ---------------------------------------------------------------
         # STEP 1a: SUPERVISOR - Plan the data retrieval strategy
         # ---------------------------------------------------------------
-        print("\n   📋 Step 1a: SUPERVISOR planning data retrieval...\n", file=sys.stderr)
+        print(
+            "\n   📋 Step 1a: SUPERVISOR planning data retrieval...\n", file=sys.stderr
+        )
 
         supervisor_task = create_hexis_data_supervisor_task(
             self.hexis_data_supervisor_agent, week_start_date, num_days=days_to_generate
@@ -3464,10 +4057,15 @@ class MealPlanningCrew:
         supervisor_result = supervisor_crew.kickoff()
 
         # Extract the retrieval plan
-        retrieval_plan = self._extract_model_from_output(supervisor_result, HexisDataRetrievalPlan)
+        retrieval_plan = self._extract_model_from_output(
+            supervisor_result, HexisDataRetrievalPlan
+        )
         if retrieval_plan is None:
             # Fallback: Create a minimal plan if supervisor fails
-            print("\n   ⚠️  Supervisor failed to create plan, using default...\n", file=sys.stderr)
+            print(
+                "\n   ⚠️  Supervisor failed to create plan, using default...\n",
+                file=sys.stderr,
+            )
             start_dt = datetime.fromisoformat(week_start_date)
             end_dt = start_dt + timedelta(days=days_to_generate - 1)
 
@@ -3478,15 +4076,17 @@ class MealPlanningCrew:
             priority = 1
             while current_start <= end_dt:
                 batch_end = min(current_start + timedelta(days=BATCH_SIZE - 1), end_dt)
-                batches.append({
-                    "tool_name": "hexis__hexis_get_weekly_plan",
-                    "parameters": {
-                        "start_date": current_start.strftime("%Y-%m-%d"),
-                        "end_date": batch_end.strftime("%Y-%m-%d")
-                    },
-                    "purpose": f"Retrieve data for {current_start.strftime('%Y-%m-%d')} to {batch_end.strftime('%Y-%m-%d')}",
-                    "priority": priority
-                })
+                batches.append(
+                    {
+                        "tool_name": "hexis__hexis_get_weekly_plan",
+                        "parameters": {
+                            "start_date": current_start.strftime("%Y-%m-%d"),
+                            "end_date": batch_end.strftime("%Y-%m-%d"),
+                        },
+                        "purpose": f"Retrieve data for {current_start.strftime('%Y-%m-%d')} to {batch_end.strftime('%Y-%m-%d')}",
+                        "priority": priority,
+                    }
+                )
                 priority += 1
                 current_start = batch_end + timedelta(days=1)
 
@@ -3495,11 +4095,18 @@ class MealPlanningCrew:
                 week_end_date=end_dt.strftime("%Y-%m-%d"),
                 tool_calls=batches,
                 analysis_focus=["training_load", "daily_energy_needs", "macro_targets"],
-                special_considerations="Focus on accurate macro extraction"
+                special_considerations="Focus on accurate macro extraction",
             )
 
-        retrieval_plan_dict = retrieval_plan.model_dump() if hasattr(retrieval_plan, 'model_dump') else retrieval_plan
-        print(f"\n   ✅ Retrieval plan created:\n{json.dumps(retrieval_plan_dict, indent=2)[:1000]}...\n", file=sys.stderr)
+        retrieval_plan_dict = (
+            retrieval_plan.model_dump()
+            if hasattr(retrieval_plan, "model_dump")
+            else retrieval_plan
+        )
+        print(
+            f"\n   ✅ Retrieval plan created:\n{json.dumps(retrieval_plan_dict, indent=2)[:1000]}...\n",
+            file=sys.stderr,
+        )
 
         # ---------------------------------------------------------------
         # STEP 1b: EXECUTOR - Execute the planned tool calls
@@ -3517,9 +4124,15 @@ class MealPlanningCrew:
         # in Python. This is more reliable than asking an LLM to execute multiple
         # tool calls, as some models (especially Gemini) hallucinate tool results
         # in their text output instead of making real tool calls.
-        print("\n   🔧 Step 1b: Executing Hexis tool calls directly (Python)...\n", file=sys.stderr)
+        print(
+            "\n   🔧 Step 1b: Executing Hexis tool calls directly (Python)...\n",
+            file=sys.stderr,
+        )
 
-        hexis_tool = next((t for t in self.mcp_tools if "hexis_get_weekly_plan" in t.name.lower()), None)
+        hexis_tool = next(
+            (t for t in self.mcp_tools if "hexis_get_weekly_plan" in t.name.lower()),
+            None,
+        )
         if not hexis_tool:
             raise ValueError("hexis_get_weekly_plan tool not found in MCP tools")
 
@@ -3529,7 +4142,10 @@ class MealPlanningCrew:
             params = batch.get("parameters", {})
             start_date = params.get("start_date")
             end_date = params.get("end_date")
-            print(f"   📦 Batch {i}/{len(tool_calls)}: {start_date} → {end_date}", file=sys.stderr)
+            print(
+                f"   📦 Batch {i}/{len(tool_calls)}: {start_date} → {end_date}",
+                file=sys.stderr,
+            )
 
             try:
                 result = hexis_tool._run(start_date=start_date, end_date=end_date)
@@ -3562,35 +4178,59 @@ class MealPlanningCrew:
         # =====================================================================
         captured_results = get_hexis_tool_results()
         if captured_results:
-            print(f"\n   📦 Using {len(captured_results)} captured Hexis tool result(s)\n", file=sys.stderr)
+            print(
+                f"\n   📦 Using {len(captured_results)} captured Hexis tool result(s)\n",
+                file=sys.stderr,
+            )
             # Build raw_data_dict from captured results (same format as RawHexisData)
             raw_data_dict = {
                 "week_start_date": week_start_date,
-                "week_end_date": (datetime.fromisoformat(week_start_date) + timedelta(days=6)).strftime("%Y-%m-%d"),
+                "week_end_date": (
+                    datetime.fromisoformat(week_start_date) + timedelta(days=6)
+                ).strftime("%Y-%m-%d"),
                 "tool_results": captured_results,
                 "total_calls": len(captured_results),
-                "successful_calls": sum(1 for r in captured_results if r.get("success", False)),
+                "successful_calls": sum(
+                    1 for r in captured_results if r.get("success", False)
+                ),
                 "weekly_plan_data": None,  # Will be aggregated from tool_results
                 "retrieval_notes": f"Captured {len(captured_results)} batch(es) via Python tool wrapper",
             }
         else:
             # Fallback to LLM output extraction (original behavior)
-            print("\n   ⚠️  No captured results, falling back to LLM output extraction...\n", file=sys.stderr)
-            raw_hexis_data = self._extract_model_from_output(executor_result, RawHexisData)
+            print(
+                "\n   ⚠️  No captured results, falling back to LLM output extraction...\n",
+                file=sys.stderr,
+            )
+            raw_hexis_data = self._extract_model_from_output(
+                executor_result, RawHexisData
+            )
             if raw_hexis_data is None:
                 # Try to extract raw dict if model extraction fails
-                print("\n   ⚠️  Executor model extraction failed, trying raw dict...\n", file=sys.stderr)
+                print(
+                    "\n   ⚠️  Executor model extraction failed, trying raw dict...\n",
+                    file=sys.stderr,
+                )
                 candidates = self._collect_payload_candidates(executor_result)
                 if candidates:
                     raw_hexis_data = candidates[0]
                 else:
                     error_msg = "Executor failed to retrieve Hexis data"
                     print(f"\n❌ {error_msg}\n", file=sys.stderr)
-                    raise ValueError(f"CRITICAL: {error_msg}. Cannot proceed without valid Hexis data.")
+                    raise ValueError(
+                        f"CRITICAL: {error_msg}. Cannot proceed without valid Hexis data."
+                    )
 
-            raw_data_dict = raw_hexis_data.model_dump() if hasattr(raw_hexis_data, 'model_dump') else raw_hexis_data
+            raw_data_dict = (
+                raw_hexis_data.model_dump()
+                if hasattr(raw_hexis_data, "model_dump")
+                else raw_hexis_data
+            )
 
-        print(f"\n   ✅ Raw data retrieved (keys: {list(raw_data_dict.keys())})\n", file=sys.stderr)
+        print(
+            f"\n   ✅ Raw data retrieved (keys: {list(raw_data_dict.keys())})\n",
+            file=sys.stderr,
+        )
 
         # ---------------------------------------------------------------
         # STEP 1c: REVIEWER - Analyze raw data and create final analysis
@@ -3612,27 +4252,40 @@ class MealPlanningCrew:
         reviewer_result = reviewer_crew.kickoff()
 
         # DEBUG: Show raw output length
-        raw_output = reviewer_result.raw if hasattr(reviewer_result, 'raw') else ""
-        print(f"\n🔍 DEBUG: Raw output length = {len(raw_output)} chars\n", file=sys.stderr)
+        raw_output = reviewer_result.raw if hasattr(reviewer_result, "raw") else ""
+        print(
+            f"\n🔍 DEBUG: Raw output length = {len(raw_output)} chars\n",
+            file=sys.stderr,
+        )
         if raw_output:
             print(f"🔍 DEBUG: First 500 chars:\n{raw_output[:500]}\n", file=sys.stderr)
             print(f"🔍 DEBUG: Last 500 chars:\n{raw_output[-500:]}\n", file=sys.stderr)
 
-        hexis_model = self._extract_model_from_output(reviewer_result, HexisWeeklyAnalysis)
+        hexis_model = self._extract_model_from_output(
+            reviewer_result, HexisWeeklyAnalysis
+        )
 
         if hexis_model is None:
             error_msg = "Hexis analysis reviewer failed to return valid JSON"
             print(f"\n❌ {error_msg}\n", file=sys.stderr)
             candidates = self._collect_payload_candidates(reviewer_result)
-            print(f"❌ DEBUG: Parsing failed. Candidates found: {len(candidates)}\n", file=sys.stderr)
+            print(
+                f"❌ DEBUG: Parsing failed. Candidates found: {len(candidates)}\n",
+                file=sys.stderr,
+            )
 
             # Show candidate structure (truncated)
             if candidates:
                 candidate_json = json.dumps(candidates[0], indent=2)[:2000]
-                print(f"❌ DEBUG: First candidate structure:\n{candidate_json}...\n", file=sys.stderr)
+                print(
+                    f"❌ DEBUG: First candidate structure:\n{candidate_json}...\n",
+                    file=sys.stderr,
+                )
 
             # CRITICAL: Crash if Hexis analysis fails - no fallback allowed
-            raise ValueError(f"CRITICAL: {error_msg}. Cannot proceed without valid Hexis data.")
+            raise ValueError(
+                f"CRITICAL: {error_msg}. Cannot proceed without valid Hexis data."
+            )
 
         hexis_analysis = hexis_model.model_dump()
         print(
@@ -3660,10 +4313,15 @@ class MealPlanningCrew:
         structure_result = structure_crew.kickoff()
 
         # DEBUG: Show raw output for weekly structure
-        raw_output = structure_result.raw if hasattr(structure_result, 'raw') else ""
-        print(f"\n🔍 DEBUG: Weekly structure raw output length = {len(raw_output)} chars\n", file=sys.stderr)
+        raw_output = structure_result.raw if hasattr(structure_result, "raw") else ""
+        print(
+            f"\n🔍 DEBUG: Weekly structure raw output length = {len(raw_output)} chars\n",
+            file=sys.stderr,
+        )
         if raw_output:
-            print(f"🔍 DEBUG: First 1000 chars:\n{raw_output[:1000]}\n", file=sys.stderr)
+            print(
+                f"🔍 DEBUG: First 1000 chars:\n{raw_output[:1000]}\n", file=sys.stderr
+            )
             print(f"🔍 DEBUG: Last 500 chars:\n{raw_output[-500:]}\n", file=sys.stderr)
 
         structure_model = self._extract_model_from_output(
@@ -3676,10 +4334,16 @@ class MealPlanningCrew:
 
             # DEBUG: Show candidate structure
             candidates = self._collect_payload_candidates(structure_result)
-            print(f"❌ DEBUG: Parsing failed. Candidates found: {len(candidates)}\n", file=sys.stderr)
+            print(
+                f"❌ DEBUG: Parsing failed. Candidates found: {len(candidates)}\n",
+                file=sys.stderr,
+            )
             if candidates:
                 candidate_json = json.dumps(candidates[0], indent=2)[:2000]
-                print(f"❌ DEBUG: First candidate structure:\n{candidate_json}...\n", file=sys.stderr)
+                print(
+                    f"❌ DEBUG: First candidate structure:\n{candidate_json}...\n",
+                    file=sys.stderr,
+                )
 
             return {"error": error_msg, "step": "weekly_structure"}
 
@@ -3785,7 +4449,10 @@ class MealPlanningCrew:
         max_validation_retries = int(os.getenv("MEAL_VALIDATION_MAX_RETRIES", "2"))
         validation_feedback: Optional[Dict[str, Any]] = None
         meal_plan: Optional[Dict[str, Any]] = None
-        validation: Dict[str, Any] = {"approved": False, "validation_summary": "Not yet validated"}
+        validation: Dict[str, Any] = {
+            "approved": False,
+            "validation_summary": "Not yet validated",
+        }
         # Track successful days between retries to avoid regenerating them
         previous_successful_plans: Optional[List[Dict[str, Any]]] = None
 
@@ -3809,7 +4476,9 @@ class MealPlanningCrew:
                 previous_successful_plans = daily_plans
 
             if daily_plans is None:
-                error_msg = f"{attempt_label} Daily meal generation failed after all attempts"
+                error_msg = (
+                    f"{attempt_label} Daily meal generation failed after all attempts"
+                )
                 print(f"\n❌ {error_msg}\n", file=sys.stderr)
                 if validation_attempt == max_validation_retries:
                     return {"error": error_msg, "step": "daily_meal_generation"}
@@ -3827,7 +4496,10 @@ class MealPlanningCrew:
             # ===================================================================
             # STEP 3B: Nutritional validation of compiled plan
             # ===================================================================
-            print(f"\n🔍 {attempt_label} Validating compiled meal plan...\n", file=sys.stderr)
+            print(
+                f"\n🔍 {attempt_label} Validating compiled meal plan...\n",
+                file=sys.stderr,
+            )
 
             planned_day_count = 0
             if isinstance(meal_plan, dict):
@@ -3856,7 +4528,10 @@ class MealPlanningCrew:
             )
 
             if validation_model is None:
-                print(f"\n⚠️  {attempt_label} Validation returned invalid JSON\n", file=sys.stderr)
+                print(
+                    f"\n⚠️  {attempt_label} Validation returned invalid JSON\n",
+                    file=sys.stderr,
+                )
                 validation = {
                     "approved": False,
                     "validation_summary": "Validation failed to return valid JSON",
@@ -3871,7 +4546,10 @@ class MealPlanningCrew:
             )
 
             if is_approved:
-                print(f"\n✅ Meal plan approved on attempt {validation_attempt}\n", file=sys.stderr)
+                print(
+                    f"\n✅ Meal plan approved on attempt {validation_attempt}\n",
+                    file=sys.stderr,
+                )
                 break
 
             # Not approved - prepare feedback for next attempt
@@ -3971,7 +4649,9 @@ class MealPlanningCrew:
         # FINAL RESULT
         # ===================================================================
         # Extract shopping_list from meal_plan for n8n workflow
-        shopping_list = meal_plan.get("shopping_list", []) if isinstance(meal_plan, dict) else []
+        shopping_list = (
+            meal_plan.get("shopping_list", []) if isinstance(meal_plan, dict) else []
+        )
 
         final_result = {
             "week_start_date": week_start_date,
@@ -3988,6 +4668,8 @@ class MealPlanningCrew:
         if meal_plan and "daily_plans" in meal_plan:
             for day in meal_plan["daily_plans"]:
                 day["telegram_message"] = self._format_telegram_message(day)
-                day["schedule_timestamp"] = self._calculate_schedule_timestamp(day.get("date"))
+                day["schedule_timestamp"] = self._calculate_schedule_timestamp(
+                    day.get("date")
+                )
 
         return final_result

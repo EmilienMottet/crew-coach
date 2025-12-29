@@ -1,4 +1,5 @@
 """Supervisor agent for meal planning - pure reasoning, no tools."""
+
 from crewai import Agent
 from typing import Any
 

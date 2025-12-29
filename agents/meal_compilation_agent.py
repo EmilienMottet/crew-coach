@@ -1,4 +1,5 @@
 """Agent that merges daily meal plans into a weekly plan."""
+
 from __future__ import annotations
 
 from typing import Any, Optional, Sequence

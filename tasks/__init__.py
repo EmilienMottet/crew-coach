@@ -1,4 +1,5 @@
 """Tasks for the Strava Description Crew and Meal Planning Crew."""
+
 from .description_task import create_description_task
 from .music_task import create_music_task
 from .privacy_task import create_privacy_task
@@ -15,7 +16,9 @@ from .mealy_integration_task import create_mealy_integration_task
 
 # Supervisor/Executor/Reviewer pattern for MEAL_GENERATION
 from .meal_planning_supervisor_task import create_meal_planning_supervisor_task
-from .ingredient_validation_executor_task import create_ingredient_validation_executor_task
+from .ingredient_validation_executor_task import (
+    create_ingredient_validation_executor_task,
+)
 from .meal_recipe_reviewer_task import create_meal_recipe_reviewer_task
 
 # Supervisor/Executor/Reviewer pattern for HEXIS_ANALYSIS
