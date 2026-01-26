@@ -167,7 +167,7 @@ pytest==8.4.2
 python-dateutil==2.9.0.post0
 python-docx==1.2.0
 python-dotenv==1.1.1
-python-multipart==0.0.20
+python-multipart==0.0.22
 pytube==15.0.0
 pytz==2025.2
 pyvis==0.3.2
