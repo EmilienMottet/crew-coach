@@ -141,7 +141,7 @@ posthog==3.25.0
 pre_commit==4.3.0
 prompt_toolkit==3.0.52
 propcache==0.4.1
-protobuf==5.29.5
+protobuf==5.29.6
 ptyprocess==0.7.0
 pure_eval==0.2.3
 py==1.11.0
